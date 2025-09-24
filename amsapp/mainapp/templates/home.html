@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ api_title }}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .api-links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .api-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+            text-decoration: none;
+            color: inherit;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .api-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-decoration: none;
+            color: inherit;
+        }
+        .api-card h3 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+        }
+        .api-card p {
+            margin: 0;
+            color: #666;
+            font-size: 14px;
+        }
+        .endpoints {
+            margin: 30px 0;
+        }
+        .endpoint {
+            background: #e8f4fd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+        }
+        .method {
+            background: #27ae60;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            margin-right: 10px;
+        }
+        .features {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .features ul {
+            columns: 2;
+            margin: 0;
+            padding-left: 20px;
+        }
+        .features li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎓 {{ api_title }}</h1>
+        <p><strong>{{ api_description }}</strong></p>
+        <p>Welcome to the Academic Management System API for DIU. This API provides access to scrapped questions and educational content with comprehensive filtering and search capabilities.</p>
+
+        <div class="api-links">
+            <a href="{{ swagger_url }}" class="api-card">
+                <h3>📚 Swagger UI</h3>
+                <p>Interactive API documentation with try-it-out functionality</p>
+            </a>
+            
+            <a href="{{ redoc_url }}" class="api-card">
+                <h3>📖 ReDoc</h3>
+                <p>Beautiful API documentation with detailed descriptions</p>
+            </a>
+            
+            <a href="{{ api_info_url }}" class="api-card">
+                <h3>ℹ️ API Info</h3>
+                <p>JSON endpoint with API information and links</p>
+            </a>
+        </div>
+
+        <div class="features">
+            <h3>🚀 Features</h3>
+            <ul>
+                <li>25+ Educational Questions</li>
+                <li>Multiple Subjects (Math, English, Physics, etc.)</li>
+                <li>Advanced Filtering & Search</li>
+                <li>Statistics & Analytics</li>
+                <li>RESTful API Design</li>
+                <li>CORS Support</li>
+                <li>Pagination Support</li>
+                <li>OpenAPI/Swagger Documentation</li>
+            </ul>
+        </div>
+
+        <div class="endpoints">
+            <h3>🔗 API Endpoints</h3>
+            
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <strong>/api/all-scrapped-questions/</strong>
+                <p>Get all scrapped questions with filtering options</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <strong>/api/questions-stats/</strong>
+                <p>Get comprehensive statistics about questions</p>
+            </div>
+        </div>
+
+        <div class="features">
+            <h3>🔍 Query Parameters</h3>
+            <ul>
+                <li><code>subject</code> - Filter by subject (e.g., Mathematics, English)</li>
+                <li><code>type</code> - Filter by type (option, text)</li>
+                <li><code>semester</code> - Filter by semester</li>
+                <li><code>search</code> - Search in question text and subjects</li>
+                <li><code>page</code> - Page number for pagination</li>
+            </ul>
+        </div>
+
+        <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; color: #666;">
+            <p>AMS DIU Backend API v1.0.0 | Built with Django REST Framework</p>
+        </footer>
+    </div>
+</body>
+</html>
