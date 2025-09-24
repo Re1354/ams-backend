@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: ams-diu-backend
+    env: python
+    buildCommand: "./build.sh"
+    startCommand: "cd amsapp && gunicorn --bind 0.0.0.0:$PORT amsapp.wsgi:application"
+    envVars:
+      - key: DEBUG
+        value: False
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ams-postgres
+          property: connectionString
+      - key: ALLOWED_HOSTS
+        value: "*"
+
+databases:
+  - name: ams-postgres
+    databaseName: ams_db_yim9
+    user: ams_db_yim9_user
+    region: oregon
