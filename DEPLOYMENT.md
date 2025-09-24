@@ -32,7 +32,8 @@ Your PostgreSQL database is now configured with the following credentials:
    - **Name**: `ams-diu-backend`
    - **Environment**: `Python 3`
    - **Build Command**: `./build.sh`
-   - **Start Command**: `cd amsapp && gunicorn --bind 0.0.0.0:$PORT amsapp.wsgi:application`
+   - **Start Command**: `6. **Set Start Command:** `./start.sh``
+   - **Root Directory**: Leave empty (use repository root)
 
 3. **Set Environment Variables**:
    ```
@@ -91,3 +92,38 @@ Your application is ready for deployment to Render!
 4. Deploy!
 
 Your database is already set up and ready to use.
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"No module named 'app'" Error**:
+   - Make sure you're using the correct start command: `./start.sh`
+   - Verify that Render is using your custom build and start commands
+   - Check that the working directory is set correctly
+
+2. **Database Connection Issues**:
+   - Verify the DATABASE_URL environment variable is set correctly
+   - Check that your database credentials are still valid
+
+3. **Static Files Not Loading**:
+   - Ensure `python manage.py collectstatic` runs in build.sh
+   - Check that WhiteNoise is configured in settings.py
+
+### Manual Deployment Steps (Alternative)
+
+If render.yaml doesn't work, deploy manually:
+
+1. **Create Web Service** on Render dashboard
+2. **Connect Repository** 
+3. **Set Configuration**:
+   - Build Command: `./build.sh`
+   - Start Command: `./start.sh`
+   - Python Version: 3.12.6 (see runtime.txt)
+4. **Add Environment Variables**:
+   ```
+   DEBUG=False
+   SECRET_KEY=your-new-secret-key
+   DATABASE_URL=postgresql://ams_db_yim9_user:MWFsvDM81DcwxDf548eQMLYmsXe3vRmq@dpg-d39sm10dl3ps73agniu0-a.oregon-postgres.render.com:5432/ams_db_yim9
+   ALLOWED_HOSTS=your-app-name.onrender.com
+   ```
