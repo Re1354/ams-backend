@@ -14,19 +14,24 @@ git push origin main
 ```
 
 ### **2. Deploy on Render.com**
+
+#### **Option A: Using Manual Configuration (Recommended)**
 1. Go to [render.com](https://render.com) → **New Web Service**
 2. Connect your GitHub repository: `morsalin101/ams-diu-backend`
 3. Configure:
    - **Name**: `ams-diu-backend`
-   - **Build Command**: `./build.sh`
-   - **Start Command**: `./start.sh`
+   - **Build Command**: `pip install -r requirements.txt && cd amsapp && python manage.py collectstatic --no-input && python manage.py migrate`
+   - **Start Command**: `cd amsapp && gunicorn --bind 0.0.0.0:$PORT amsapp.wsgi:application`
+
+#### **Option B: Using render.yaml**
+- Just push to GitHub and use "Deploy from Repository" in Render
 
 ### **3. Set Environment Variables**
 ```
 DEBUG=False
 SECRET_KEY=your-generated-secret-key-here
 DATABASE_URL=postgresql://ams_db_yim9_user:MWFsvDM81DcwxDf548eQMLYmsXe3vRmq@dpg-d39sm10dl3ps73agniu0-a.oregon-postgres.render.com:5432/ams_db_yim9
-ALLOWED_HOSTS=your-app-name.onrender.com,*.onrender.com
+ALLOWED_HOSTS=ams-diu-backend.onrender.com,*.onrender.com,localhost,127.0.0.1
 CORS_ALLOW_ALL_ORIGINS=True
 ```
 
@@ -35,7 +40,7 @@ Update your actual domain in `amsapp/amsapp/settings.py` in the SPECTACULAR_SETT
 
 ## 📖 **Your API Endpoints**
 
-Once deployed at `https://your-app-name.onrender.com`:
+Once deployed at `https://ams-diu-backend.onrender.com`:
 
 ### **Documentation**
 - 📖 **Swagger UI**: `/api/docs/`
@@ -59,16 +64,16 @@ Once deployed at `https://your-app-name.onrender.com`:
 
 ```bash
 # Get all questions
-curl https://your-app-name.onrender.com/api/all-scrapped-questions/
+curl https://ams-diu-backend.onrender.com/api/all-scrapped-questions/
 
 # Filter by subject
-curl https://your-app-name.onrender.com/api/all-scrapped-questions/?subject=Mathematics
+curl https://ams-diu-backend.onrender.com/api/all-scrapped-questions/?subject=Mathematics
 
 # Search questions
-curl https://your-app-name.onrender.com/api/all-scrapped-questions/?search=algorithm
+curl https://ams-diu-backend.onrender.com/api/all-scrapped-questions/?search=algorithm
 
 # Get statistics
-curl https://your-app-name.onrender.com/api/questions-stats/
+curl https://ams-diu-backend.onrender.com/api/questions-stats/
 ```
 
 ## 📋 **Files Ready**
@@ -82,5 +87,39 @@ curl https://your-app-name.onrender.com/api/questions-stats/
 - ✅ Database migrations ready
 - ✅ Static files configuration
 - ✅ Swagger documentation setup
+
+## 🔧 **Troubleshooting**
+
+### **Build Script Issues**
+If you encounter "No such file or directory" for `build.sh`:
+
+**Solution 1: Use Manual Commands**
+In Render dashboard, set:
+```
+Build Command: pip install -r requirements.txt && cd amsapp && python manage.py collectstatic --no-input && python manage.py migrate
+Start Command: cd amsapp && gunicorn --bind 0.0.0.0:$PORT amsapp.wsgi:application
+```
+
+**Solution 2: Use Python Build Script**
+```
+Build Command: python build.py
+Start Command: cd amsapp && gunicorn --bind 0.0.0.0:$PORT amsapp.wsgi:application
+```
+
+### **Common Issues**
+- **Module not found**: Make sure all dependencies are in `requirements.txt`
+- **Database connection**: Verify `DATABASE_URL` environment variable
+- **Static files**: Ensure `STATIC_ROOT` is configured in settings
+- **CORS errors**: Set `CORS_ALLOW_ALL_ORIGINS=True` for testing
+
+### **Environment Variables Check**
+Make sure these are set in Render:
+```
+DEBUG=False
+SECRET_KEY=your-secret-key
+DATABASE_URL=your-postgres-url
+ALLOWED_HOSTS=your-domain.onrender.com,*.onrender.com
+CORS_ALLOW_ALL_ORIGINS=True
+```
 
 Your API is production-ready! 🎉
