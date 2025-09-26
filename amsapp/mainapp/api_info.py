@@ -27,6 +27,7 @@ def api_info(request):
         'endpoints': {
             'all_questions': request.build_absolute_uri('/api/all-scrapped-questions/'),
             'questions_stats': request.build_absolute_uri('/api/questions-stats/'),
+            'total_questions': request.build_absolute_uri('/api/total-questions/'),
         },
         'features': [
             'Scrapped Questions Management',

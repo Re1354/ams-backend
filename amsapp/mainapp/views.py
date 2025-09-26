@@ -178,3 +178,49 @@ def questions_stats(request):
         'subjects': list(subjects),
         'semesters': list(semesters)
     })
+
+
+@extend_schema(
+    summary="Get total questions count by subject",
+    description="Get a simple overview of total questions and count by each subject.",
+    tags=['Statistics'],
+    responses={
+        200: {
+            'type': 'object',
+            'properties': {
+                'total_questions': {'type': 'integer', 'description': 'Total number of questions'},
+                'Mathematics': {'type': 'integer', 'description': 'Number of Mathematics questions'},
+                'English': {'type': 'integer', 'description': 'Number of English questions'},
+                'Physics': {'type': 'integer', 'description': 'Number of Physics questions'},
+                'General Knowledge': {'type': 'integer', 'description': 'Number of General Knowledge questions'},
+                'IT - Using AI and ChatGPT': {'type': 'integer', 'description': 'Number of IT/AI questions'}
+            },
+            'example': {
+                'total_questions': 25,
+                'Mathematics': 3,
+                'English': 11,
+                'Physics': 5,
+                'General Knowledge': 3,
+                'IT - Using AI and ChatGPT': 3
+            }
+        }
+    }
+)
+@api_view(['GET'])
+def total_questions(request):
+    """
+    API endpoint to get total questions count and count by subject
+    Simple format showing: total_questions and each subject with its count
+    """
+    total_questions = ScrappedQuestion.objects.count()
+    
+    # Get all subjects and their counts
+    subjects = ScrappedQuestion.objects.values_list('subject', flat=True).distinct()
+    result = {'total_questions': total_questions}
+    
+    # Add each subject as a key with its count
+    for subject in subjects:
+        count = ScrappedQuestion.objects.filter(subject=subject).count()
+        result[subject] = count
+    
+    return Response(result)
