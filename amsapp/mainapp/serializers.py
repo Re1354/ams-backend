@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import ScrappedQuestion
+from .models import ScrappedQuestion , Exam , ExamQuestion
 
 
 class ScrappedQuestionSerializer(serializers.ModelSerializer):
@@ -80,3 +80,29 @@ class TotalQuestionsSerializer(serializers.Serializer):
     })
     def get_subjects(self, obj):
         return obj.get('subjects', {})
+
+
+class ExamCreateSerializer(serializers.ModelSerializer):
+    subject_distribution = serializers.DictField(
+        child=serializers.IntegerField(min_value=0),
+        help_text="Percentage distribution of subjects (sum must be 100)"
+    )
+    except_semesters = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="List of semesters to exclude"
+    )
+
+    class Meta:
+        model = Exam
+        fields = ['department', 'semester', 'total_questions', 'duration_minutes', 'subject_distribution', 'except_semesters']
+
+class ExamSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Exam
+        fields = "__all__"
+
+class ExamQuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExamQuestion
+        fields = "__all__"

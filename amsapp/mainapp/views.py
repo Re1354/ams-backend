@@ -2,11 +2,14 @@ from django.shortcuts import render
 from rest_framework import generics, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from django.db.models import Q
+from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
-from .models import ScrappedQuestion
-from .serializers import ScrappedQuestionSerializer, TotalQuestionsSerializer
+import random
+from .models import ScrappedQuestion, Exam, ExamQuestion
+from .serializers import ScrappedQuestionSerializer, TotalQuestionsSerializer, ExamCreateSerializer, ExamQuestionSerializer
 
 # Create your views here.
 
@@ -199,3 +202,105 @@ def total_questions(request):
         'subjects': subject_counts
     }
     return Response(result)
+
+
+
+
+@extend_schema(
+    summary="Create exam with questions",
+    description="Create an exam by selecting questions from different subjects based on percentage distribution.",
+    request=ExamCreateSerializer,
+    tags=['Exam'],
+    responses={
+        201: {
+            'type': 'object',
+            'properties': {
+                'exam_id': {'type': 'integer', 'description': 'Created exam ID'},
+                'total_questions': {'type': 'integer', 'description': 'Total questions in exam'},
+                'total_marks': {'type': 'integer', 'description': 'Total marks for exam'},
+                'message': {'type': 'string', 'description': 'Success message'}
+            }
+        },
+        400: {'description': 'Bad request - validation errors'}
+    }
+)
+class CreateExamAPIView(APIView):
+    """Create exam with questions based on subject distribution"""
+    
+    def post(self, request, *args, **kwargs):
+        serializer = ExamCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        total_questions = data['total_questions']
+        subject_distribution = data['subject_distribution']
+        except_semesters = data.get('except_semesters', [])
+
+        # Check percentage validity
+        if sum(subject_distribution.values()) != 100:
+            return Response(
+                {"error": "Subject distribution percentages must sum to 100"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            exam = Exam.objects.create(
+                department=data['department'],
+                semester=data['semester'],
+                total_questions=total_questions,
+                total_marks=total_questions,  # since default marks=1
+                duration_minutes=data['duration_minutes'],
+                except_semesters=except_semesters,
+            )
+
+            selected_questions = []
+            for subject, percent in subject_distribution.items():
+                num_questions = round(total_questions * (percent / 100))
+
+                # Filter questions for this subject
+                qs = ScrappedQuestion.objects.filter(subject__iexact=subject)
+                if except_semesters:
+                    qs = qs.exclude(semester__in=except_semesters)
+
+                available_count = qs.count()
+                if available_count < num_questions:
+                    transaction.set_rollback(True)
+                    return Response(
+                        {"error": f"Not enough questions for {subject}. Needed {num_questions}, available {available_count}."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Random unique sample
+                picked = random.sample(list(qs), num_questions)
+                selected_questions.extend(picked)
+
+            # Save selected questions into ExamQuestion
+            for q in selected_questions:
+                ExamQuestion.objects.create(
+                    exam=exam,
+                    subject=q.subject,
+                    question_text=q.questions,
+                    type=q.type,
+                    text=q.text,
+                    options=q.options,
+                    answer=q.answer,
+                    marks=1
+                )
+
+        return Response(
+            {
+                "exam_id": exam.id,
+                "total_questions": exam.total_questions,
+                "total_marks": exam.total_marks,
+                "message": "Exam created successfully"
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+# List all questions of a specific exam
+class ExamQuestionListView(generics.ListAPIView):
+    serializer_class = ExamQuestionSerializer
+
+    def get_queryset(self):
+        exam_id = self.kwargs['exam_id']
+        return ExamQuestion.objects.filter(exam_id=exam_id)
