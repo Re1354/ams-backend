@@ -10,7 +10,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from drf_spectacular.types import OpenApiTypes
 import random
 from .models import ScrappedQuestion, Exam, ExamQuestion
-from .serializers import ScrappedQuestionSerializer, TotalQuestionsSerializer, ExamCreateSerializer, ExamQuestionSerializer
+from .serializers import ScrappedQuestionSerializer, TotalQuestionsSerializer, ExamCreateSerializer, ExamQuestionSerializer, ExamSerializer, ExamSerializer
 
 # Create your views here.
 
@@ -393,6 +393,42 @@ class AddQuestionToExamView(generics.CreateAPIView):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+# Delete specific exam
+@extend_schema(
+    summary="Delete exam",
+    description="Delete a specific exam and all its associated questions",
+    tags=['Exam'],
+    responses={
+        204: {'description': 'Exam deleted successfully'},
+        404: {'description': 'Exam not found'}
+    }
+)
+class DeleteExamView(generics.DestroyAPIView):
+    """Delete a specific exam"""
+    queryset = Exam.objects.all()
+    lookup_url_kwarg = 'exam_id'
+    
+    def destroy(self, request, *args, **kwargs):
+        try:
+            exam = self.get_object()
+            exam_id = exam.id
+            department = exam.department
+            
+            # Delete the exam (this will cascade delete all related ExamQuestion objects)
+            self.perform_destroy(exam)
+            
+            return Response(
+                {
+                    "message": f"Exam {exam_id} for {department} department deleted successfully",
+                    "deleted_exam_id": exam_id
+                },
+                status=status.HTTP_200_OK
+            )
+        except Exam.DoesNotExist:
+            return Response(
+                {"error": "Exam not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 # Edit specific question in an exam
 @extend_schema(
@@ -486,3 +522,60 @@ class ExamQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
                 'remaining_slots': exam.total_questions - exam.present_question
             }
         }, status=status.HTTP_200_OK)
+
+
+# List all exams
+@extend_schema(
+    summary="Get all exams",
+    description="Retrieve all exams with their details including current question count",
+    tags=['Exam'],
+    responses={200: ExamSerializer(many=True)}
+)
+class AllExamsView(generics.ListAPIView):
+    """List all exams in the system"""
+    queryset = Exam.objects.all().order_by('-created_at')
+    serializer_class = ExamSerializer
+
+
+# Delete specific exam
+@extend_schema(
+    summary="Delete exam",
+    description="Delete a specific exam and all its associated questions",
+    tags=['Exam'],
+    responses={
+        200: {
+            'type': 'object',
+            'properties': {
+                'message': {'type': 'string', 'description': 'Success message'},
+                'deleted_exam_id': {'type': 'integer', 'description': 'ID of deleted exam'}
+            }
+        },
+        404: {'description': 'Exam not found'}
+    }
+)
+class DeleteExamView(generics.DestroyAPIView):
+    """Delete a specific exam"""
+    queryset = Exam.objects.all()
+    lookup_url_kwarg = 'exam_id'
+    
+    def destroy(self, request, *args, **kwargs):
+        try:
+            exam = self.get_object()
+            exam_id = exam.id
+            department = exam.department
+            
+            # Delete the exam (this will cascade delete all related ExamQuestion objects)
+            self.perform_destroy(exam)
+            
+            return Response(
+                {
+                    "message": f"Exam {exam_id} for {department} department deleted successfully",
+                    "deleted_exam_id": exam_id
+                },
+                status=status.HTTP_200_OK
+            )
+        except Exam.DoesNotExist:
+            return Response(
+                {"error": "Exam not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
