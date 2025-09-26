@@ -103,6 +103,56 @@ class ExamSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 class ExamQuestionSerializer(serializers.ModelSerializer):
+    """
+    Serializer for ExamQuestion model - used for editing exam questions
+    """
+    
+    # Make exam read-only to prevent accidental changes
+    exam = serializers.PrimaryKeyRelatedField(read_only=True)
+    
     class Meta:
         model = ExamQuestion
-        fields = "__all__"
+        fields = [
+            'id', 'exam', 'subject', 'question_text', 'type', 'text', 
+            'options', 'answer', 'marks'
+        ]
+        read_only_fields = ['id', 'exam']
+    
+    def validate_marks(self, value):
+        """Validate marks is positive"""
+        if value <= 0:
+            raise serializers.ValidationError("Marks must be greater than 0")
+        return value
+    
+    def validate_type(self, value):
+        """Validate question type"""
+        if value not in ['option', 'text']:
+            raise serializers.ValidationError("Question type must be 'option' or 'text'")
+        return value
+    
+    def validate(self, data):
+        """Cross-field validation"""
+        question_type = data.get('type', self.instance.type if self.instance else None)
+        options = data.get('options', self.instance.options if self.instance else None)
+        answer = data.get('answer', self.instance.answer if self.instance else None)
+        
+        # For option type questions, options and answer are required
+        if question_type == 'option':
+            if not options:
+                raise serializers.ValidationError("Options are required for option-type questions")
+            if not answer:
+                raise serializers.ValidationError("Answer is required for option-type questions")
+        
+        return data
+    
+    def to_representation(self, instance):
+        """Custom representation with proper formatting"""
+        representation = super().to_representation(instance)
+        
+        # Ensure JSON fields are properly formatted
+        if instance.options:
+            representation['options'] = instance.options
+        if instance.answer:
+            representation['answer'] = instance.answer
+            
+        return representation

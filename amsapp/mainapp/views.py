@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from django.http import Http404
 from rest_framework import generics, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -298,9 +299,102 @@ class CreateExamAPIView(APIView):
         )
 
 # List all questions of a specific exam
+@extend_schema(
+    summary="Get all questions in an exam",
+    description="Retrieve all questions that belong to a specific exam",
+    tags=['Exam'],
+    responses={200: ExamQuestionSerializer(many=True)}
+)
 class ExamQuestionListView(generics.ListAPIView):
     serializer_class = ExamQuestionSerializer
 
     def get_queryset(self):
         exam_id = self.kwargs['exam_id']
         return ExamQuestion.objects.filter(exam_id=exam_id)
+
+
+# Edit specific question in an exam
+@extend_schema(
+    summary="Edit or delete specific question in an exam",
+    description="Update or delete a specific question within an exam. Use PUT to update question details or DELETE to remove the question from the exam.",
+    tags=['Exam'],
+    request=ExamQuestionSerializer,
+    responses={
+        200: {
+            'type': 'object',
+            'properties': {
+                'message': {'type': 'string', 'description': 'Success message'},
+                'question': {'$ref': '#/components/schemas/ExamQuestion'}
+            }
+        },
+        204: {'description': 'Question deleted successfully'},
+        404: {'description': 'Question or exam not found'},
+        400: {'description': 'Bad request - validation errors'}
+    }
+)
+class ExamQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    API endpoint to edit or delete a specific question in an exam
+    Supports PUT (update) and DELETE operations
+    """
+    serializer_class = ExamQuestionSerializer
+    lookup_url_kwarg = 'question_id'
+    
+    def get_queryset(self):
+        exam_id = self.kwargs['exam_id']
+        return ExamQuestion.objects.filter(exam_id=exam_id)
+    
+    def get_object(self):
+        """
+        Get the specific exam question
+        """
+        exam_id = self.kwargs['exam_id']
+        question_id = self.kwargs['question_id']
+        
+        try:
+            # Ensure the exam exists
+            exam = Exam.objects.get(id=exam_id)
+            # Get the specific question
+            exam_question = ExamQuestion.objects.get(id=question_id, exam=exam)
+            return exam_question
+        except Exam.DoesNotExist:
+            raise Http404("Exam not found")
+        except ExamQuestion.DoesNotExist:
+            raise Http404("Question not found in this exam")
+    
+    def put(self, request, *args, **kwargs):
+        """
+        Update a specific question in the exam
+        """
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        
+        # Update the question
+        updated_question = serializer.save()
+        
+        return Response({
+            'message': 'Question updated successfully',
+            'question': ExamQuestionSerializer(updated_question).data
+        }, status=status.HTTP_200_OK)
+    
+    def delete(self, request, *args, **kwargs):
+        """
+        Delete a specific question from the exam
+        """
+        instance = self.get_object()
+        exam = instance.exam
+        
+        # Delete the question
+        instance.delete()
+        
+        # Update exam's total questions and marks count
+        remaining_questions = ExamQuestion.objects.filter(exam=exam).count()
+        exam.total_questions = remaining_questions
+        exam.total_marks = sum(ExamQuestion.objects.filter(exam=exam).values_list('marks', flat=True))
+        exam.save()
+        
+        return Response({
+            'message': 'Question deleted successfully',
+            'remaining_questions': remaining_questions
+        }, status=status.HTTP_200_OK)
