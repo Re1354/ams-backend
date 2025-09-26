@@ -166,6 +166,8 @@ SPECTACULAR_SETTINGS = {
     'SERVERS': [
         {'url': 'https://ams-diu-backend.onrender.com', 'description': 'Production server (update with your actual domain)'},
         {'url': 'http://localhost:8000', 'description': 'Local development server'},
+
+
         
     ],
     'TAGS': [
@@ -188,6 +190,10 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8080",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "https://ams-diu-frontend.onrender.com",
+    "https://ams-diu-frontend.vercel.app",
+    "http://localhost:5173/"
+
 ]
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
