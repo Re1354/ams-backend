@@ -192,7 +192,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8000",
     "https://ams-diu-frontend.onrender.com",
     "https://ams-diu-frontend.vercel.app",
-    "http://localhost:5173/"
+    "http://localhost:5173"
 
 ]
 
