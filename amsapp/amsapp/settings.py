@@ -164,8 +164,9 @@ SPECTACULAR_SETTINGS = {
     'SCHEMA_PATH_PREFIX': '/api/',
     'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
     'SERVERS': [
-        {'url': 'http://localhost:8000', 'description': 'Local development server'},
         {'url': 'https://ams-diu-backend.onrender.com', 'description': 'Production server (update with your actual domain)'},
+        {'url': 'http://localhost:8000', 'description': 'Local development server'},
+        
     ],
     'TAGS': [
         {
