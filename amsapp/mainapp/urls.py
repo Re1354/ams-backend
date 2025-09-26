@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import AllScrappedQuestionsView, questions_stats, total_questions, CreateExamAPIView, ExamQuestionListView, ExamQuestionDetailView
+from .views import AllScrappedQuestionsView, questions_stats, total_questions, CreateExamAPIView, ExamQuestionListView, AddQuestionToExamView, ExamQuestionDetailView
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -19,5 +19,6 @@ urlpatterns = [
     # Exam API
     path('api/create-exam/', CreateExamAPIView.as_view(), name='create-exam'),
     path('api/exam-questions/<int:exam_id>/', ExamQuestionListView.as_view(), name='exam-questions'),
+    path('api/exam-questions/<int:exam_id>/add/', AddQuestionToExamView.as_view(), name='add-question-to-exam'),
     path('api/exam-questions/<int:exam_id>/question/<int:question_id>/', ExamQuestionDetailView.as_view(), name='exam-question-detail'),
 ]

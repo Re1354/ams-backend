@@ -28,7 +28,8 @@ class ScrappedQuestion(models.Model):
 class Exam(models.Model):
     department = models.CharField(max_length=255)
     semester = models.CharField(max_length=50)
-    total_questions = models.IntegerField()
+    total_questions = models.IntegerField(help_text="Maximum allowed questions for this exam")
+    present_question = models.IntegerField(default=0, help_text="Current number of questions in this exam")
     total_marks = models.IntegerField()
     duration_minutes = models.IntegerField()
     except_semesters = ArrayField(

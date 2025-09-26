@@ -1,6 +1,6 @@
 from django.shortcuts import render
 from django.http import Http404
-from rest_framework import generics, status
+from rest_framework import generics, status, serializers
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -287,18 +287,23 @@ class CreateExamAPIView(APIView):
                     answer=q.answer,
                     marks=1
                 )
+            
+            # Update present_question count with actual number of questions added
+            exam.present_question = len(selected_questions)
+            exam.save()
 
         return Response(
             {
                 "exam_id": exam.id,
                 "total_questions": exam.total_questions,
+                "present_question": exam.present_question,
                 "total_marks": exam.total_marks,
                 "message": "Exam created successfully"
             },
             status=status.HTTP_201_CREATED
         )
 
-# List all questions of a specific exam
+# List all questions of a specific exam and add individual questions
 @extend_schema(
     summary="Get all questions in an exam",
     description="Retrieve all questions that belong to a specific exam",
@@ -311,6 +316,82 @@ class ExamQuestionListView(generics.ListAPIView):
     def get_queryset(self):
         exam_id = self.kwargs['exam_id']
         return ExamQuestion.objects.filter(exam_id=exam_id)
+
+
+# Add individual question to an exam
+@extend_schema(
+    summary="Add individual question to exam",
+    description="Add a single question to a specific exam. Validates that present_question count doesn't exceed total_questions limit.",
+    request=ExamQuestionSerializer,
+    responses={
+        201: {
+            'type': 'object',
+            'properties': {
+                'message': {'type': 'string', 'description': 'Success message'},
+                'question': {'$ref': '#/components/schemas/ExamQuestion'},
+                'exam_stats': {
+                    'type': 'object',
+                    'properties': {
+                        'present_question': {'type': 'integer'},
+                        'total_questions': {'type': 'integer'},
+                        'remaining_slots': {'type': 'integer'}
+                    }
+                }
+            }
+        },
+        400: {'description': 'Bad request - validation errors or exam full'},
+        404: {'description': 'Exam not found'}
+    },
+    tags=['Exam']
+)
+class AddQuestionToExamView(generics.CreateAPIView):
+    serializer_class = ExamQuestionSerializer
+
+    def create(self, request, exam_id):
+        """Add individual question to an exam with proper validation using present_question field"""
+        try:
+            exam = Exam.objects.get(id=exam_id)
+        except Exam.DoesNotExist:
+            return Response(
+                {"error": "Exam not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if exam has reached its question limit
+        if exam.present_question >= exam.total_questions:
+            return Response(
+                {
+                    "error": f"Cannot add more questions. Exam already has {exam.present_question}/{exam.total_questions} questions."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create serializer with request data
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            # Use transaction to ensure data consistency
+            with transaction.atomic():
+                # Save the question with the exam reference
+                question = serializer.save(exam=exam)
+                
+                # Update present_question count
+                exam.present_question += 1
+                exam.save()
+            
+            return Response(
+                {
+                    "message": "Question added successfully",
+                    "question": ExamQuestionSerializer(question).data,
+                    "exam_stats": {
+                        "present_question": exam.present_question,
+                        "total_questions": exam.total_questions,
+                        "remaining_slots": exam.total_questions - exam.present_question
+                    }
+                },
+                status=status.HTTP_201_CREATED
+            )
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 # Edit specific question in an exam
@@ -385,16 +466,23 @@ class ExamQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance = self.get_object()
         exam = instance.exam
         
-        # Delete the question
-        instance.delete()
-        
-        # Update exam's total questions and marks count
-        remaining_questions = ExamQuestion.objects.filter(exam=exam).count()
-        exam.total_questions = remaining_questions
-        exam.total_marks = sum(ExamQuestion.objects.filter(exam=exam).values_list('marks', flat=True))
-        exam.save()
+        # Use transaction to ensure data consistency
+        with transaction.atomic():
+            # Delete the question
+            instance.delete()
+            
+            # Update present_question count (decrease by 1)
+            exam.present_question = max(0, exam.present_question - 1)
+            
+            # Update total marks count
+            exam.total_marks = sum(ExamQuestion.objects.filter(exam=exam).values_list('marks', flat=True))
+            exam.save()
         
         return Response({
             'message': 'Question deleted successfully',
-            'remaining_questions': remaining_questions
+            'exam_stats': {
+                'present_question': exam.present_question,
+                'total_questions': exam.total_questions,
+                'remaining_slots': exam.total_questions - exam.present_question
+            }
         }, status=status.HTTP_200_OK)
