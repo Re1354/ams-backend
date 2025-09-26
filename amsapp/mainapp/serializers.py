@@ -58,3 +58,25 @@ class ScrappedQuestionSerializer(serializers.ModelSerializer):
             representation_with_descriptions['answer'] = instance.answer
             
         return representation_with_descriptions
+
+
+class TotalQuestionsSerializer(serializers.Serializer):
+    total_questions = serializers.IntegerField()
+    subjects = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Dynamic mapping of subject name -> number of questions"
+    )
+
+    @extend_schema_field({
+        'type': 'object',
+        'description': 'Subject counts',
+        'example': {
+            "Mathematics": 3,
+            "English": 11,
+            "Physics": 5,
+            "General Knowledge": 3,
+            "IT - Using AI and ChatGPT": 3
+        }
+    })
+    def get_subjects(self, obj):
+        return obj.get('subjects', {})
