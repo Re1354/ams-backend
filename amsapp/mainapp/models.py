@@ -58,3 +58,48 @@ class ExamQuestion(models.Model):
 
     def __str__(self):
         return f"Exam {self.exam.id} -> {self.subject}"
+
+
+class ExamSchedule(models.Model):
+    exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="schedules")
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'exam_schedule'
+
+    def __str__(self):
+        return f"Schedule for Exam {self.exam.id} - {self.start_time}"
+
+
+class Students(models.Model):
+    username = models.CharField(max_length=100, unique=True)
+    password = models.CharField(max_length=255)  # In real app, use hashed passwords
+    f_id = models.CharField(max_length=50, help_text="Form ID")
+    full_name = models.CharField(max_length=255, blank=True)
+    email = models.EmailField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'students'
+
+    def __str__(self):
+        return f"{self.username} ({self.f_id})"
+
+
+class Submission(models.Model):
+    student = models.ForeignKey(Students, on_delete=models.CASCADE, related_name="submissions")
+    exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="submissions")
+    question = models.ForeignKey(ExamQuestion, on_delete=models.CASCADE, related_name="submissions")
+    answer = models.TextField()
+    is_correct = models.BooleanField(default=False)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'submission'
+        unique_together = ['student', 'exam', 'question']  # Prevent duplicate submissions
+
+    def __str__(self):
+        return f"{self.student.username} - Exam {self.exam.id} - Q{self.question.id}"
