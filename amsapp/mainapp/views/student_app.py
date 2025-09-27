@@ -7,7 +7,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiExample
 
-from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission, ScrappedQuestion
+from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission
 from ..serializers import StudentsSerializer
 
 
@@ -163,16 +163,18 @@ class StudentExamQuestionsView(generics.RetrieveAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Get all questions for this exam
-        exam_questions = ExamQuestion.objects.filter(exam=exam).select_related('question')
+        # Get all questions for this exam (ExamQuestion contains the question data directly)
+        exam_questions = ExamQuestion.objects.filter(exam=exam).order_by('id')
         
         questions_data = []
         for eq in exam_questions:
             question_data = {
-                'question_id': eq.question.id,
-                'question_text': eq.question.question_text,
-                'options': eq.question.options,
-                'question_type': eq.question.question_type
+                'question_id': eq.id,
+                'question_text': eq.question_text,
+                'options': eq.options,
+                'question_type': eq.type,
+                'marks': eq.marks,
+                'subject': eq.subject
             }
             questions_data.append(question_data)
         
@@ -198,8 +200,7 @@ class StudentExamQuestionsView(generics.RetrieveAPIView):
         'type': 'object',
         'properties': {
             'student_id': {'type': 'integer'},
-            'exam_id': {'type': 'integer'},
-            'answers': {
+            'submissions': {
                 'type': 'array',
                 'items': {
                     'type': 'object',
@@ -210,7 +211,7 @@ class StudentExamQuestionsView(generics.RetrieveAPIView):
                 }
             }
         },
-        'required': ['student_id', 'exam_id', 'answers']
+        'required': ['student_id', 'submissions']
     },
     responses={
         201: {
@@ -224,15 +225,20 @@ class StudentExamQuestionsView(generics.RetrieveAPIView):
 )
 @csrf_exempt
 @api_view(['POST'])
-def submit_exam(request):
+def submit_exam(request, exam_id):
     """Submit exam answers"""
     student_id = request.data.get('student_id')
-    exam_id = request.data.get('exam_id')
-    answers = request.data.get('answers', [])
+    submissions = request.data.get('submissions', [])
     
-    if not student_id or not exam_id:
+    if not student_id:
         return Response(
-            {'error': 'Student ID and Exam ID are required'}, 
+            {'error': 'Student ID is required'}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    if not submissions:
+        return Response(
+            {'error': 'At least one answer submission is required'}, 
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -241,41 +247,48 @@ def submit_exam(request):
         exam = Exam.objects.get(id=exam_id)
     except (Students.DoesNotExist, Exam.DoesNotExist):
         return Response(
-            {'error': 'Invalid student or exam ID'}, 
+            {'error': 'Student or Exam not found'}, 
             status=status.HTTP_404_NOT_FOUND
         )
     
     submissions_created = 0
     
-    for answer_data in answers:
-        question_id = answer_data.get('question_id')
-        answer = answer_data.get('answer')
+    for submission_data in submissions:
+        question_id = submission_data.get('question_id')
+        answer = submission_data.get('answer', '').strip()
         
-        if not question_id or not answer:
+        if not question_id:
             continue
         
         try:
-            question = ScrappedQuestion.objects.get(id=question_id)
+            # Get the ExamQuestion (not ScrappedQuestion)
+            exam_question = ExamQuestion.objects.get(id=question_id, exam=exam)
             
             # Check if answer is correct
-            is_correct = answer.strip().lower() == question.correct_answer.strip().lower()
+            is_correct = False
+            if exam_question.type == 'option':
+                # For option type, compare with correct answer
+                correct_answers = exam_question.answer if isinstance(exam_question.answer, list) else [exam_question.answer]
+                is_correct = answer in correct_answers
+            elif exam_question.type == 'text':
+                # For text type, simple string comparison
+                is_correct = answer.lower() == str(exam_question.answer).lower()
             
             # Create or update submission
             submission, created = Submission.objects.update_or_create(
                 student=student,
                 exam=exam,
-                question=question,
+                question=exam_question,
                 defaults={
                     'answer': answer,
-                    'is_correct': is_correct,
-                    'submitted_at': timezone.now()
+                    'is_correct': is_correct
                 }
             )
             
             if created:
                 submissions_created += 1
                 
-        except ScrappedQuestion.DoesNotExist:
+        except ExamQuestion.DoesNotExist:
             continue
     
     return Response({
@@ -516,3 +529,41 @@ def calculate_exam_result(request, exam_id):
     }
     
     return Response(response_data, status=status.HTTP_200_OK)
+
+
+def calculate_exam_result_helper(student_id, exam_id):
+    """Helper function to calculate exam result for a specific student and exam"""
+    try:
+        student = Students.objects.get(id=student_id)
+        exam = Exam.objects.get(id=exam_id)
+        
+        # Get all submissions for this student and exam
+        submissions = Submission.objects.filter(student=student, exam=exam)
+        
+        if not submissions.exists():
+            return None
+        
+        # Calculate overall stats
+        total_questions = ExamQuestion.objects.filter(exam=exam).count()
+        answered_questions = submissions.count()
+        correct_answers = submissions.filter(is_correct=True).count()
+        
+        # Calculate marks
+        total_marks = sum(ExamQuestion.objects.filter(exam=exam).values_list('marks', flat=True))
+        obtained_marks = sum(s.question.marks for s in submissions if s.is_correct)
+        percentage = (obtained_marks / total_marks * 100) if total_marks > 0 else 0
+        
+        return {
+            'exam_id': exam_id,
+            'student_id': student_id,
+            'student_username': student.username,
+            'total_questions': total_questions,
+            'answered_questions': answered_questions,
+            'correct_answers': correct_answers,
+            'total_marks': total_marks,
+            'obtained_marks': obtained_marks,
+            'percentage': round(percentage, 2)
+        }
+        
+    except (Students.DoesNotExist, Exam.DoesNotExist):
+        return None
