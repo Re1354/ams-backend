@@ -4,7 +4,7 @@ from .views import (
     ExamQuestionListView, AddQuestionToExamView, ExamQuestionDetailView, AllExamsView, DeleteExamView,
     AllStudentsView, StudentDetailView, AllSchedulesView, ScheduleDetailView, create_exam_schedule,
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
-    submit_exam, get_exam_result, calculate_exam_result
+    submit_exam, get_exam_result
 )
 from .api_info import api_info, home
 
@@ -45,5 +45,4 @@ urlpatterns = [
     path('api/student/exam/<int:exam_id>/questions/', StudentExamQuestionsView.as_view(), name='student-exam-questions'),
     path('api/student/exam/<int:exam_id>/submit/', submit_exam, name='submit-exam'),
     path('api/student/exam/<int:exam_id>/result/<int:student_id>/', get_exam_result, name='get-exam-result'),
-    path('api/exam/<int:exam_id>/results/', calculate_exam_result, name='calculate-exam-result'),
 ]
