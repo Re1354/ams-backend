@@ -2,6 +2,7 @@ from django.http import Http404
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
 from drf_spectacular.utils import extend_schema
 import random
@@ -10,6 +11,7 @@ from ..models import ScrappedQuestion, Exam, ExamQuestion
 from ..serializers import (
     ExamCreateSerializer, ExamQuestionSerializer, ExamSerializer
 )
+from ..authentication import CustomJWTAuthentication
 
 
 @extend_schema(
@@ -31,6 +33,8 @@ from ..serializers import (
     }
 )
 class CreateExamAPIView(APIView):
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = ExamCreateSerializer(data=request.data)
@@ -112,14 +116,47 @@ class CreateExamAPIView(APIView):
 
 @extend_schema(
     summary="Get all exams",
-    description="Retrieve all exams with their details including current question count",
+    description="Retrieve all exams with their details including current question count. Role-based filtering: superadmin sees all, cse_admin sees only CSE exams, soft_admin sees only Software exams.",
     tags=['Exam'],
     responses={200: ExamSerializer(many=True)}
 )
 class AllExamsView(generics.ListAPIView):
-    """List all exams in the system"""
-    queryset = Exam.objects.all().order_by('-created_at')
+    """List all exams in the system with role-based filtering"""
     serializer_class = ExamSerializer
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Filter exams based on user role:
+        - superadmin: All exams
+        - cse_*: Only CSE department exams
+        - soft_*: Only Software department exams
+        """
+        user = self.request.user
+        
+        # Get the custom user and role information
+        if hasattr(user, 'custom_user') and user.custom_user.role:
+            role_name = user.custom_user.role.role_name.lower()
+            
+            # Check if superadmin - return all exams
+            if role_name == 'superadmin':
+                return Exam.objects.all().order_by('-created_at')
+            
+            # Check role prefix for department filtering
+            if role_name.startswith('cse_'):
+                # Return only CSE department exams
+                return Exam.objects.filter(department__icontains='cse').order_by('-created_at')
+            
+            elif role_name.startswith('soft_'):
+                # Return only Software department exams
+                return Exam.objects.filter(department__icontains='software').order_by('-created_at')
+            
+            # For any other roles, return empty queryset for security
+            return Exam.objects.none()
+        
+        # If no role assigned, return empty queryset for security
+        return Exam.objects.none()
 
 
 @extend_schema(
@@ -130,6 +167,8 @@ class AllExamsView(generics.ListAPIView):
 )
 class ExamQuestionListView(generics.ListAPIView):
     serializer_class = ExamQuestionSerializer
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         exam_id = self.kwargs['exam_id']
@@ -163,6 +202,8 @@ class ExamQuestionListView(generics.ListAPIView):
 )
 class AddQuestionToExamView(generics.CreateAPIView):
     serializer_class = ExamQuestionSerializer
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, exam_id):
         """Add individual question to an exam with proper validation using present_question field"""
@@ -235,6 +276,8 @@ class ExamQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     serializer_class = ExamQuestionSerializer
     lookup_url_kwarg = 'question_id'
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         exam_id = self.kwargs['exam_id']
@@ -322,6 +365,8 @@ class DeleteExamView(generics.DestroyAPIView):
     """Delete a specific exam"""
     queryset = Exam.objects.all()
     lookup_url_kwarg = 'exam_id'
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def destroy(self, request, *args, **kwargs):
         try:
