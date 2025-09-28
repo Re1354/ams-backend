@@ -1,14 +1,62 @@
 from django.db import models
 import json
 from django.contrib.postgres.fields import ArrayField
-# Create your models here.
 
+
+# -----------------------------
+# Role Management
+class Role(models.Model):
+    role_name = models.CharField(max_length=100, unique=True)
+
+    class Meta:
+        db_table = 'roles'
+
+    def __str__(self):
+        return self.role_name
+
+
+class User(models.Model):
+    username = models.CharField(max_length=100, unique=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=255)  # should be hashed in real apps
+    created_at = models.DateTimeField(auto_now_add=True)
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="users", null=True, blank=True)  
+
+    class Meta:
+        db_table = 'users'
+
+    def __str__(self):
+        return f"{self.username} ({self.role.role_name if self.role else 'No Role'})"
+
+
+# -----------------------------
+# Exam System
+# -----------------------------
+
+
+class User(models.Model):
+    username = models.CharField(max_length=100, unique=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=255)  # should be hashed in real apps
+    created_at = models.DateTimeField(auto_now_add=True)
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="users", null=True, blank=True)
+    token = models.CharField(max_length=255, null=True, blank=True)  # Simple token field
+
+    class Meta:
+        db_table = 'users'
+
+    def __str__(self):
+        return f"{self.username} ({self.role.role_name if self.role else 'No Role'})"
+
+# -----------------------------
+# Exam System
+# -----------------------------
 class ScrappedQuestion(models.Model):
     TYPE_CHOICES = [
         ('option', 'Option'),
         ('text', 'Text'),
     ]
-    
+
     subject = models.CharField(max_length=255)
     questions = models.TextField()
     type = models.CharField(max_length=10, choices=TYPE_CHOICES)
@@ -17,10 +65,10 @@ class ScrappedQuestion(models.Model):
     answer = models.JSONField(null=True, blank=True, default=None)
     marks = models.IntegerField(default=1)
     semester = models.TextField()
-    
+
     class Meta:
         db_table = 'scrapped_questions'
-    
+
     def __str__(self):
         return f"{self.subject} - {self.questions[:50]}..."
 

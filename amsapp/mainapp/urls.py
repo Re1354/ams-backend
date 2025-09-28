@@ -4,7 +4,9 @@ from .views import (
     ExamQuestionListView, AddQuestionToExamView, ExamQuestionDetailView, AllExamsView, DeleteExamView,
     AllStudentsView, StudentDetailView, AllSchedulesView, ScheduleDetailView, create_exam_schedule,
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
-    submit_exam, get_exam_result
+    submit_exam, get_exam_result, login_view, refresh_token_view, verify_token_view,
+    get_all_roles, create_role, get_role_by_id, update_role, delete_role,
+    get_all_users, create_user, get_user_by_id, update_user, delete_user
 )
 from .api_info import api_info, home
 
@@ -45,4 +47,23 @@ urlpatterns = [
     path('api/student/exam/<int:exam_id>/questions/', StudentExamQuestionsView.as_view(), name='student-exam-questions'),
     path('api/student/exam/<int:exam_id>/submit/', submit_exam, name='submit-exam'),
     path('api/student/exam/<int:exam_id>/result/<int:student_id>/', get_exam_result, name='get-exam-result'),
+    
+    # Authentication API
+    path('api/auth/login/', login_view, name='login'),
+    path('api/auth/refresh/', refresh_token_view, name='refresh-token'),
+    path('api/auth/verify/', verify_token_view, name='verify-token'),
+    
+    # Roles API
+    path('api/roles/', get_all_roles, name='get-all-roles'),
+    path('api/roles/create/', create_role, name='create-role'),
+    path('api/roles/<int:role_id>/', get_role_by_id, name='get-role-by-id'),
+    path('api/roles/<int:role_id>/update/', update_role, name='update-role'),
+    path('api/roles/<int:role_id>/delete/', delete_role, name='delete-role'),
+    
+    # Users API
+    path('api/users/', get_all_users, name='get-all-users'),
+    path('api/users/create/', create_user, name='create-user'),
+    path('api/users/<int:user_id>/', get_user_by_id, name='get-user-by-id'),
+    path('api/users/<int:user_id>/update/', update_user, name='update-user'),
+    path('api/users/<int:user_id>/delete/', delete_user, name='delete-user'),
 ]
