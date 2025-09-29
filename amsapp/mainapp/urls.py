@@ -8,6 +8,9 @@ from .views import (
     get_all_roles, create_role, get_role_by_id, update_role, delete_role,
     get_all_users, create_user, get_user_by_id, update_user, delete_user
 )
+from .views.menus import (
+    all_menus, role_menus, assign_menus_to_role, remove_menu_from_role, user_menus
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -66,4 +69,11 @@ urlpatterns = [
     path('api/users/<int:user_id>/', get_user_by_id, name='get-user-by-id'),
     path('api/users/<int:user_id>/update/', update_user, name='update-user'),
     path('api/users/<int:user_id>/delete/', delete_user, name='delete-user'),
+    
+    # Menu Management API
+    path('api/menus/', all_menus, name='all-menus'),
+    path('api/menus/user/', user_menus, name='user-menus'),
+    path('api/roles/<int:role_id>/menus/', role_menus, name='role-menus'),
+    path('api/roles/assign-menus/', assign_menus_to_role, name='assign-menus-to-role'),
+    path('api/roles/<int:role_id>/menus/<int:menu_id>/remove/', remove_menu_from_role, name='remove-menu-from-role'),
 ]

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from django.contrib.auth.hashers import check_password, make_password
-from .models import ScrappedQuestion, Exam, ExamQuestion, ExamSchedule, Students, Submission, User, Role
+from .models import ScrappedQuestion, Exam, ExamQuestion, ExamSchedule, Students, Submission, User, Role, Menu, RoleMenu
 
 
 class ScrappedQuestionSerializer(serializers.ModelSerializer):
@@ -446,3 +446,70 @@ class UserDetailSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'username', 'email', 'created_at', 'role_details']
         read_only_fields = ['id', 'username', 'email', 'created_at']
+
+
+class MenuSerializer(serializers.ModelSerializer):
+    """Serializer for Menu model"""
+    
+    class Meta:
+        model = Menu
+        fields = ['id', 'label', 'icon', 'link']
+        
+    def to_representation(self, instance):
+        """Custom representation for frontend compatibility"""
+        representation = super().to_representation(instance)
+        return {
+            'id': representation['id'],
+            'title': representation['label'],  # Frontend expects 'title'
+            'icon': representation['icon'],
+            'link': representation['link'],
+            'label': representation['label']  # Keep original for API consistency
+        }
+
+
+class RoleMenuSerializer(serializers.ModelSerializer):
+    """Serializer for RoleMenu model with nested menu details"""
+    
+    menu_details = MenuSerializer(source='menu', read_only=True)
+    role_name = serializers.CharField(source='role.role_name', read_only=True)
+    
+    class Meta:
+        model = RoleMenu
+        fields = ['id', 'role_name', 'menu_details', 'permissions']
+        
+    def to_representation(self, instance):
+        """Custom representation for frontend menu structure"""
+        representation = super().to_representation(instance)
+        menu_data = representation['menu_details']
+        
+        return {
+            'id': menu_data['id'],
+            'title': menu_data['title'],
+            'icon': menu_data['icon'], 
+            'link': menu_data['link'],
+            'permissions': representation['permissions'],
+            'role': representation['role_name']
+        }
+
+
+class RoleMenuCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating RoleMenu assignments"""
+    
+    class Meta:
+        model = RoleMenu
+        fields = ['role', 'menu', 'permissions']
+        
+    def validate_permissions(self, value):
+        """Validate permissions structure"""
+        required_keys = ['read', 'write', 'edit', 'delete']
+        
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Permissions must be a dictionary")
+            
+        for key in required_keys:
+            if key not in value:
+                raise serializers.ValidationError(f"Missing permission: {key}")
+            if not isinstance(value[key], bool):
+                raise serializers.ValidationError(f"Permission {key} must be boolean")
+                
+        return value

@@ -15,6 +15,8 @@ class CustomUser:
         self.id = custom_user.id
         self.username = custom_user.username
         self.email = custom_user.email
+        self.role = custom_user.role  # Add role attribute
+        self.created_at = custom_user.created_at
         self.is_active = True
         self.is_authenticated = True
         self.is_anonymous = False
