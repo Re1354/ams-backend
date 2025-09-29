@@ -455,6 +455,35 @@ class MenuSerializer(serializers.ModelSerializer):
         model = Menu
         fields = ['id', 'label', 'icon', 'link']
         
+    def validate_label(self, value):
+        """Validate menu label is unique"""
+        if self.instance:
+            # For updates, exclude the current instance
+            if Menu.objects.filter(label=value).exclude(id=self.instance.id).exists():
+                raise serializers.ValidationError("Menu label already exists")
+        else:
+            # For creation
+            if Menu.objects.filter(label=value).exists():
+                raise serializers.ValidationError("Menu label already exists")
+        return value
+    
+    def validate_link(self, value):
+        """Validate menu link format and uniqueness"""
+        # Ensure link starts with /
+        if not value.startswith('/'):
+            value = '/' + value
+            
+        # Check uniqueness
+        if self.instance:
+            # For updates, exclude the current instance
+            if Menu.objects.filter(link=value).exclude(id=self.instance.id).exists():
+                raise serializers.ValidationError("Menu link already exists")
+        else:
+            # For creation
+            if Menu.objects.filter(link=value).exists():
+                raise serializers.ValidationError("Menu link already exists")
+        return value
+        
     def to_representation(self, instance):
         """Custom representation for frontend compatibility"""
         representation = super().to_representation(instance)

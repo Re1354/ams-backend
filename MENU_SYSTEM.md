@@ -38,6 +38,9 @@ This will create:
 
 ### Menu Management
 - `GET /api/menus/` - Get all available menus
+- `POST /api/menus/create/` - Create a new menu (**Superadmin Only**)
+- `PUT/PATCH /api/menus/{menu_id}/update/` - Update existing menu (**Superadmin Only**)
+- `DELETE /api/menus/{menu_id}/delete/` - Delete menu (**Superadmin Only**)
 - `GET /api/menus/user/` - Get current user's accessible menus
 - `GET /api/roles/{role_id}/menus/` - Get menus for specific role
 
@@ -71,7 +74,40 @@ This will create:
 }
 ```
 
-### 2. Assign Menus to Role (Superadmin)
+### 2. Create New Menu (Superadmin)
+```javascript
+// POST /api/menus/create/
+{
+  "label": "Reports",
+  "icon": "FileBarChart",
+  "link": "/reports"
+}
+
+// Response:
+{
+  "success": true,
+  "data": {
+    "id": 8,
+    "title": "Reports",
+    "icon": "FileBarChart", 
+    "link": "/reports",
+    "label": "Reports"
+  },
+  "message": "Menu \"Reports\" created successfully"
+}
+```
+
+### 3. Update Menu (Superadmin)
+```javascript
+// PUT /api/menus/8/update/
+{
+  "label": "Advanced Reports",
+  "icon": "FileBarChart2",
+  "link": "/advanced-reports"
+}
+```
+
+### 4. Assign Menus to Role (Superadmin)
 ```javascript
 // POST /api/roles/assign-menus/
 {

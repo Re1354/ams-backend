@@ -241,6 +241,182 @@ def remove_menu_from_role(request, role_id, menu_id):
 
 
 @extend_schema(
+    tags=['Menu Management'],
+    summary="Create a new menu",
+    description="Create a new menu in the system. Only superadmin can perform this action.",
+    request={
+        'application/json': {
+            'type': 'object',
+            'properties': {
+                'label': {'type': 'string', 'description': 'Menu display name'},
+                'icon': {'type': 'string', 'description': 'Frontend icon identifier'},
+                'link': {'type': 'string', 'description': 'Frontend route path'}
+            },
+            'required': ['label', 'link'],
+            'example': {
+                'label': 'Reports',
+                'icon': 'FileBarChart',
+                'link': '/reports'
+            }
+        }
+    },
+    responses={
+        201: OpenApiResponse(
+            response=MenuSerializer,
+            description="Menu created successfully"
+        ),
+        400: OpenApiResponse(description="Invalid data"),
+        403: OpenApiResponse(description="Only superadmin can create menus")
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_menu(request):
+    """Create a new menu (only superadmin)"""
+    
+    # Check if user is superadmin
+    user = request.user
+    if not user.role or user.role.role_name != 'superadmin':
+        return Response({
+            'success': False,
+            'message': 'Only superadmin can create new menus'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    serializer = MenuSerializer(data=request.data)
+    if serializer.is_valid():
+        menu = serializer.save()
+        return Response({
+            'success': True,
+            'data': serializer.data,
+            'message': f'Menu "{menu.label}" created successfully'
+        }, status=status.HTTP_201_CREATED)
+    else:
+        return Response({
+            'success': False,
+            'message': 'Invalid data provided',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    tags=['Menu Management'],
+    summary="Update a menu",
+    description="Update an existing menu. Only superadmin can perform this action.",
+    parameters=[
+        OpenApiParameter(
+            name='menu_id',
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.PATH,
+            description='Menu ID to update'
+        )
+    ],
+    request={
+        'application/json': {
+            'type': 'object',
+            'properties': {
+                'label': {'type': 'string', 'description': 'Menu display name'},
+                'icon': {'type': 'string', 'description': 'Frontend icon identifier'},
+                'link': {'type': 'string', 'description': 'Frontend route path'}
+            },
+            'example': {
+                'label': 'Updated Reports',
+                'icon': 'FileBarChart2',
+                'link': '/reports-v2'
+            }
+        }
+    },
+    responses={
+        200: OpenApiResponse(
+            response=MenuSerializer,
+            description="Menu updated successfully"
+        ),
+        400: OpenApiResponse(description="Invalid data"),
+        403: OpenApiResponse(description="Only superadmin can update menus"),
+        404: OpenApiResponse(description="Menu not found")
+    }
+)
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def update_menu(request, menu_id):
+    """Update a menu (only superadmin)"""
+    
+    # Check if user is superadmin
+    user = request.user
+    if not user.role or user.role.role_name != 'superadmin':
+        return Response({
+            'success': False,
+            'message': 'Only superadmin can update menus'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    menu = get_object_or_404(Menu, id=menu_id)
+    
+    # Use partial=True for PATCH requests
+    partial = request.method == 'PATCH'
+    serializer = MenuSerializer(menu, data=request.data, partial=partial)
+    
+    if serializer.is_valid():
+        menu = serializer.save()
+        return Response({
+            'success': True,
+            'data': serializer.data,
+            'message': f'Menu "{menu.label}" updated successfully'
+        })
+    else:
+        return Response({
+            'success': False,
+            'message': 'Invalid data provided',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    tags=['Menu Management'],
+    summary="Delete a menu",
+    description="Delete a menu from the system. Only superadmin can perform this action. This will also remove all role-menu assignments for this menu.",
+    parameters=[
+        OpenApiParameter(
+            name='menu_id',
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.PATH,
+            description='Menu ID to delete'
+        )
+    ],
+    responses={
+        200: OpenApiResponse(description="Menu deleted successfully"),
+        403: OpenApiResponse(description="Only superadmin can delete menus"),
+        404: OpenApiResponse(description="Menu not found")
+    }
+)
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_menu(request, menu_id):
+    """Delete a menu (only superadmin)"""
+    
+    # Check if user is superadmin
+    user = request.user
+    if not user.role or user.role.role_name != 'superadmin':
+        return Response({
+            'success': False,
+            'message': 'Only superadmin can delete menus'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    menu = get_object_or_404(Menu, id=menu_id)
+    menu_label = menu.label
+    
+    # Get count of role assignments that will be deleted
+    role_assignments_count = RoleMenu.objects.filter(menu=menu).count()
+    
+    # Delete the menu (this will cascade delete role-menu assignments)
+    menu.delete()
+    
+    return Response({
+        'success': True,
+        'message': f'Menu "{menu_label}" deleted successfully',
+        'note': f'Also removed {role_assignments_count} role assignments for this menu'
+    })
+
+
+@extend_schema(
     tags=['User Menus'],
     summary="Get current user's menus",
     description="Get all menus accessible to the current authenticated user based on their role.",

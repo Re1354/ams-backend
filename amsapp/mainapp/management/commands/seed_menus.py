@@ -44,6 +44,11 @@ class Command(BaseCommand):
                     'label': 'Role Management',
                     'icon': 'Shield',
                     'link': '/role-management'
+                },
+                {
+                    'label': 'Menu Management',
+                    'icon': 'Menu',
+                    'link': '/menu-management'
                 }
             ]
 
