@@ -1,5 +1,6 @@
 from django.db import models
 from .role import Role
+from .departments import Department
 
 
 class User(models.Model):
@@ -8,7 +9,7 @@ class User(models.Model):
     password = models.CharField(max_length=255)  # should be hashed in real apps
     created_at = models.DateTimeField(auto_now_add=True)
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="users", null=True, blank=True)
-
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name='users', null=True, blank=True)
     class Meta:
         db_table = 'users'
 

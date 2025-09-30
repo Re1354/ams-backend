@@ -54,8 +54,23 @@ class Command(BaseCommand):
                     'label': 'Menu Access Management',
                     'icon': 'Key',
                     'link': '/menu-access-management'
+                },
+                {
+                    'label': 'Department Management',
+                    'icon': 'Building',
+                    'link': '/department-management'
+                },
+                {
+                    'label': 'Subject Management',
+                    'icon': 'BookOpen',
+                    'link': '/subject-management'
+                },
+                {
+                    'label': 'Subject Department Mapping',
+                    'icon': 'Layers',
+                    'link': '/subject-department-mapping'
                 }
-
+               
             ]
 
             # Create or get menus

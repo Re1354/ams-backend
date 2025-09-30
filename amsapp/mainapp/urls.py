@@ -12,6 +12,19 @@ from .views.menus import (
     all_menus, role_menus, assign_menus_to_role, remove_menu_from_role, user_menus,
     create_menu, update_menu, delete_menu
 )
+from .views.departments import (
+    get_all_departments, create_department, get_department_by_id, 
+    update_department, delete_department
+)
+from .views.subjects import (
+    get_all_subjects, create_subject, get_subject_by_id,
+    update_subject, delete_subject
+)
+from .views.subject_departments import (
+    get_all_subject_departments, create_subject_department, get_subject_department_by_id,
+    get_subjects_by_department, update_subject_department, add_subjects_to_department,
+    remove_subjects_from_department, delete_subject_department
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -80,4 +93,28 @@ urlpatterns = [
     path('api/roles/<int:role_id>/menus/', role_menus, name='role-menus'),
     path('api/roles/assign-menus/', assign_menus_to_role, name='assign-menus-to-role'),
     path('api/roles/<int:role_id>/menus/<int:menu_id>/remove/', remove_menu_from_role, name='remove-menu-from-role'),
+    
+    # Department Management API
+    path('api/departments/', get_all_departments, name='get-all-departments'),
+    path('api/departments/create/', create_department, name='create-department'),
+    path('api/departments/<int:department_id>/', get_department_by_id, name='get-department-by-id'),
+    path('api/departments/<int:department_id>/update/', update_department, name='update-department'),
+    path('api/departments/<int:department_id>/delete/', delete_department, name='delete-department'),
+    
+    # Subject Management API
+    path('api/subjects/', get_all_subjects, name='get-all-subjects'),
+    path('api/subjects/create/', create_subject, name='create-subject'),
+    path('api/subjects/<int:subject_id>/', get_subject_by_id, name='get-subject-by-id'),
+    path('api/subjects/<int:subject_id>/update/', update_subject, name='update-subject'),
+    path('api/subjects/<int:subject_id>/delete/', delete_subject, name='delete-subject'),
+    
+    # Subject-Department Mapping API
+    path('api/subject-departments/', get_all_subject_departments, name='get-all-subject-departments'),
+    path('api/subject-departments/create/', create_subject_department, name='create-subject-department'),
+    path('api/subject-departments/<int:mapping_id>/', get_subject_department_by_id, name='get-subject-department-by-id'),
+    path('api/subject-departments/department/<int:department_id>/', get_subjects_by_department, name='get-subjects-by-department'),
+    path('api/subject-departments/<int:mapping_id>/update/', update_subject_department, name='update-subject-department'),
+    path('api/subject-departments/<int:mapping_id>/add-subjects/', add_subjects_to_department, name='add-subjects-to-department'),
+    path('api/subject-departments/<int:mapping_id>/remove-subjects/', remove_subjects_from_department, name='remove-subjects-from-department'),
+    path('api/subject-departments/<int:mapping_id>/delete/', delete_subject_department, name='delete-subject-department'),
 ]

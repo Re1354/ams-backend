@@ -49,6 +49,10 @@ from ..models import User
                                 'role_details': {
                                     'id': 1,
                                     'role_name': 'superadmin'
+                                },
+                                'department_details': {
+                                    'id': 1,
+                                    'department_name': 'Computer Science'
                                 }
                             }
                         }
@@ -163,6 +167,10 @@ def login_view(request):
                                 'role_details': {
                                     'id': 1,
                                     'role_name': 'superadmin'
+                                },
+                                'department_details': {
+                                    'id': 1,
+                                    'department_name': 'Computer Science'
                                 }
                             }
                         }

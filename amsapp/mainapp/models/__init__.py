@@ -8,6 +8,9 @@ from .students import Students
 from .submission import Submission
 from .menu import Menu
 from .role_menu import RoleMenu
+from .departments import Department
+from .subjects_demartments import SubjectDepartment
+from .subjects import Subject
 
 __all__ = [
     'Role',
@@ -20,4 +23,7 @@ __all__ = [
     'Submission',
     'Menu',
     'RoleMenu',
+    'Department',
+    'SubjectDepartment',
+    'Subject',
 ]
