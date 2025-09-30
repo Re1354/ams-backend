@@ -38,16 +38,6 @@ class MenuSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Menu link already exists")
         return value
         
-    def to_representation(self, instance):
-        """Custom representation for frontend compatibility"""
-        representation = super().to_representation(instance)
-        return {
-            'id': representation['id'],
-            'title': representation['label'],  # Frontend expects 'title'
-            'icon': representation['icon'],
-            'link': representation['link'],
-            'label': representation['label']  # Keep original for API consistency
-        }
 
 
 class RoleMenuSerializer(serializers.ModelSerializer):

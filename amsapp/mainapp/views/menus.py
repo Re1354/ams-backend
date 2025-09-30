@@ -431,28 +431,24 @@ def delete_menu(request, menu_id):
 def user_menus(request):
     """Get current user's accessible menus based on their role"""
     user = request.user
-    
+
     if not user.role:
         return Response({
             'success': False,
             'message': 'User has no role assigned'
         }, status=status.HTTP_400_BAD_REQUEST)
-    
+
     # Get user's role menus
     role_menus = RoleMenu.objects.filter(
         role=user.role
     ).select_related('menu').order_by('menu__id')
-    
-    menus_data = []
-    for role_menu in role_menus:
-        menus_data.append({
-            'id': role_menu.menu.id,
-            'title': role_menu.menu.label,
-            'icon': role_menu.menu.icon,
-            'link': role_menu.menu.link,
-            'permissions': role_menu.permissions
-        })
-    
+
+    menus = [role_menu.menu for role_menu in role_menus]
+    menus_data = MenuSerializer(menus, many=True).data
+    # Add permissions manually
+    for i, role_menu in enumerate(role_menus):
+        menus_data[i]['permissions'] = role_menu.permissions
+
     return Response({
         'success': True,
         'data': menus_data,
