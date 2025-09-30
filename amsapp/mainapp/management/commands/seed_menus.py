@@ -13,62 +13,74 @@ class Command(BaseCommand):
                 {
                     'label': 'Dashboard',
                     'icon': 'LayoutDashboard',
-                    'link': '/dashboard'
+                    'link': '/dashboard',
+                    'component': 'Dashboard'
                 },
                 {
                     'label': 'Create Questions',
                     'icon': 'Plus',
-                    'link': '/create-questions'
+                    'link': '/create-questions',
+                    'component': 'CreateQuestions'
                 },
                 {
                     'label': 'All Questions',
                     'icon': 'FileText',
-                    'link': '/all-questions'
+                    'link': '/all-questions',
+                    'component': 'AllQuestions'
                 },
                 {
                     'label': 'Students',
                     'icon': 'Users',
-                    'link': '/students'
+                    'link': '/students',
+                    'component': 'Students'
                 },
                 {
                     'label': 'Exam Schedule',
                     'icon': 'Calendar',
-                    'link': '/exam-schedule'
+                    'link': '/exam-schedule',
+                    'component': 'ExamSchedule'
                 },
                 {
                     'label': 'Users Management',
                     'icon': 'UserCheck',
-                    'link': '/users-management'
+                    'link': '/users-management',
+                    'component': 'UsersManagement'
                 },
                 {
                     'label': 'Role Management',
                     'icon': 'Shield',
-                    'link': '/role-management'
+                    'link': '/role-management',
+                    'component': 'RoleManagement'
                 },
                 {
                     'label': 'Menu Management',
                     'icon': 'Menu',
-                    'link': '/menu-management'
+                    'link': '/menu-management',
+                    'component': 'MenuManagement'
                 },
                 {
                     'label': 'Menu Access Management',
                     'icon': 'Key',
-                    'link': '/menu-access-management'
+                    'link': '/menu-access-management',
+                    'component': 'MenuAccessManagement'
                 },
                 {
                     'label': 'Department Management',
                     'icon': 'Building',
-                    'link': '/department-management'
+                    'link': '/department-management',
+                    'component': 'DepartmentManagement'
                 },
                 {
                     'label': 'Subject Management',
                     'icon': 'BookOpen',
-                    'link': '/subject-management'
+                    'link': '/subject-management',
+                    'component': 'SubjectManagement'
                 },
                 {
                     'label': 'Subject Department Mapping',
                     'icon': 'Layers',
-                    'link': '/subject-department-mapping'
+                    'link': '/subject-department-mapping',
+                    'component': 'SubjectDepartmentMapping'
                 }
                
             ]
@@ -80,9 +92,24 @@ class Command(BaseCommand):
                     label=menu_item['label'],
                     defaults={
                         'icon': menu_item['icon'],
-                        'link': menu_item['link']
+                        'link': menu_item['link'],
+                        'component': menu_item['component']
                     }
                 )
+                # Update existing menu if component, icon, or link changed
+                updated = False
+                if not created:
+                    if menu.icon != menu_item['icon']:
+                        menu.icon = menu_item['icon']
+                        updated = True
+                    if menu.link != menu_item['link']:
+                        menu.link = menu_item['link']
+                        updated = True
+                    if menu.component != menu_item['component']:
+                        menu.component = menu_item['component']
+                        updated = True
+                    if updated:
+                        menu.save()
                 created_menus.append(menu)
                 if created:
                     self.stdout.write(

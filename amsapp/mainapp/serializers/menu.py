@@ -7,7 +7,7 @@ class MenuSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Menu
-        fields = ['id', 'label', 'icon', 'link']
+        fields = ['id', 'label', 'icon', 'link', 'component']
         
     def validate_label(self, value):
         """Validate menu label is unique"""
