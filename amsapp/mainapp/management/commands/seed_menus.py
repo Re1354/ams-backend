@@ -49,7 +49,13 @@ class Command(BaseCommand):
                     'label': 'Menu Management',
                     'icon': 'Menu',
                     'link': '/menu-management'
+                },
+                {
+                    'label': 'Menu Access Management',
+                    'icon': 'Key',
+                    'link': '/menu-access-management'
                 }
+
             ]
 
             # Create or get menus
