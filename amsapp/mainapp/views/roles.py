@@ -9,6 +9,7 @@ from ..models import Role
 
 
 @extend_schema(
+    operation_id='get_all_roles',
     tags=['Roles'],
     summary='Get All Roles',
     description='Retrieve all roles in the system',
@@ -161,6 +162,7 @@ def create_role(request):
 
 
 @extend_schema(
+    operation_id='get_role_by_id',
     tags=['Roles'],
     summary='Get Role by ID',
     description='Retrieve a specific role by its ID',

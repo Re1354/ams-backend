@@ -15,6 +15,7 @@ class ScrappedQuestion(models.Model):
     answer = models.JSONField(null=True, blank=True, default=None)
     marks = models.IntegerField(default=1)
     semester = models.TextField()
+    department_shortname = models.TextField(default='CSE')
 
     class Meta:
         db_table = 'scrapped_questions'

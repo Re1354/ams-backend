@@ -1,10 +1,16 @@
 # Authentication and User Management
 from .auth import (
-    DepartmentSerializer,
     RoleSerializer,
     UserSerializer,
     LoginSerializer,
     UserDetailSerializer
+)
+
+# Department Management
+from .departments import (
+    DepartmentSerializer,
+    DepartmentCreateSerializer,
+    DepartmentDetailSerializer
 )
 
 # Menu Management
@@ -43,13 +49,40 @@ from .subject import (
     SubjectDepartmentCreateSerializer
 )
 
+# Exam Generation
+from .exam_generation import (
+    ExamGenerationRequestSerializer,
+    ExamSaveRequestSerializer,
+    GeneratedExamResponseSerializer,
+    BlocklistQuestionSerializer,
+    BlockQuestionRequestSerializer,
+    UnblockQuestionRequestSerializer
+)
+
+# Student App
+from .student_app import (
+    StudentLoginSerializer,
+    ExamSubmissionSerializer,
+    StudentLoginResponseSerializer,
+    ExamSubmissionResponseSerializer
+)
+
+# API Info
+from .api_info import (
+    APIInfoResponseSerializer
+)
+
 __all__ = [
     # Auth
-    'DepartmentSerializer',
     'RoleSerializer',
     'UserSerializer',
     'LoginSerializer',
     'UserDetailSerializer',
+    
+    # Department
+    'DepartmentSerializer',
+    'DepartmentCreateSerializer',
+    'DepartmentDetailSerializer',
     
     # Menu
     'MenuSerializer',
@@ -75,5 +108,22 @@ __all__ = [
     # Subject
     'SubjectSerializer',
     'SubjectDepartmentSerializer',
-    'SubjectDepartmentCreateSerializer'
+    'SubjectDepartmentCreateSerializer',
+    
+    # Exam Generation
+    'ExamGenerationRequestSerializer',
+    'ExamSaveRequestSerializer',
+    'GeneratedExamResponseSerializer',
+    'BlocklistQuestionSerializer',
+    'BlockQuestionRequestSerializer',
+    'UnblockQuestionRequestSerializer',
+    
+    # Student App
+    'StudentLoginSerializer',
+    'ExamSubmissionSerializer',
+    'StudentLoginResponseSerializer',
+    'ExamSubmissionResponseSerializer',
+    
+    # API Info
+    'APIInfoResponseSerializer'
 ]

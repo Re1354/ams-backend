@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from ..models.subjects import Subject
 from ..models.subjects_demartments import SubjectDepartment
 
@@ -34,6 +35,7 @@ class SubjectDepartmentSerializer(serializers.ModelSerializer):
         model = SubjectDepartment
         fields = ['id', 'department_id', 'department_name', 'subject_ids', 'subjects']
         
+    @extend_schema_field(SubjectSerializer(many=True))
     def get_subjects(self, obj):
         """Get subject details from subject_ids"""
         if obj.subject_ids:

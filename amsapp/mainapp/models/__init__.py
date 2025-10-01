@@ -11,6 +11,7 @@ from .role_menu import RoleMenu
 from .departments import Department
 from .subjects_demartments import SubjectDepartment
 from .subjects import Subject
+from .blocklist_question import BlocklistQuestion
 
 __all__ = [
     'Role',
@@ -26,4 +27,5 @@ __all__ = [
     'Department',
     'SubjectDepartment',
     'Subject',
+    'BlocklistQuestion',
 ]

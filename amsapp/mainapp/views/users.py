@@ -9,6 +9,7 @@ from ..models import User
 
 
 @extend_schema(
+    operation_id='get_all_users',
     tags=['Users'],
     summary='Get All Users',
     description='Retrieve all users in the system with their role information',
@@ -210,6 +211,7 @@ def create_user(request):
 
 
 @extend_schema(
+    operation_id='get_user_by_id',
     tags=['Users'],
     summary='Get User by ID',
     description='Retrieve a specific user by their ID with role information',

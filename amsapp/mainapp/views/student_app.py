@@ -8,29 +8,20 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiExample
 
 from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission
-from ..serializers import StudentsSerializer
+from ..serializers import (
+    StudentsSerializer, StudentLoginSerializer, ExamSubmissionSerializer,
+    StudentLoginResponseSerializer, ExamSubmissionResponseSerializer
+)
 
 
 @extend_schema(
+    operation_id='student_login',
     summary="Student login",
     description="Authenticate student with username and password",
     tags=['Student App'],
-    request={
-        'type': 'object',
-        'properties': {
-            'username': {'type': 'string'},
-            'password': {'type': 'string'}
-        },
-        'required': ['username', 'password']
-    },
+    request=StudentLoginSerializer,
     responses={
-        200: {
-            'type': 'object',
-            'properties': {
-                'message': {'type': 'string'},
-                'student': {'$ref': '#/components/schemas/Students'}
-            }
-        },
+        200: StudentLoginResponseSerializer,
         401: {
             'type': 'object',
             'properties': {
@@ -193,32 +184,17 @@ class StudentExamQuestionsView(generics.RetrieveAPIView):
 
 
 @extend_schema(
+    operation_id='submit_exam',
     summary="Submit exam answers",
     description="Submit student answers for an exam",
     tags=['Student App'],
-    request={
-        'type': 'object',
-        'properties': {
-            'student_id': {'type': 'integer'},
-            'submissions': {
-                'type': 'array',
-                'items': {
-                    'type': 'object',
-                    'properties': {
-                        'question_id': {'type': 'integer'},
-                        'answer': {'type': 'string'}
-                    }
-                }
-            }
-        },
-        'required': ['student_id', 'submissions']
-    },
+    request=ExamSubmissionSerializer,
     responses={
-        201: {
+        201: ExamSubmissionResponseSerializer,
+        400: {
             'type': 'object',
             'properties': {
-                'message': {'type': 'string'},
-                'total_submitted': {'type': 'integer'}
+                'error': {'type': 'string'}
             }
         }
     }

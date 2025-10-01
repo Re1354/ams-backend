@@ -10,6 +10,7 @@ from ..serializers import SubjectSerializer
 
 
 @extend_schema(
+    operation_id='get_all_subjects',
     tags=['Subjects'],
     summary="Get all subjects",
     description="Retrieve all subjects in the system.",
@@ -77,6 +78,7 @@ def create_subject(request):
 
 
 @extend_schema(
+    operation_id='get_subject_by_id',
     tags=['Subjects'],
     summary="Get subject by ID",
     description="Retrieve a specific subject by its ID.",

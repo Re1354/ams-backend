@@ -32,7 +32,7 @@ class ScrappedQuestionSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = ScrappedQuestion
-        fields = ['id', 'subject', 'questions', 'type', 'text', 'options', 'answer', 'marks', 'semester']
+        fields = ['id', 'subject', 'questions', 'type', 'text', 'options', 'answer', 'marks', 'semester', 'department_shortname']
         
     def to_representation(self, instance):
         """Custom representation to ensure proper JSON formatting"""
@@ -48,7 +48,8 @@ class ScrappedQuestionSerializer(serializers.ModelSerializer):
             'options': representation.get('options'),  # Multiple choice options (for option-type questions)
             'answer': representation.get('answer'),  # Correct answer(s)
             'marks': representation['marks'],  # Points awarded for correct answer
-            'semester': representation['semester']  # Academic semester/term
+            'semester': representation['semester'],  # Academic semester/term
+            'department_shortname': representation['department_shortname']  # Department short name (e.g., CSE, EEE)
         }
         
         # Ensure options and answer are properly formatted

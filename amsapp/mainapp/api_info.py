@@ -3,12 +3,15 @@ from django.shortcuts import render
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
+from .serializers import APIInfoResponseSerializer
 
 
 @extend_schema(
+    operation_id='get_api_info',
     summary="API Information",
     description="Get basic information about the AMS DIU Backend API",
-    tags=['Information']
+    tags=['Information'],
+    responses={200: APIInfoResponseSerializer}
 )
 @api_view(['GET'])
 def api_info(request):

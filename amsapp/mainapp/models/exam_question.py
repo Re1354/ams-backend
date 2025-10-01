@@ -14,6 +14,7 @@ class ExamQuestion(models.Model):
     options = models.JSONField(null=True, blank=True)
     answer = models.TextField(null=True, blank=True)
     marks = models.IntegerField(default=1)
+    department_shortname = models.TextField(default='CSE')
 
     def __str__(self):
         return f"Exam {self.exam.id} -> {self.subject}"

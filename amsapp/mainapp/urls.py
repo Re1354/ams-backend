@@ -25,6 +25,9 @@ from .views.subject_departments import (
     get_subjects_by_department, update_subject_department, add_subjects_to_department,
     remove_subjects_from_department, delete_subject_department
 )
+from .views.exam_generation import (
+    generate_exam, save_generated_exam, block_question, unblock_question, get_blocked_questions
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -117,4 +120,11 @@ urlpatterns = [
     path('api/subject-departments/<int:mapping_id>/add-subjects/', add_subjects_to_department, name='add-subjects-to-department'),
     path('api/subject-departments/<int:mapping_id>/remove-subjects/', remove_subjects_from_department, name='remove-subjects-from-department'),
     path('api/subject-departments/<int:mapping_id>/delete/', delete_subject_department, name='delete-subject-department'),
+    
+    # Exam Generation API
+    path('api/exams/generate/', generate_exam, name='generate-exam'),
+    path('api/exams/save-generated/', save_generated_exam, name='save-generated-exam'),
+    path('api/questions/block/', block_question, name='block-question'),
+    path('api/questions/unblock/', unblock_question, name='unblock-question'),
+    path('api/questions/blocked/', get_blocked_questions, name='get-blocked-questions'),
 ]

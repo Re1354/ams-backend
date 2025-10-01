@@ -12,6 +12,7 @@ from ..serializers.subject import SubjectDepartmentSerializer, SubjectDepartment
 
 
 @extend_schema(
+    operation_id='get_all_subject_departments',
     tags=['Subject-Department Mapping'],
     summary="Get all department-subject mappings",
     description="Retrieve all department-subject mappings with subject details.",
@@ -97,6 +98,7 @@ def create_subject_department(request):
 
 
 @extend_schema(
+    operation_id='get_subject_department_by_id',
     tags=['Subject-Department Mapping'],
     summary="Get department-subject mapping by ID",
     description="Retrieve a specific department-subject mapping by its ID.",

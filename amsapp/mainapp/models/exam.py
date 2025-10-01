@@ -15,7 +15,9 @@ class Exam(models.Model):
         default=list,
         help_text="List of semesters to exclude"
     )
+    language = models.CharField(max_length=50, default='English')
     created_at = models.DateTimeField(auto_now_add=True)
-
+    updated_at = models.DateTimeField(auto_now=True)
+    faculty = models.CharField(max_length=255, null=True, blank=True)
     def __str__(self):
         return f"Exam {self.id} - {self.department}"

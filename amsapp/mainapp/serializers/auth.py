@@ -1,26 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.hashers import check_password, make_password
 from ..models import User, Role, Department
-
-
-class DepartmentSerializer(serializers.ModelSerializer):
-    """Serializer for Department model"""
-    
-    class Meta:
-        model = Department
-        fields = ['id', 'department_name']
-        
-    def validate_department_name(self, value):
-        """Validate department name is unique"""
-        if self.instance:
-            # For updates, exclude the current instance
-            if Department.objects.filter(department_name=value).exclude(id=self.instance.id).exists():
-                raise serializers.ValidationError("Department name already exists")
-        else:
-            # For creation
-            if Department.objects.filter(department_name=value).exists():
-                raise serializers.ValidationError("Department name already exists")
-        return value
+from .departments import DepartmentSerializer
 
 
 class RoleSerializer(serializers.ModelSerializer):

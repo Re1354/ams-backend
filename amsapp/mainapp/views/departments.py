@@ -6,18 +6,38 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from ..models import Department
-from ..serializers import DepartmentSerializer
+from ..serializers.departments import DepartmentSerializer, DepartmentCreateSerializer, DepartmentDetailSerializer
 
 
 @extend_schema(
+    operation_id='get_all_departments',
     tags=['Departments'],
     summary="Get all departments",
-    description="Retrieve all departments in the system.",
+    description="Retrieve all departments in the system with their names and shortnames.",
     responses={
-        200: OpenApiResponse(
-            response=DepartmentSerializer(many=True),
-            description="List of all departments"
-        )
+        200: {
+            'description': 'Departments retrieved successfully',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'success': True,
+                        'data': [
+                            {
+                                'id': 1,
+                                'department_name': 'Computer Science and Engineering',
+                                'department_shortname': 'CSE'
+                            },
+                            {
+                                'id': 2,
+                                'department_name': 'Electrical and Electronic Engineering',
+                                'department_shortname': 'EEE'
+                            }
+                        ],
+                        'message': 'Departments retrieved successfully'
+                    }
+                }
+            }
+        }
     }
 )
 @api_view(['GET'])
@@ -34,15 +54,45 @@ def get_all_departments(request):
 
 
 @extend_schema(
+    operation_id='create_department',
     tags=['Departments'],
     summary="Create a new department",
-    description="Create a new department. Only superadmin can perform this action.",
-    request=DepartmentSerializer,
+    description="Create a new department with name and shortname. Only superadmin can perform this action.",
+    request={
+        'application/json': {
+            'type': 'object',
+            'properties': {
+                'department_name': {
+                    'type': 'string',
+                    'description': 'Full name of the department',
+                    'example': 'Computer Science and Engineering'
+                },
+                'department_shortname': {
+                    'type': 'string',
+                    'description': 'Short name/abbreviation of the department',
+                    'example': 'CSE'
+                }
+            },
+            'required': ['department_name', 'department_shortname']
+        }
+    },
     responses={
-        201: OpenApiResponse(
-            response=DepartmentSerializer,
-            description="Department created successfully"
-        ),
+        201: {
+            'description': 'Department created successfully',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'success': True,
+                        'data': {
+                            'id': 1,
+                            'department_name': 'Computer Science and Engineering',
+                            'department_shortname': 'CSE'
+                        },
+                        'message': 'Department "Computer Science and Engineering" created successfully'
+                    }
+                }
+            }
+        },
         400: OpenApiResponse(description="Invalid data"),
         403: OpenApiResponse(description="Only superadmin can create departments")
     }
@@ -60,12 +110,13 @@ def create_department(request):
             'message': 'Only superadmin can create departments'
         }, status=status.HTTP_403_FORBIDDEN)
     
-    serializer = DepartmentSerializer(data=request.data)
+    serializer = DepartmentCreateSerializer(data=request.data)
     if serializer.is_valid():
         department = serializer.save()
+        response_serializer = DepartmentSerializer(department)
         return Response({
             'success': True,
-            'data': serializer.data,
+            'data': response_serializer.data,
             'message': f'Department "{department.department_name}" created successfully'
         }, status=status.HTTP_201_CREATED)
     else:
@@ -77,14 +128,27 @@ def create_department(request):
 
 
 @extend_schema(
+    operation_id='get_department_by_id',
     tags=['Departments'],
     summary="Get department by ID",
-    description="Retrieve a specific department by its ID.",
+    description="Retrieve a specific department by its ID with name and shortname.",
     responses={
-        200: OpenApiResponse(
-            response=DepartmentSerializer,
-            description="Department details"
-        ),
+        200: {
+            'description': 'Department retrieved successfully',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'success': True,
+                        'data': {
+                            'id': 1,
+                            'department_name': 'Computer Science and Engineering',
+                            'department_shortname': 'CSE'
+                        },
+                        'message': 'Department retrieved successfully'
+                    }
+                }
+            }
+        },
         404: OpenApiResponse(description="Department not found")
     }
 )
@@ -102,15 +166,44 @@ def get_department_by_id(request, department_id):
 
 
 @extend_schema(
+    operation_id='update_department',
     tags=['Departments'],
     summary="Update department",
-    description="Update department details. Only superadmin can perform this action.",
-    request=DepartmentSerializer,
+    description="Update department name and/or shortname. Only superadmin can perform this action.",
+    request={
+        'application/json': {
+            'type': 'object',
+            'properties': {
+                'department_name': {
+                    'type': 'string',
+                    'description': 'Full name of the department',
+                    'example': 'Computer Science and Engineering'
+                },
+                'department_shortname': {
+                    'type': 'string',
+                    'description': 'Short name/abbreviation of the department',
+                    'example': 'CSE'
+                }
+            }
+        }
+    },
     responses={
-        200: OpenApiResponse(
-            response=DepartmentSerializer,
-            description="Department updated successfully"
-        ),
+        200: {
+            'description': 'Department updated successfully',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'success': True,
+                        'data': {
+                            'id': 1,
+                            'department_name': 'Computer Science and Engineering',
+                            'department_shortname': 'CSE'
+                        },
+                        'message': 'Department "Computer Science and Engineering" updated successfully'
+                    }
+                }
+            }
+        },
         400: OpenApiResponse(description="Invalid data"),
         403: OpenApiResponse(description="Only superadmin can update departments"),
         404: OpenApiResponse(description="Department not found")
@@ -133,13 +226,14 @@ def update_department(request, department_id):
     
     # Use partial=True for PATCH requests
     partial = request.method == 'PATCH'
-    serializer = DepartmentSerializer(department, data=request.data, partial=partial)
+    serializer = DepartmentCreateSerializer(department, data=request.data, partial=partial)
     
     if serializer.is_valid():
         department = serializer.save()
+        response_serializer = DepartmentSerializer(department)
         return Response({
             'success': True,
-            'data': serializer.data,
+            'data': response_serializer.data,
             'message': f'Department "{department.department_name}" updated successfully'
         })
     else:
@@ -151,6 +245,7 @@ def update_department(request, department_id):
 
 
 @extend_schema(
+    operation_id='delete_department',
     tags=['Departments'],
     summary="Delete department",
     description="Delete a department. Only superadmin can perform this action. Warning: This will affect all users assigned to this department.",
