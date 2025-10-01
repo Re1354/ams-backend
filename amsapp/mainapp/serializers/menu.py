@@ -57,7 +57,7 @@ class RoleMenuSerializer(serializers.ModelSerializer):
         
         return {
             'id': menu_data['id'],
-            'title': menu_data['title'],
+            'title': menu_data['label'],
             'icon': menu_data['icon'], 
             'link': menu_data['link'],
             'permissions': representation['permissions'],
