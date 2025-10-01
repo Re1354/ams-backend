@@ -29,6 +29,10 @@ from ..models import User
                                 'role_details': {
                                     'id': 1,
                                     'role_name': 'Admin'
+                                },
+                                'department_details': {
+                                    'id': 1,
+                                    'department_name': 'IT Department'
                                 }
                             },
                             {
@@ -39,6 +43,10 @@ from ..models import User
                                 'role_details': {
                                     'id': 2,
                                     'role_name': 'Teacher'
+                                },
+                                'department_details': {
+                                    'id': 2,
+                                    'department_name': 'Computer Science'
                                 }
                             }
                         ]
@@ -103,6 +111,12 @@ def get_all_users(request):
                     'description': 'ID of the role to assign to the user (optional)',
                     'example': 2,
                     'nullable': True
+                },
+                'department_id': {
+                    'type': 'integer',
+                    'description': 'ID of the department to assign to the user (optional)',
+                    'example': 1,
+                    'nullable': True
                 }
             },
             'required': ['username', 'email', 'password']
@@ -121,6 +135,7 @@ def get_all_users(request):
                             'username': 'newuser',
                             'email': 'newuser@example.com',
                             'role_name': 'Teacher',
+                            'department_name': 'Computer Science',
                             'created_at': '2024-01-03T10:00:00Z'
                         }
                     }
@@ -136,7 +151,8 @@ def get_all_users(request):
                         'message': 'Validation error',
                         'errors': {
                             'username': ['Username already exists'],
-                            'email': ['Email already exists']
+                            'email': ['Email already exists'],
+                            'department_id': ['Department does not exist']
                         }
                     }
                 }
@@ -157,12 +173,13 @@ def get_all_users(request):
         OpenApiExample(
             'Create User Request',
             summary='Example user creation request',
-            description='Create a new user with role assignment',
+            description='Create a new user with role and department assignment',
             value={
                 'username': 'newuser',
                 'email': 'newuser@example.com',
                 'password': 'securepassword123',
-                'role_id': 2
+                'role_id': 2,
+                'department_id': 1
             },
             request_only=True,
             media_type='application/json'
@@ -173,7 +190,7 @@ def get_all_users(request):
 @permission_classes([IsAuthenticated])
 def create_user(request):
     """
-    Create a new user in the system with optional role assignment
+    Create a new user in the system with optional role and department assignment
     """
     serializer = UserSerializer(data=request.data)
     
@@ -221,6 +238,10 @@ def create_user(request):
                             'role_details': {
                                 'id': 1,
                                 'role_name': 'Admin'
+                            },
+                            'department_details': {
+                                'id': 1,
+                                'department_name': 'IT Department'
                             }
                         }
                     }
@@ -345,7 +366,8 @@ def get_user_by_id(request, user_id):
                         'message': 'Validation error',
                         'errors': {
                             'username': ['Username already exists'],
-                            'role_id': ['Role does not exist']
+                            'role_id': ['Role does not exist'],
+                            'department_id': ['Department does not exist']
                         }
                     }
                 }
@@ -378,11 +400,12 @@ def get_user_by_id(request, user_id):
         OpenApiExample(
             'Update User Request',
             summary='Example user update request',
-            description='Update an existing user with new role assignment',
+            description='Update an existing user with new role and department assignment',
             value={
                 'username': 'updateduser',
                 'email': 'updated@example.com',
-                'role_id': 3
+                'role_id': 3,
+                'department_id': 2
             },
             request_only=True,
             media_type='application/json'
@@ -393,7 +416,7 @@ def get_user_by_id(request, user_id):
 @permission_classes([IsAuthenticated])
 def update_user(request, user_id):
     """
-    Update an existing user with optional role and password changes
+    Update an existing user with optional role, department and password changes
     """
     try:
         user = User.objects.get(id=user_id)
