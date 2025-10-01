@@ -36,8 +36,24 @@ class ExamGenerationRequestSerializer(serializers.Serializer):
 
 class ExamSaveRequestSerializer(serializers.Serializer):
     """Serializer for saving generated exam"""
-    save = serializers.BooleanField(default=False)
-    exam_data = serializers.JSONField(help_text="Previously generated exam data to save")
+    exam_title = serializers.CharField(max_length=255, required=False, help_text="Optional exam title")
+    department_id = serializers.IntegerField()
+    semester = serializers.CharField(max_length=50)
+    duration_minutes = serializers.IntegerField(min_value=1)
+    language = serializers.CharField(max_length=50)
+    faculty = serializers.CharField(max_length=255)
+    total_marks = serializers.IntegerField(min_value=1)
+    subjects = serializers.JSONField(help_text="Subject information array")
+    questions = serializers.ListField(
+        child=serializers.JSONField(),
+        help_text="Array of question objects with their details"
+    )
+    
+    def validate_questions(self, value):
+        """Validate that questions list is not empty"""
+        if not value:
+            raise serializers.ValidationError("At least one question is required")
+        return value
 
 
 class GeneratedQuestionSerializer(serializers.ModelSerializer):

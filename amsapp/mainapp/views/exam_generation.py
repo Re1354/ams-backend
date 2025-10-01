@@ -1,7 +1,8 @@
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiResponse
@@ -33,6 +34,7 @@ from ..serializers.exam_generation import (
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication])
 def generate_exam(request):
     """Generate exam questions without saving"""
     
@@ -146,6 +148,7 @@ def generate_exam(request):
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication])
 def save_generated_exam(request):
     """Save generated exam to database"""
     
@@ -157,31 +160,25 @@ def save_generated_exam(request):
             'errors': serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
     
-    if not serializer.validated_data['save']:
-        return Response({
-            'success': False,
-            'message': 'Save flag not set to true'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    exam_data = serializer.validated_data['exam_data']
+    validated_data = serializer.validated_data
     
     try:
         with transaction.atomic():
             # Create exam
-            department = Department.objects.get(id=exam_data['department_id'])
+            department = Department.objects.get(id=validated_data['department_id'])
             exam = Exam.objects.create(
                 department=department.department_name,
-                semester=exam_data['semester'],
-                total_questions=len(exam_data['questions']),
-                present_question=len(exam_data['questions']),
-                total_marks=exam_data['total_marks'],
-                duration_minutes=exam_data['duration_minutes'],
-                language=exam_data['language'],
-                faculty=exam_data['faculty']
+                semester=validated_data['semester'],
+                total_questions=len(validated_data['questions']),
+                present_question=len(validated_data['questions']),
+                total_marks=validated_data['total_marks'],
+                duration_minutes=validated_data['duration_minutes'],
+                language=validated_data['language'],
+                faculty=validated_data['faculty']
             )
             
             # Create exam questions
-            for question_data in exam_data['questions']:
+            for question_data in validated_data['questions']:
                 # Get the actual question from database
                 scrapped_question = ScrappedQuestion.objects.get(id=question_data['id'])
                 
@@ -238,6 +235,7 @@ def save_generated_exam(request):
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication])
 def block_question(request):
     """Block a question by moving it to blocklist"""
     
@@ -303,6 +301,7 @@ def block_question(request):
 )
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication])
 def unblock_question(request):
     """Unblock a question by moving it back to scrapped questions"""
     
@@ -364,6 +363,7 @@ def unblock_question(request):
 )
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication])
 def get_blocked_questions(request):
     """Get all blocked questions"""
     

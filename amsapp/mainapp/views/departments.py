@@ -166,10 +166,10 @@ def get_department_by_id(request, department_id):
 
 
 @extend_schema(
-    operation_id='update_department',
+    operation_id='update_department_full',
     tags=['Departments'],
-    summary="Update department",
-    description="Update department name and/or shortname. Only superadmin can perform this action.",
+    summary="Update department (PUT/PATCH)",
+    description="Update department name and/or shortname. Only superadmin can perform this action. Use PUT for full update, PATCH for partial update.",
     request={
         'application/json': {
             'type': 'object',
