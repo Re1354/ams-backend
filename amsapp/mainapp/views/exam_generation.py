@@ -179,14 +179,21 @@ def save_generated_exam(request):
             
             # Create exam questions
             for question_data in validated_data['questions']:
+                # Handle answer field - convert array to string if needed
+                answer_value = question_data.get('answer', '')
+                if isinstance(answer_value, list):
+                    answer_value = ', '.join(str(item) for item in answer_value)
+                elif answer_value is None:
+                    answer_value = ''
+                
                 ExamQuestion.objects.create(
                     exam=exam,
                     subject=question_data['subject'],
-                    question_text=question_data['question_text'],
+                    question_text=question_data['questions'],  # Changed from question_text to questions
                     type=question_data['type'],
                     text=question_data.get('text', ''),
                     options=question_data.get('options'),
-                    answer=question_data.get('answer', ''),
+                    answer=str(answer_value),  # Ensure it's a string
                     marks=question_data.get('marks', 1),
                     department_shortname=question_data.get('department_shortname', 'CSE')
                 )

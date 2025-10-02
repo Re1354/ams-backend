@@ -36,10 +36,12 @@ class ExamGenerationRequestSerializer(serializers.Serializer):
 
 class ExamQuestionSaveSerializer(serializers.Serializer):
     """Serializer for individual question data when saving exam"""
+    id = serializers.IntegerField(required=False, help_text="Optional original question ID")
     subject = serializers.CharField(max_length=255)
-    question_text = serializers.CharField()
+    questions = serializers.CharField(help_text="Question text")  # Changed from question_text to questions
     type = serializers.ChoiceField(choices=[
         ('mcq', 'Multiple Choice'),
+        ('option', 'Multiple Choice Option'),  # Added option type
         ('short', 'Short Answer'),
         ('long', 'Long Answer'),
         ('tf', 'True/False'),
@@ -47,8 +49,9 @@ class ExamQuestionSaveSerializer(serializers.Serializer):
     ])
     text = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     options = serializers.JSONField(required=False, allow_null=True)
-    answer = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    answer = serializers.JSONField(required=False, allow_null=True, help_text="Can be string or array")  # Changed to JSONField to handle arrays
     marks = serializers.IntegerField(min_value=1, default=1)
+    semester = serializers.CharField(max_length=100, required=False, help_text="Original semester info")
     department_shortname = serializers.CharField(max_length=50, default='CSE')
 
 
