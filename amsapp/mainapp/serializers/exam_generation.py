@@ -34,26 +34,70 @@ class ExamGenerationRequestSerializer(serializers.Serializer):
         return value
 
 
+class ExamQuestionSaveSerializer(serializers.Serializer):
+    """Serializer for individual question data when saving exam"""
+    subject = serializers.CharField(max_length=255)
+    question_text = serializers.CharField()
+    type = serializers.ChoiceField(choices=[
+        ('mcq', 'Multiple Choice'),
+        ('short', 'Short Answer'),
+        ('long', 'Long Answer'),
+        ('tf', 'True/False'),
+        ('fill', 'Fill in the blank')
+    ])
+    text = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    options = serializers.JSONField(required=False, allow_null=True)
+    answer = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    marks = serializers.IntegerField(min_value=1, default=1)
+    department_shortname = serializers.CharField(max_length=50, default='CSE')
+
+
 class ExamSaveRequestSerializer(serializers.Serializer):
-    """Serializer for saving generated exam"""
-    exam_title = serializers.CharField(max_length=255, required=False, help_text="Optional exam title")
-    department_id = serializers.IntegerField()
+    """Serializer for saving exam with questions"""
+    # Exam model fields
+    department = serializers.CharField(max_length=255, help_text="Department name (not ID)")
     semester = serializers.CharField(max_length=50)
-    duration_minutes = serializers.IntegerField(min_value=1)
-    language = serializers.CharField(max_length=50)
-    faculty = serializers.CharField(max_length=255)
+    total_questions = serializers.IntegerField(min_value=1)
     total_marks = serializers.IntegerField(min_value=1)
-    subjects = serializers.JSONField(help_text="Subject information array")
-    questions = serializers.ListField(
-        child=serializers.JSONField(),
-        help_text="Array of question objects with their details"
+    duration_minutes = serializers.IntegerField(min_value=1)
+    except_semesters = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        default=list,
+        help_text="List of semesters to exclude"
     )
+    language = serializers.CharField(max_length=50, default='English')
+    faculty = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    
+    # Questions to be saved
+    questions = ExamQuestionSaveSerializer(many=True, help_text="Array of question objects")
     
     def validate_questions(self, value):
-        """Validate that questions list is not empty"""
+        """Validate that questions list is not empty and matches total_questions"""
         if not value:
             raise serializers.ValidationError("At least one question is required")
         return value
+    
+    def validate(self, data):
+        """Validate that total_questions matches the number of questions provided"""
+        questions_count = len(data.get('questions', []))
+        total_questions = data.get('total_questions', 0)
+        
+        if questions_count != total_questions:
+            raise serializers.ValidationError(
+                f"Number of questions ({questions_count}) must match total_questions ({total_questions})"
+            )
+        
+        # Validate that total marks matches sum of question marks
+        total_marks_from_questions = sum(q.get('marks', 1) for q in data.get('questions', []))
+        declared_total_marks = data.get('total_marks', 0)
+        
+        if total_marks_from_questions != declared_total_marks:
+            raise serializers.ValidationError(
+                f"Sum of question marks ({total_marks_from_questions}) must match total_marks ({declared_total_marks})"
+            )
+        
+        return data
 
 
 class GeneratedQuestionSerializer(serializers.ModelSerializer):

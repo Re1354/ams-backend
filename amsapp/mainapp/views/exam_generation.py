@@ -138,8 +138,8 @@ def generate_exam(request):
 @extend_schema(
     operation_id='save_generated_exam',
     tags=['Exam Generation'],
-    summary="Save generated exam",
-    description="Save previously generated exam questions to database",
+    summary="Save exam with questions",
+    description="Save exam data and questions directly to database. Creates exam record and associated exam questions.",
     request=ExamSaveRequestSerializer,
     responses={
         201: OpenApiResponse(description="Exam saved successfully"),
@@ -150,7 +150,7 @@ def generate_exam(request):
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def save_generated_exam(request):
-    """Save generated exam to database"""
+    """Save exam with questions to database"""
     
     serializer = ExamSaveRequestSerializer(data=request.data)
     if not serializer.is_valid():
@@ -164,34 +164,31 @@ def save_generated_exam(request):
     
     try:
         with transaction.atomic():
-            # Create exam
-            department = Department.objects.get(id=validated_data['department_id'])
+            # Create exam with all fields matching the Exam model
             exam = Exam.objects.create(
-                department=department.department_name,
+                department=validated_data['department'],
                 semester=validated_data['semester'],
-                total_questions=len(validated_data['questions']),
-                present_question=len(validated_data['questions']),
+                total_questions=validated_data['total_questions'],
+                present_question=validated_data['total_questions'],  # Set to same as total_questions
                 total_marks=validated_data['total_marks'],
                 duration_minutes=validated_data['duration_minutes'],
-                language=validated_data['language'],
-                faculty=validated_data['faculty']
+                except_semesters=validated_data.get('except_semesters', []),
+                language=validated_data.get('language', 'English'),
+                faculty=validated_data.get('faculty', '')
             )
             
             # Create exam questions
             for question_data in validated_data['questions']:
-                # Get the actual question from database
-                scrapped_question = ScrappedQuestion.objects.get(id=question_data['id'])
-                
                 ExamQuestion.objects.create(
                     exam=exam,
-                    subject=scrapped_question.subject,
-                    question_text=scrapped_question.questions,
-                    type=scrapped_question.type,
-                    text=scrapped_question.text,
-                    options=scrapped_question.options,
-                    answer=scrapped_question.answer,
-                    marks=scrapped_question.marks,
-                    department_shortname=scrapped_question.department_shortname
+                    subject=question_data['subject'],
+                    question_text=question_data['question_text'],
+                    type=question_data['type'],
+                    text=question_data.get('text', ''),
+                    options=question_data.get('options'),
+                    answer=question_data.get('answer', ''),
+                    marks=question_data.get('marks', 1),
+                    department_shortname=question_data.get('department_shortname', 'CSE')
                 )
             
             return Response({
@@ -199,21 +196,17 @@ def save_generated_exam(request):
                 'message': 'Exam saved successfully',
                 'data': {
                     'exam_id': exam.id,
+                    'department': exam.department,
+                    'semester': exam.semester,
                     'total_questions': exam.total_questions,
-                    'total_marks': exam.total_marks
+                    'total_marks': exam.total_marks,
+                    'duration_minutes': exam.duration_minutes,
+                    'language': exam.language,
+                    'faculty': exam.faculty,
+                    'created_at': exam.created_at
                 }
             }, status=status.HTTP_201_CREATED)
             
-    except Department.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': 'Department not found'
-        }, status=status.HTTP_404_NOT_FOUND)
-    except ScrappedQuestion.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': 'One or more questions not found'
-        }, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({
             'success': False,
