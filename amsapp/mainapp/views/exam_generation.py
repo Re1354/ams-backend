@@ -2,13 +2,13 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 import random
 
 from ..models import ScrappedQuestion, Exam, ExamQuestion, BlocklistQuestion, Department
+from ..authentication import CustomJWTAuthentication
 from ..serializers.exam_generation import (
     ExamGenerationRequestSerializer, ExamSaveRequestSerializer,
     GeneratedExamResponseSerializer, GeneratedQuestionSerializer,
@@ -34,7 +34,7 @@ from ..serializers.exam_generation import (
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([CustomJWTAuthentication])
 def generate_exam(request):
     """Generate exam questions without saving"""
     
@@ -148,7 +148,7 @@ def generate_exam(request):
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([CustomJWTAuthentication])
 def save_generated_exam(request):
     """Save generated exam to database"""
     
@@ -235,7 +235,7 @@ def save_generated_exam(request):
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([CustomJWTAuthentication])
 def block_question(request):
     """Block a question by moving it to blocklist"""
     
@@ -268,7 +268,7 @@ def block_question(request):
                 department_shortname=question.department_shortname,
                 original_question_id=question.id,
                 remarks=remarks,
-                creator=request.user,
+                creator=request.user.custom_user,  # Use the actual User model instance
                 issue_solved=False
             )
             
@@ -301,7 +301,7 @@ def block_question(request):
 )
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([CustomJWTAuthentication])
 def unblock_question(request):
     """Unblock a question by moving it back to scrapped questions"""
     
@@ -363,7 +363,7 @@ def unblock_question(request):
 )
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([CustomJWTAuthentication])
 def get_blocked_questions(request):
     """Get all blocked questions"""
     

@@ -14,7 +14,7 @@ from .views.menus import (
 )
 from .views.departments import (
     get_all_departments, create_department, get_department_by_id, 
-    update_department, delete_department
+    update_department_full, update_department_partial, delete_department
 )
 from .views.subjects import (
     get_all_subjects, create_subject, get_subject_by_id,
@@ -101,7 +101,8 @@ urlpatterns = [
     path('api/departments/', get_all_departments, name='get-all-departments'),
     path('api/departments/create/', create_department, name='create-department'),
     path('api/departments/<int:department_id>/', get_department_by_id, name='get-department-by-id'),
-    path('api/departments/<int:department_id>/update/', update_department, name='update-department'),
+    path('api/departments/<int:department_id>/update/', update_department_full, name='update-department-full'),
+    path('api/departments/<int:department_id>/update/', update_department_partial, name='update-department-partial'),
     path('api/departments/<int:department_id>/delete/', delete_department, name='delete-department'),
     
     # Subject Management API

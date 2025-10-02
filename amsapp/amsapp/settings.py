@@ -205,22 +205,12 @@ SPECTACULAR_SETTINGS = {
     'DEFAULT_AUTO_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'SECURITY': [
         {
-            'jwtAuth': []
+            'BearerAuth': []
         }
     ],
     'POSTPROCESSING_HOOKS': [
         'drf_spectacular.hooks.postprocess_schema_enums'
     ],
-    'COMPONENTS': {
-        'securitySchemes': {
-            'jwtAuth': {
-                'type': 'http',
-                'scheme': 'bearer',
-                'bearerFormat': 'JWT',
-                'description': 'Enter JWT token obtained from /api/auth/login/ endpoint'
-            }
-        }
-    },
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
         'displayRequestDuration': True,

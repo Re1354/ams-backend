@@ -168,8 +168,86 @@ def get_department_by_id(request, department_id):
 @extend_schema(
     operation_id='update_department_full',
     tags=['Departments'],
-    summary="Update department (PUT/PATCH)",
-    description="Update department name and/or shortname. Only superadmin can perform this action. Use PUT for full update, PATCH for partial update.",
+    summary="Update department (PUT)",
+    description="Update department name and shortname. Only superadmin can perform this action. Requires all fields.",
+    request={
+        'application/json': {
+            'type': 'object',
+            'properties': {
+                'department_name': {
+                    'type': 'string',
+                    'description': 'Full name of the department',
+                    'example': 'Computer Science and Engineering'
+                },
+                'department_shortname': {
+                    'type': 'string',
+                    'description': 'Short name/abbreviation of the department',
+                    'example': 'CSE'
+                }
+            },
+            'required': ['department_name', 'department_shortname']
+        }
+    },
+    responses={
+        200: {
+            'description': 'Department updated successfully',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'success': True,
+                        'data': {
+                            'id': 1,
+                            'department_name': 'Computer Science and Engineering',
+                            'department_shortname': 'CSE'
+                        },
+                        'message': 'Department "Computer Science and Engineering" updated successfully'
+                    }
+                }
+            }
+        },
+        400: OpenApiResponse(description="Invalid data"),
+        403: OpenApiResponse(description="Only superadmin can update departments"),
+        404: OpenApiResponse(description="Department not found")
+    }
+)
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def update_department_full(request, department_id):
+    """Update department completely (only superadmin)"""
+    
+    # Check if user is superadmin
+    user = request.user
+    if not user.role or user.role.role_name != 'superadmin':
+        return Response({
+            'success': False,
+            'message': 'Only superadmin can update departments'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    department = get_object_or_404(Department, id=department_id)
+    
+    serializer = DepartmentCreateSerializer(department, data=request.data, partial=False)
+    
+    if serializer.is_valid():
+        department = serializer.save()
+        response_serializer = DepartmentSerializer(department)
+        return Response({
+            'success': True,
+            'data': response_serializer.data,
+            'message': f'Department "{department.department_name}" updated successfully'
+        })
+    else:
+        return Response({
+            'success': False,
+            'message': 'Invalid data provided',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    operation_id='update_department_partial',
+    tags=['Departments'],
+    summary="Update department (PATCH)",
+    description="Partially update department name and/or shortname. Only superadmin can perform this action. Only provided fields will be updated.",
     request={
         'application/json': {
             'type': 'object',
@@ -209,10 +287,10 @@ def get_department_by_id(request, department_id):
         404: OpenApiResponse(description="Department not found")
     }
 )
-@api_view(['PUT', 'PATCH'])
+@api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
-def update_department(request, department_id):
-    """Update department (only superadmin)"""
+def update_department_partial(request, department_id):
+    """Update department partially (only superadmin)"""
     
     # Check if user is superadmin
     user = request.user
@@ -224,9 +302,7 @@ def update_department(request, department_id):
     
     department = get_object_or_404(Department, id=department_id)
     
-    # Use partial=True for PATCH requests
-    partial = request.method == 'PATCH'
-    serializer = DepartmentCreateSerializer(department, data=request.data, partial=partial)
+    serializer = DepartmentCreateSerializer(department, data=request.data, partial=True)
     
     if serializer.is_valid():
         department = serializer.save()
