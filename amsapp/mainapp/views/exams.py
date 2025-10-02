@@ -116,7 +116,7 @@ class CreateExamAPIView(APIView):
 
 @extend_schema(
     summary="Get all exams",
-    description="Retrieve all exams with their details including current question count. Role-based filtering: superadmin sees all, cse_admin sees only CSE exams, soft_admin sees only Software exams.",
+    description="Retrieve exams with role-based filtering: superadmin sees all exams, other users only see exams that contain questions matching their department_shortname.",
     tags=['Exam'],
     responses={200: ExamSerializer(many=True)}
 )
@@ -128,34 +128,41 @@ class AllExamsView(generics.ListAPIView):
 
     def get_queryset(self):
         """
-        Filter exams based on user role:
+        Filter exams based on user role and department:
         - superadmin: All exams
-        - cse_*: Only CSE department exams
-        - soft_*: Only Software department exams
+        - Other users: Only exams that have questions matching their department_shortname
         """
         user = self.request.user
         
         # Get the custom user and role information
-        if hasattr(user, 'custom_user') and user.custom_user.role:
-            role_name = user.custom_user.role.role_name.lower()
+        if hasattr(user, 'custom_user'):
+            custom_user = user.custom_user
             
-            # Check if superadmin - return all exams
-            if role_name == 'superadmin':
-                return Exam.objects.all().order_by('-created_at')
+            # Check if user has a role
+            if custom_user.role:
+                role_name = custom_user.role.role_name.lower()
+                
+                # Check if superadmin - return all exams
+                if role_name == 'superadmin':
+                    return Exam.objects.all().order_by('-created_at')
             
-            # Check role prefix for department filtering
-            if role_name.startswith('cse_'):
-                # Return only CSE department exams
-                return Exam.objects.filter(department__icontains='cse').order_by('-created_at')
+            # For non-superadmin users, filter by department_shortname
+            if custom_user.department:
+                user_dept_shortname = custom_user.department.department_shortname
+                
+                # Get exams that have questions matching user's department shortname
+                exam_ids_with_matching_questions = ExamQuestion.objects.filter(
+                    department_shortname=user_dept_shortname
+                ).values_list('exam_id', flat=True).distinct()
+                
+                return Exam.objects.filter(
+                    id__in=exam_ids_with_matching_questions
+                ).order_by('-created_at')
             
-            elif role_name.startswith('soft_'):
-                # Return only Software department exams
-                return Exam.objects.filter(department__icontains='software').order_by('-created_at')
-            
-            # For any other roles, return empty queryset for security
+            # If user has no department assigned, return empty queryset
             return Exam.objects.none()
         
-        # If no role assigned, return empty queryset for security
+        # If no custom_user, return empty queryset for security
         return Exam.objects.none()
 
 
