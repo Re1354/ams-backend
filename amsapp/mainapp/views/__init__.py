@@ -12,7 +12,7 @@ from .student_app import (
 )
 from .auth import login_view, refresh_token_view, verify_token_view
 from .roles import get_all_roles, create_role, get_role_by_id, update_role, delete_role
-from .users import get_all_users, create_user, get_user_by_id, update_user, delete_user
+from .users import get_all_users, create_user, get_user_by_id, update_user, delete_user, get_all_teachers
 
 # Make all views available when importing from mainapp.views
 __all__ = [
@@ -40,5 +40,5 @@ __all__ = [
     'get_all_roles', 'create_role', 'get_role_by_id', 'update_role', 'delete_role',
     
     # Users
-    'get_all_users', 'create_user', 'get_user_by_id', 'update_user', 'delete_user'
+    'get_all_users', 'create_user', 'get_user_by_id', 'update_user', 'delete_user', 'get_all_teachers'
 ]

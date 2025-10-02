@@ -6,7 +6,7 @@ from .views import (
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
     submit_exam, get_exam_result, login_view, refresh_token_view, verify_token_view,
     get_all_roles, create_role, get_role_by_id, update_role, delete_role,
-    get_all_users, create_user, get_user_by_id, update_user, delete_user
+    get_all_users, create_user, get_user_by_id, update_user, delete_user, get_all_teachers
 )
 from .views.menus import (
     all_menus, role_menus, assign_menus_to_role, remove_menu_from_role, user_menus,
@@ -86,6 +86,7 @@ urlpatterns = [
     
     # Users API
     path('api/users/', get_all_users, name='get-all-users'),
+    path('api/users/teachers/', get_all_teachers, name='get-all-teachers'),
     path('api/users/create/', create_user, name='create-user'),
     path('api/users/<int:user_id>/', get_user_by_id, name='get-user-by-id'),
     path('api/users/<int:user_id>/update/', update_user, name='update-user'),

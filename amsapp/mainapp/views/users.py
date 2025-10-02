@@ -1,18 +1,19 @@
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from drf_spectacular.openapi import OpenApiParameter
 from ..serializers import UserSerializer, UserDetailSerializer
 from ..models import User
+from ..authentication import CustomJWTAuthentication
 
 
 @extend_schema(
     operation_id='get_all_users',
     tags=['Users'],
     summary='Get All Users',
-    description='Retrieve all users in the system with their role information',
+    description='Retrieve users with role-based filtering: superadmin sees all users, other users only see users from their department',
     responses={
         200: {
             'description': 'Users retrieved successfully',
@@ -69,11 +70,43 @@ from ..models import User
 )
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
 def get_all_users(request):
     """
-    Retrieve all users in the system with their role information
+    Retrieve users with role-based filtering:
+    - superadmin: All users
+    - Other users: Only users from their department
     """
-    users = User.objects.all().select_related('role').order_by('id')
+    user = request.user
+    
+    # Get the custom user and role information
+    if hasattr(user, 'custom_user'):
+        custom_user = user.custom_user
+        
+        # Check if user has a role
+        if custom_user.role:
+            role_name = custom_user.role.role_name.lower()
+            
+            # Check if superadmin - return all users
+            if role_name == 'superadmin':
+                users = User.objects.all().select_related('role', 'department').order_by('id')
+            else:
+                # For non-superadmin users, filter by department
+                if custom_user.department:
+                    user_dept_shortname = custom_user.department.department_shortname
+                    users = User.objects.filter(
+                        department__department_shortname=user_dept_shortname
+                    ).select_related('role', 'department').order_by('id')
+                else:
+                    # If user has no department assigned, return empty queryset
+                    users = User.objects.none()
+        else:
+            # If user has no role, return empty queryset
+            users = User.objects.none()
+    else:
+        # If no custom_user, return empty queryset for security
+        users = User.objects.none()
+    
     serializer = UserDetailSerializer(users, many=True)
     
     return Response({
@@ -189,6 +222,7 @@ def get_all_users(request):
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
 def create_user(request):
     """
     Create a new user in the system with optional role and department assignment
@@ -276,6 +310,7 @@ def create_user(request):
 )
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
 def get_user_by_id(request, user_id):
     """
     Retrieve a specific user by their ID with role information
@@ -416,6 +451,7 @@ def get_user_by_id(request, user_id):
 )
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
 def update_user(request, user_id):
     """
     Update an existing user with optional role, department and password changes
@@ -497,6 +533,7 @@ def update_user(request, user_id):
 )
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
 def delete_user(request, user_id):
     """
     Delete an existing user
@@ -516,3 +553,89 @@ def delete_user(request, user_id):
             'message': 'User not found',
             'errors': [f'User with ID {user_id} does not exist']
         }, status=status.HTTP_404_NOT_FOUND)
+
+
+@extend_schema(
+    operation_id='get_all_teachers',
+    tags=['Users'],
+    summary='Get All Teachers',
+    description='Retrieve teachers with role-based filtering: superadmin sees all teachers, other users only see teachers from their department',
+    responses={
+        200: {
+            'description': 'Teachers retrieved successfully',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'success': True,
+                        'message': 'Teachers retrieved successfully',
+                        'data': [
+                            {
+                                'id': 2,
+                                'username': 'teacher1',
+                                'email': 'teacher1@example.com',
+                                'created_at': '2024-01-02T10:00:00Z',
+                                'role_details': {
+                                    'id': 2,
+                                    'role_name': 'Teacher'
+                                },
+                                'department_details': {
+                                    'id': 2,
+                                    'department_name': 'Computer Science'
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def get_all_teachers(request):
+    """
+    Retrieve teachers with role-based filtering:
+    - superadmin: All teachers
+    - Other users: Only teachers from their department
+    """
+    user = request.user
+    
+    # Get the custom user and role information
+    if hasattr(user, 'custom_user'):
+        custom_user = user.custom_user
+        
+        # Check if user has a role
+        if custom_user.role:
+            role_name = custom_user.role.role_name.lower()
+            
+            # Check if superadmin - return all teachers
+            if role_name == 'superadmin':
+                teachers = User.objects.filter(
+                    role__role_name__icontains='teacher'
+                ).select_related('role', 'department').order_by('id')
+            else:
+                # For non-superadmin users, filter by department
+                if custom_user.department:
+                    user_dept_shortname = custom_user.department.department_shortname
+                    teachers = User.objects.filter(
+                        role__role_name__icontains='teacher',
+                        department__department_shortname=user_dept_shortname
+                    ).select_related('role', 'department').order_by('id')
+                else:
+                    # If user has no department assigned, return empty queryset
+                    teachers = User.objects.none()
+        else:
+            # If user has no role, return empty queryset
+            teachers = User.objects.none()
+    else:
+        # If no custom_user, return empty queryset for security
+        teachers = User.objects.none()
+    
+    serializer = UserDetailSerializer(teachers, many=True)
+    
+    return Response({
+        'success': True,
+        'message': 'Teachers retrieved successfully',
+        'data': serializer.data
+    }, status=status.HTTP_200_OK)

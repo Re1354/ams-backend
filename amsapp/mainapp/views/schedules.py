@@ -1,11 +1,13 @@
 from rest_framework import generics, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import extend_schema, OpenApiExample
 
 from ..models import Exam, ExamSchedule
 from ..serializers import ExamScheduleSerializer, CreateExamScheduleSerializer
+from ..authentication import CustomJWTAuthentication
 
 
 @extend_schema(
@@ -15,9 +17,50 @@ from ..serializers import ExamScheduleSerializer, CreateExamScheduleSerializer
     responses={200: ExamScheduleSerializer(many=True)}
 )
 class AllSchedulesView(generics.ListCreateAPIView):
-    """List all exam schedules and create new schedules"""
-    queryset = ExamSchedule.objects.all().order_by('start_time')
+    """List exam schedules with role-based filtering and create new schedules"""
     serializer_class = ExamScheduleSerializer
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """
+        Filter schedules based on user role and department:
+        - superadmin: All schedules
+        - Other users: Only schedules for exams that have questions matching their department_shortname
+        """
+        user = self.request.user
+        
+        # Get the custom user and role information
+        if hasattr(user, 'custom_user'):
+            custom_user = user.custom_user
+            
+            # Check if user has a role
+            if custom_user.role:
+                role_name = custom_user.role.role_name.lower()
+                
+                # Check if superadmin - return all schedules
+                if role_name == 'superadmin':
+                    return ExamSchedule.objects.all().order_by('start_time')
+            
+            # For non-superadmin users, filter by department_shortname
+            if custom_user.department:
+                from ..models import ExamQuestion
+                user_dept_shortname = custom_user.department.department_shortname
+                
+                # Get exam IDs that have questions matching user's department shortname
+                exam_ids_with_matching_questions = ExamQuestion.objects.filter(
+                    department_shortname=user_dept_shortname
+                ).values_list('exam_id', flat=True).distinct()
+                
+                return ExamSchedule.objects.filter(
+                    exam_id__in=exam_ids_with_matching_questions
+                ).order_by('start_time')
+            
+            # If user has no department assigned, return empty queryset
+            return ExamSchedule.objects.none()
+        
+        # If no custom_user, return empty queryset for security
+        return ExamSchedule.objects.none()
 
 
 @extend_schema(
