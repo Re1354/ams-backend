@@ -7,6 +7,7 @@ class Students(models.Model):
     f_id = models.CharField(max_length=50, help_text="Form ID")
     full_name = models.CharField(max_length=255, blank=True)
     email = models.EmailField(blank=True)
+    department_shortname = models.CharField(max_length=50, default='CSE', help_text="Department short name")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

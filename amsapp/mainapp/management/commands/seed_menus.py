@@ -81,6 +81,12 @@ class Command(BaseCommand):
                     'icon': 'Layers',
                     'link': '/subject-department-mapping',
                     'component': 'SubjectDepartmentMapping'
+                },
+                {
+                    'label':'Student Assign',
+                    'icon':'UserPlus',
+                    'link':'/student-assign-teacher-exam',
+                    'component':'StudentAssignTeacherExam'
                 }
                
             ]

@@ -28,6 +28,10 @@ from .views.subject_departments import (
 from .views.exam_generation import (
     generate_exam, save_generated_exam, block_question, unblock_question, get_blocked_questions
 )
+from .views.student_assign_teacher_exam import (
+    assign_students_bulk, assign_student_single, get_all_assignments, 
+    delete_assignment, delete_assignments_bulk
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -128,4 +132,11 @@ urlpatterns = [
     path('api/questions/block/', block_question, name='block-question'),
     path('api/questions/unblock/', unblock_question, name='unblock-question'),
     path('api/questions/blocked/', get_blocked_questions, name='get-blocked-questions'),
+    
+    # Student Assignment API
+    path('api/student-assignments/', get_all_assignments, name='get-all-assignments'),
+    path('api/student-assignments/assign-bulk/', assign_students_bulk, name='assign-students-bulk'),
+    path('api/student-assignments/assign-single/', assign_student_single, name='assign-student-single'),
+    path('api/student-assignments/<int:assignment_id>/delete/', delete_assignment, name='delete-assignment'),
+    path('api/student-assignments/delete-bulk/', delete_assignments_bulk, name='delete-assignments-bulk'),
 ]

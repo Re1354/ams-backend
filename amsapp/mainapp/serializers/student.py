@@ -7,7 +7,7 @@ class StudentsSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Students
-        fields = ['id', 'username', 'password', 'f_id', 'full_name', 'email', 'created_at']
+        fields = ['id', 'username', 'password', 'f_id', 'full_name', 'email', 'department_shortname', 'created_at']
         read_only_fields = ['id', 'created_at']
         extra_kwargs = {
             'password': {'write_only': True}  # Never return password in API responses

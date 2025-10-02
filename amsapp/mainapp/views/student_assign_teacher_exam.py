@@ -1,0 +1,346 @@
+from rest_framework import status, generics
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+
+from ..models import StudentAssignTeacherExam, Students, User, Exam, ExamSchedule
+from ..serializers.student_assign_teacher_exam import (
+    StudentAssignTeacherExamSerializer, 
+    StudentAssignBulkSerializer, 
+    StudentAssignSingleSerializer
+)
+from ..authentication import CustomJWTAuthentication
+
+
+@extend_schema(
+    operation_id='assign_students_bulk',
+    tags=['Student Assignment'],
+    summary="Bulk assign students to teacher and exam",
+    description="Assign multiple students to a teacher and exam in one request. Supports bulk operations.",
+    request=StudentAssignBulkSerializer,
+    responses={
+        201: OpenApiResponse(description="Students assigned successfully"),
+        400: OpenApiResponse(description="Invalid request data"),
+        409: OpenApiResponse(description="Some assignments already exist")
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def assign_students_bulk(request):
+    """Bulk assign students to teacher and exam"""
+    
+    serializer = StudentAssignBulkSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'message': 'Invalid request data',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    validated_data = serializer.validated_data
+    student_ids = validated_data['student_ids']
+    teacher_id = validated_data['teacher_id']
+    exam_id = validated_data['exam_id']
+    schedule_id = validated_data['schedule_id']
+    
+    try:
+        with transaction.atomic():
+            # Get objects
+            teacher = User.objects.get(id=teacher_id)
+            exam = Exam.objects.get(id=exam_id)
+            schedule = ExamSchedule.objects.get(id=schedule_id)
+            students = Students.objects.filter(id__in=student_ids)
+            
+            # Track results
+            created_assignments = []
+            existing_assignments = []
+            
+            for student in students:
+                assignment, created = StudentAssignTeacherExam.objects.get_or_create(
+                    student=student,
+                    teacher=teacher,
+                    exam=exam,
+                    defaults={'schedule': schedule}
+                )
+                
+                if created:
+                    created_assignments.append(assignment)
+                else:
+                    existing_assignments.append(assignment)
+            
+            # Prepare response
+            response_data = {
+                'success': True,
+                'message': f'Bulk assignment completed. {len(created_assignments)} new assignments created.',
+                'data': {
+                    'created_count': len(created_assignments),
+                    'existing_count': len(existing_assignments),
+                    'total_processed': len(students),
+                    'created_assignments': StudentAssignTeacherExamSerializer(created_assignments, many=True).data
+                }
+            }
+            
+            if existing_assignments:
+                response_data['message'] += f' {len(existing_assignments)} assignments already existed.'
+                response_data['data']['existing_assignments'] = StudentAssignTeacherExamSerializer(existing_assignments, many=True).data
+            
+            return Response(response_data, status=status.HTTP_201_CREATED)
+            
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error creating assignments: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@extend_schema(
+    operation_id='assign_student_single',
+    tags=['Student Assignment'],
+    summary="Assign single student to teacher and exam",
+    description="Assign a single student to a teacher and exam.",
+    request=StudentAssignSingleSerializer,
+    responses={
+        201: OpenApiResponse(description="Student assigned successfully"),
+        400: OpenApiResponse(description="Invalid request data"),
+        409: OpenApiResponse(description="Assignment already exists")
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def assign_student_single(request):
+    """Assign single student to teacher and exam"""
+    
+    serializer = StudentAssignSingleSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'message': 'Invalid request data',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    validated_data = serializer.validated_data
+    student_id = validated_data['student_id']
+    teacher_id = validated_data['teacher_id']
+    exam_id = validated_data['exam_id']
+    schedule_id = validated_data['schedule_id']
+    
+    try:
+        # Get objects
+        student = Students.objects.get(id=student_id)
+        teacher = User.objects.get(id=teacher_id)
+        exam = Exam.objects.get(id=exam_id)
+        schedule = ExamSchedule.objects.get(id=schedule_id)
+        
+        # Create or get assignment
+        assignment, created = StudentAssignTeacherExam.objects.get_or_create(
+            student=student,
+            teacher=teacher,
+            exam=exam,
+            defaults={'schedule': schedule}
+        )
+        
+        if created:
+            return Response({
+                'success': True,
+                'message': 'Student assigned successfully',
+                'data': StudentAssignTeacherExamSerializer(assignment).data
+            }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({
+                'success': False,
+                'message': 'Assignment already exists',
+                'data': StudentAssignTeacherExamSerializer(assignment).data
+            }, status=status.HTTP_409_CONFLICT)
+            
+    except Students.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Student not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except User.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Teacher not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exam.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Exam not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except ExamSchedule.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Schedule not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@extend_schema(
+    operation_id='get_all_assignments',
+    tags=['Student Assignment'],
+    summary="Get all student assignments",
+    description="Retrieve all student-teacher-exam assignments. Superadmin sees all, others see assignments filtered by department_shortname.",
+    responses={
+        200: OpenApiResponse(
+            response=StudentAssignTeacherExamSerializer(many=True),
+            description="Assignments retrieved successfully"
+        )
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def get_all_assignments(request):
+    """Get all student assignments with role-based filtering"""
+    
+    user = request.user
+    
+    # Get the custom user and role information
+    if hasattr(user, 'custom_user'):
+        custom_user = user.custom_user
+        
+        # Check if user has a role
+        if custom_user.role:
+            role_name = custom_user.role.role_name.lower()
+            
+            # Check if superadmin - return all assignments
+            if role_name == 'superadmin':
+                assignments = StudentAssignTeacherExam.objects.all().select_related(
+                    'student', 'teacher', 'exam', 'schedule'
+                ).order_by('-created_at')
+            else:
+                # For non-superadmin users, filter by department_shortname
+                if custom_user.department:
+                    user_dept_shortname = custom_user.department.department_shortname
+                    
+                    # Get assignments where student's department matches user's department
+                    assignments = StudentAssignTeacherExam.objects.filter(
+                        student__department_shortname=user_dept_shortname
+                    ).select_related('student', 'teacher', 'exam', 'schedule').order_by('-created_at')
+                else:
+                    # If user has no department assigned, return empty queryset
+                    assignments = StudentAssignTeacherExam.objects.none()
+        else:
+            # If user has no role, return empty queryset
+            assignments = StudentAssignTeacherExam.objects.none()
+    else:
+        # If no custom_user, return empty queryset for security
+        assignments = StudentAssignTeacherExam.objects.none()
+    
+    serializer = StudentAssignTeacherExamSerializer(assignments, many=True)
+    return Response({
+        'success': True,
+        'data': serializer.data,
+        'message': 'Assignments retrieved successfully'
+    })
+
+
+@extend_schema(
+    operation_id='delete_assignment',
+    tags=['Student Assignment'],
+    summary="Delete student assignment",
+    description="Delete a specific student-teacher-exam assignment by ID.",
+    responses={
+        200: OpenApiResponse(description="Assignment deleted successfully"),
+        404: OpenApiResponse(description="Assignment not found")
+    }
+)
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def delete_assignment(request, assignment_id):
+    """Delete a specific assignment"""
+    
+    try:
+        assignment = StudentAssignTeacherExam.objects.get(id=assignment_id)
+        assignment_info = {
+            'student': assignment.student.username,
+            'teacher': assignment.teacher.username,
+            'exam_id': assignment.exam.id
+        }
+        
+        assignment.delete()
+        
+        return Response({
+            'success': True,
+            'message': 'Assignment deleted successfully',
+            'deleted_assignment': assignment_info
+        })
+        
+    except StudentAssignTeacherExam.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Assignment not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@extend_schema(
+    operation_id='delete_assignments_bulk',
+    tags=['Student Assignment'],
+    summary="Bulk delete student assignments",
+    description="Delete multiple student-teacher-exam assignments by their IDs.",
+    request={
+        'application/json': {
+            'type': 'object',
+            'properties': {
+                'assignment_ids': {
+                    'type': 'array',
+                    'items': {'type': 'integer'},
+                    'description': 'List of assignment IDs to delete'
+                }
+            },
+            'required': ['assignment_ids']
+        }
+    },
+    responses={
+        200: OpenApiResponse(description="Assignments deleted successfully"),
+        400: OpenApiResponse(description="Invalid request data")
+    }
+)
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def delete_assignments_bulk(request):
+    """Bulk delete assignments"""
+    
+    assignment_ids = request.data.get('assignment_ids', [])
+    
+    if not assignment_ids:
+        return Response({
+            'success': False,
+            'message': 'assignment_ids is required'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        with transaction.atomic():
+            # Get assignments that exist
+            assignments = StudentAssignTeacherExam.objects.filter(id__in=assignment_ids)
+            existing_ids = list(assignments.values_list('id', flat=True))
+            missing_ids = set(assignment_ids) - set(existing_ids)
+            
+            # Delete existing assignments
+            deleted_count = assignments.count()
+            assignments.delete()
+            
+            response_data = {
+                'success': True,
+                'message': f'{deleted_count} assignments deleted successfully',
+                'deleted_count': deleted_count,
+                'deleted_ids': existing_ids
+            }
+            
+            if missing_ids:
+                response_data['message'] += f'. {len(missing_ids)} IDs were not found.'
+                response_data['missing_ids'] = list(missing_ids)
+            
+            return Response(response_data)
+            
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error deleting assignments: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
