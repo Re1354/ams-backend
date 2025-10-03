@@ -1,17 +1,19 @@
 from rest_framework import generics, status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import authenticate
 from django.db.models import Count, Q
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
 from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission
 from ..serializers import (
     StudentsSerializer, StudentLoginSerializer, ExamSubmissionSerializer,
     StudentLoginResponseSerializer, ExamSubmissionResponseSerializer
 )
+from ..authentication import CustomJWTAuthentication
 
 
 @extend_schema(
@@ -677,3 +679,127 @@ def get_student_scheduled_exams(request, student_id):
     }
     
     return Response(response_data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    operation_id='get_student_schedule',
+    tags=['Student API'],
+    summary="Get student's exam schedule",
+    description="""
+    Retrieve all scheduled exams for a specific student by student ID.
+    Returns comprehensive schedule information including exam details, timing, and teacher information.
+    """,
+    parameters=[
+        OpenApiParameter(
+            name='student_id',
+            description='Student ID to get schedule for',
+            required=True,
+            type=int,
+            location=OpenApiParameter.PATH
+        )
+    ],
+    responses={
+        200: OpenApiResponse(
+            description="Student schedule retrieved successfully",
+            response={
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean'},
+                    'data': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'assignment_id': {'type': 'integer'},
+                                'schedule_id': {'type': 'integer'},
+                                'exam_id': {'type': 'integer'},
+                                'exam_name': {'type': 'string'},
+                                'exam_duration': {'type': 'integer'},
+                                'total_questions': {'type': 'integer'},
+                                'schedule_start_time': {'type': 'string', 'format': 'date-time'},
+                                'schedule_end_time': {'type': 'string', 'format': 'date-time'},
+                                'teacher_name': {'type': 'string'},
+                                'teacher_department': {'type': 'string'},
+                                'subject_name': {'type': 'string'},
+                                'department_shortnames': {'type': 'array', 'items': {'type': 'string'}},
+                                'assigned_at': {'type': 'string', 'format': 'date-time'}
+                            }
+                        }
+                    },
+                    'message': {'type': 'string'}
+                }
+            }
+        ),
+        404: OpenApiResponse(description="Student not found"),
+        403: OpenApiResponse(description="Authentication required")
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def get_student_schedule(request, student_id):
+    """Get all scheduled exams for a specific student"""
+    
+    try:
+        # Verify student exists
+        student = Students.objects.get(id=student_id)
+    except Students.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Student not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    
+    # Get all assignments for this student with related data
+    from ..models import StudentAssignTeacherExam
+    assignments = StudentAssignTeacherExam.objects.filter(
+        student_id=student_id
+    ).select_related(
+        'student', 'teacher', 'exam', 'schedule'
+    ).order_by('-created_at')
+    
+    if not assignments.exists():
+        return Response({
+            'success': True,
+            'data': [],
+            'message': f'No scheduled exams found for student {student.username}'
+        })
+    
+    # Prepare response data
+    schedule_data = []
+    
+    for assignment in assignments:
+        # Get exam questions to find department shortnames
+        exam_questions = ExamQuestion.objects.filter(exam=assignment.exam).first()
+        department_shortnames = []
+        if exam_questions and exam_questions.department_shortnames:
+            department_shortnames = [name.strip() for name in exam_questions.department_shortnames.split(',')]
+        
+        # Get subject information
+        subject_name = "N/A"
+        if hasattr(assignment.exam, 'subject') and assignment.exam.subject:
+            subject_name = assignment.exam.subject
+        
+        schedule_info = {
+            'assignment_id': assignment.id,
+            'schedule_id': assignment.schedule.id,
+            'exam_id': assignment.exam.id,
+            'exam_name': assignment.exam.name if hasattr(assignment.exam, 'name') else f"Exam {assignment.exam.id}",
+            'exam_duration': assignment.exam.duration if hasattr(assignment.exam, 'duration') else assignment.exam.duration_minutes,
+            'total_questions': assignment.exam.total_questions,
+            'schedule_start_time': assignment.schedule.start_time.isoformat(),
+            'schedule_end_time': assignment.schedule.end_time.isoformat(),
+            'teacher_name': assignment.teacher.username,
+            'teacher_department': assignment.teacher.department.department_name if assignment.teacher.department else 'N/A',
+            'subject_name': subject_name,
+            'department_shortnames': department_shortnames,
+            'assigned_at': assignment.created_at.isoformat(),
+            'is_active': assignment.schedule.is_active
+        }
+        
+        schedule_data.append(schedule_info)
+    
+    return Response({
+        'success': True,
+        'data': schedule_data,
+        'message': f'Found {len(schedule_data)} scheduled exams for student {student.username}'
+    })

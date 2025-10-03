@@ -9,7 +9,7 @@ from .schedules import AllSchedulesView, create_exam_schedule, ScheduleDetailVie
 from .student_app import (
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
     submit_exam, get_exam_result, calculate_exam_result, calculate_exam_result_helper,
-    get_student_scheduled_exams
+    get_student_scheduled_exams, get_student_schedule
 )
 from .auth import login_view, refresh_token_view, verify_token_view
 from .roles import get_all_roles, create_role, get_role_by_id, update_role, delete_role
@@ -36,7 +36,7 @@ __all__ = [
     
     # Student App
     'student_login', 'StudentAvailableExamsView', 'StudentExamQuestionsView',
-    'submit_exam', 'get_exam_result', 'calculate_exam_result', 'get_student_scheduled_exams',
+    'submit_exam', 'get_exam_result', 'calculate_exam_result', 'get_student_scheduled_exams', 'get_student_schedule',
     
     # Authentication
     'login_view', 'refresh_token_view', 'verify_token_view',
