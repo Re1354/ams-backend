@@ -32,6 +32,7 @@ from .exam import (
     ExamSerializer,
     ExamQuestionSerializer,
     ExamScheduleSerializer,
+    ExamScheduleCreateSerializer,
     CreateExamScheduleSerializer,
     ExamResultSerializer
 )
@@ -98,6 +99,7 @@ __all__ = [
     'ExamSerializer',
     'ExamQuestionSerializer',
     'ExamScheduleSerializer',
+    'ExamScheduleCreateSerializer',
     'CreateExamScheduleSerializer',
     'ExamResultSerializer',
     

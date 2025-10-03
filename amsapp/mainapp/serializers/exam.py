@@ -82,7 +82,51 @@ class ExamQuestionSerializer(serializers.ModelSerializer):
 
 
 class ExamScheduleSerializer(serializers.ModelSerializer):
-    """Serializer for ExamSchedule model"""
+    """Serializer for ExamSchedule model with detailed exam information"""
+    exam_details = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ExamSchedule
+        fields = ['id', 'exam', 'exam_details', 'start_time', 'end_time', 'is_active', 'created_at']
+        read_only_fields = ['id', 'created_at']
+    
+    def get_exam_details(self, obj):
+        """Get detailed exam information with department shortnames from questions"""
+        if obj.exam:
+            # Get unique department shortnames from exam questions
+            from ..models import ExamQuestion
+            department_shortnames = list(
+                ExamQuestion.objects.filter(exam=obj.exam)
+                .values_list('department_shortname', flat=True)
+                .distinct()
+            )
+            
+            return {
+                'id': obj.exam.id,
+                'department': obj.exam.department,
+                'semester': obj.exam.semester,
+                'total_questions': obj.exam.total_questions,
+                'present_question': obj.exam.present_question,
+                'total_marks': obj.exam.total_marks,
+                'duration_minutes': obj.exam.duration_minutes,
+                'language': obj.exam.language,
+                'faculty': obj.exam.faculty,
+                'department_shortnames': department_shortnames,  # Added department shortnames from questions
+                'created_at': obj.exam.created_at,
+                'updated_at': obj.exam.updated_at
+            }
+        return None
+    
+    def validate(self, data):
+        """Validate that end_time is after start_time"""
+        if data.get('start_time') and data.get('end_time'):
+            if data['end_time'] <= data['start_time']:
+                raise serializers.ValidationError("End time must be after start time")
+        return data
+
+
+class ExamScheduleCreateSerializer(serializers.ModelSerializer):
+    """Simple serializer for creating/updating ExamSchedule without exam details"""
     
     class Meta:
         model = ExamSchedule

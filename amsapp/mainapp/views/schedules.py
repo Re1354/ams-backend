@@ -11,8 +11,8 @@ from ..authentication import CustomJWTAuthentication
 
 
 @extend_schema(
-    summary="Get all exam schedules",
-    description="Retrieve all exam schedules",
+    summary="Get all exam schedules with exam details",
+    description="Retrieve exam schedules with detailed exam information. Role-based filtering: superadmin sees all schedules, other users only see schedules for exams matching their department_shortname.",
     tags=['Schedule'],
     responses={200: ExamScheduleSerializer(many=True)}
 )
@@ -40,7 +40,7 @@ class AllSchedulesView(generics.ListCreateAPIView):
                 
                 # Check if superadmin - return all schedules
                 if role_name == 'superadmin':
-                    return ExamSchedule.objects.all().order_by('start_time')
+                    return ExamSchedule.objects.all().select_related('exam').prefetch_related('exam__exam_questions').order_by('start_time')
             
             # For non-superadmin users, filter by department_shortname
             if custom_user.department:
@@ -54,7 +54,7 @@ class AllSchedulesView(generics.ListCreateAPIView):
                 
                 return ExamSchedule.objects.filter(
                     exam_id__in=exam_ids_with_matching_questions
-                ).order_by('start_time')
+                ).select_related('exam').prefetch_related('exam__exam_questions').order_by('start_time')
             
             # If user has no department assigned, return empty queryset
             return ExamSchedule.objects.none()
@@ -211,8 +211,9 @@ def create_exam_schedule(request):
         'is_active': validated_data.get('is_active', True)
     }
     
-    # Use model serializer for database operations
-    schedule_serializer = ExamScheduleSerializer(data=schedule_data)
+    # Use simple serializer for database operations (without exam details)
+    from ..serializers.exam import ExamScheduleCreateSerializer
+    schedule_serializer = ExamScheduleCreateSerializer(data=schedule_data)
     if schedule_serializer.is_valid():
         # Save the schedule
         schedule = schedule_serializer.save()
