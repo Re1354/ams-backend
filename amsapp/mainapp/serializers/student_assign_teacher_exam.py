@@ -36,8 +36,7 @@ class StudentAssignBulkSerializer(serializers.Serializer):
         help_text="List of student IDs to assign"
     )
     teacher_id = serializers.IntegerField(help_text="Teacher ID who is assigning the exam")
-    exam_id = serializers.IntegerField(help_text="Exam ID to assign to students")
-    schedule_id = serializers.IntegerField(help_text="Schedule ID for the exam")
+    schedule_id = serializers.IntegerField(help_text="Schedule ID for the exam (exam_id will be automatically retrieved from schedule)")
     
     def validate_student_ids(self, value):
         """Validate that all student IDs exist"""
@@ -53,15 +52,13 @@ class StudentAssignBulkSerializer(serializers.Serializer):
             raise serializers.ValidationError("Teacher does not exist")
         return value
     
-    def validate_exam_id(self, value):
-        """Validate that exam exists"""
-        if not Exam.objects.filter(id=value).exists():
-            raise serializers.ValidationError("Exam does not exist")
-        return value
-    
     def validate_schedule_id(self, value):
-        """Validate that schedule exists"""
-        if not ExamSchedule.objects.filter(id=value).exists():
+        """Validate that schedule exists and has an associated exam"""
+        try:
+            schedule = ExamSchedule.objects.select_related('exam').get(id=value)
+            if not schedule.exam:
+                raise serializers.ValidationError("Schedule does not have an associated exam")
+        except ExamSchedule.DoesNotExist:
             raise serializers.ValidationError("Schedule does not exist")
         return value
 
@@ -71,8 +68,7 @@ class StudentAssignSingleSerializer(serializers.Serializer):
     
     student_id = serializers.IntegerField(help_text="Student ID to assign")
     teacher_id = serializers.IntegerField(help_text="Teacher ID who is assigning the exam")
-    exam_id = serializers.IntegerField(help_text="Exam ID to assign to student")
-    schedule_id = serializers.IntegerField(help_text="Schedule ID for the exam")
+    schedule_id = serializers.IntegerField(help_text="Schedule ID for the exam (exam_id will be automatically retrieved from schedule)")
     
     def validate_student_id(self, value):
         """Validate that student exists"""
@@ -86,14 +82,12 @@ class StudentAssignSingleSerializer(serializers.Serializer):
             raise serializers.ValidationError("Teacher does not exist")
         return value
     
-    def validate_exam_id(self, value):
-        """Validate that exam exists"""
-        if not Exam.objects.filter(id=value).exists():
-            raise serializers.ValidationError("Exam does not exist")
-        return value
-    
     def validate_schedule_id(self, value):
-        """Validate that schedule exists"""
-        if not ExamSchedule.objects.filter(id=value).exists():
+        """Validate that schedule exists and has an associated exam"""
+        try:
+            schedule = ExamSchedule.objects.select_related('exam').get(id=value)
+            if not schedule.exam:
+                raise serializers.ValidationError("Schedule does not have an associated exam")
+        except ExamSchedule.DoesNotExist:
             raise serializers.ValidationError("Schedule does not exist")
         return value

@@ -14,12 +14,19 @@ class StudentAssignTeacherExam(models.Model):
 
     class Meta:
         db_table = "student_assign_teacher_exam"
-        unique_together = ('student', 'teacher', 'exam')  # Prevent duplicate assignments
+        unique_together = ('student', 'teacher', 'schedule')  # Prevent duplicate assignments for same schedule
         indexes = [
             models.Index(fields=['student', 'exam']),
             models.Index(fields=['teacher', 'exam']),
+            models.Index(fields=['student', 'schedule']),
             models.Index(fields=['created_at']),
         ]
+
+    def save(self, *args, **kwargs):
+        # Automatically set exam from schedule if not already set
+        if self.schedule and not self.exam:
+            self.exam = self.schedule.exam
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Student: {self.student.username} | Teacher: {self.teacher.username} | Exam: {self.exam.id}"

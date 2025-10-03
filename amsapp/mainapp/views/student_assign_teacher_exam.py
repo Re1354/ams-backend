@@ -12,6 +12,7 @@ from ..serializers.student_assign_teacher_exam import (
     StudentAssignBulkSerializer, 
     StudentAssignSingleSerializer
 )
+from ..serializers.exam import ExamScheduleSerializer
 from ..authentication import CustomJWTAuthentication
 
 
@@ -19,7 +20,7 @@ from ..authentication import CustomJWTAuthentication
     operation_id='assign_students_bulk',
     tags=['Student Assignment'],
     summary="Bulk assign students to teacher and exam",
-    description="Assign multiple students to a teacher and exam in one request. Supports bulk operations.",
+    description="Assign multiple students to a teacher and exam in one request. The exam_id is automatically retrieved from the ExamSchedule. Supports bulk operations.",
     request=StudentAssignBulkSerializer,
     responses={
         201: OpenApiResponse(description="Students assigned successfully"),
@@ -44,15 +45,14 @@ def assign_students_bulk(request):
     validated_data = serializer.validated_data
     student_ids = validated_data['student_ids']
     teacher_id = validated_data['teacher_id']
-    exam_id = validated_data['exam_id']
     schedule_id = validated_data['schedule_id']
     
     try:
         with transaction.atomic():
             # Get objects
             teacher = User.objects.get(id=teacher_id)
-            exam = Exam.objects.get(id=exam_id)
-            schedule = ExamSchedule.objects.get(id=schedule_id)
+            schedule = ExamSchedule.objects.select_related('exam').get(id=schedule_id)
+            exam = schedule.exam  # Get exam from schedule automatically
             students = Students.objects.filter(id__in=student_ids)
             
             # Track results
@@ -101,7 +101,7 @@ def assign_students_bulk(request):
     operation_id='assign_student_single',
     tags=['Student Assignment'],
     summary="Assign single student to teacher and exam",
-    description="Assign a single student to a teacher and exam.",
+    description="Assign a single student to a teacher and exam. The exam_id is automatically retrieved from the ExamSchedule.",
     request=StudentAssignSingleSerializer,
     responses={
         201: OpenApiResponse(description="Student assigned successfully"),
@@ -126,15 +126,14 @@ def assign_student_single(request):
     validated_data = serializer.validated_data
     student_id = validated_data['student_id']
     teacher_id = validated_data['teacher_id']
-    exam_id = validated_data['exam_id']
     schedule_id = validated_data['schedule_id']
     
     try:
         # Get objects
         student = Students.objects.get(id=student_id)
         teacher = User.objects.get(id=teacher_id)
-        exam = Exam.objects.get(id=exam_id)
-        schedule = ExamSchedule.objects.get(id=schedule_id)
+        schedule = ExamSchedule.objects.select_related('exam').get(id=schedule_id)
+        exam = schedule.exam  # Get exam from schedule automatically
         
         # Create or get assignment
         assignment, created = StudentAssignTeacherExam.objects.get_or_create(
@@ -166,11 +165,6 @@ def assign_student_single(request):
         return Response({
             'success': False,
             'message': 'Teacher not found'
-        }, status=status.HTTP_404_NOT_FOUND)
-    except Exam.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': 'Exam not found'
         }, status=status.HTTP_404_NOT_FOUND)
     except ExamSchedule.DoesNotExist:
         return Response({
@@ -344,3 +338,69 @@ def delete_assignments_bulk(request):
             'success': False,
             'message': f'Error deleting assignments: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@extend_schema(
+    operation_id='get_available_schedules',
+    tags=['Student Assignment'],
+    summary="Get available exam schedules for assignment",
+    description="Retrieve all active exam schedules that can be used for student assignment. Each schedule contains the exam information automatically.",
+    responses={
+        200: OpenApiResponse(
+            response=ExamScheduleSerializer(many=True),
+            description="Available schedules retrieved successfully"
+        )
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def get_available_schedules(request):
+    """Get all available exam schedules for assignment"""
+    
+    user = request.user
+    
+    # Get the custom user and role information
+    if hasattr(user, 'custom_user'):
+        custom_user = user.custom_user
+        
+        # Check if user has a role
+        if custom_user.role:
+            role_name = custom_user.role.role_name.lower()
+            
+            # Check if superadmin - return all schedules
+            if role_name == 'superadmin':
+                schedules = ExamSchedule.objects.filter(
+                    is_active=True
+                ).select_related('exam').order_by('-created_at')
+            else:
+                # For non-superadmin users, filter by department_shortname
+                if custom_user.department:
+                    user_dept_shortname = custom_user.department.department_shortname
+                    
+                    # Get schedules where exam's department matches user's department
+                    from ..models.exam_question import ExamQuestion
+                    exam_ids = ExamQuestion.objects.filter(
+                        department_shortnames__icontains=user_dept_shortname
+                    ).values_list('exam_id', flat=True).distinct()
+                    
+                    schedules = ExamSchedule.objects.filter(
+                        is_active=True,
+                        exam_id__in=exam_ids
+                    ).select_related('exam').order_by('-created_at')
+                else:
+                    # If user has no department assigned, return empty queryset
+                    schedules = ExamSchedule.objects.none()
+        else:
+            # If user has no role, return empty queryset
+            schedules = ExamSchedule.objects.none()
+    else:
+        # If no custom_user, return empty queryset for security
+        schedules = ExamSchedule.objects.none()
+    
+    serializer = ExamScheduleSerializer(schedules, many=True)
+    return Response({
+        'success': True,
+        'data': serializer.data,
+        'message': 'Available schedules retrieved successfully'
+    })

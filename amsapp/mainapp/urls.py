@@ -4,7 +4,7 @@ from .views import (
     ExamQuestionListView, AddQuestionToExamView, ExamQuestionDetailView, AllExamsView, DeleteExamView,
     AllStudentsView, StudentDetailView, AllSchedulesView, ScheduleDetailView, create_exam_schedule,
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
-    submit_exam, get_exam_result, login_view, refresh_token_view, verify_token_view,
+    submit_exam, get_exam_result, get_student_scheduled_exams, login_view, refresh_token_view, verify_token_view,
     get_all_roles, create_role, get_role_by_id, update_role, delete_role,
     get_all_users, create_user, get_user_by_id, update_user, delete_user, get_all_teachers
 )
@@ -30,7 +30,7 @@ from .views.exam_generation import (
 )
 from .views.student_assign_teacher_exam import (
     assign_students_bulk, assign_student_single, get_all_assignments, 
-    delete_assignment, delete_assignments_bulk
+    delete_assignment, delete_assignments_bulk, get_available_schedules
 )
 from .api_info import api_info, home
 
@@ -71,6 +71,7 @@ urlpatterns = [
     path('api/student/exam/<int:exam_id>/questions/', StudentExamQuestionsView.as_view(), name='student-exam-questions'),
     path('api/student/exam/<int:exam_id>/submit/', submit_exam, name='submit-exam'),
     path('api/student/exam/<int:exam_id>/result/<int:student_id>/', get_exam_result, name='get-exam-result'),
+    path('api/student/<int:student_id>/scheduled-exams/', get_student_scheduled_exams, name='get-student-scheduled-exams'),
     
     # Authentication API
     path('api/auth/login/', login_view, name='login'),
@@ -140,4 +141,6 @@ urlpatterns = [
     path('api/student-assignments/assign-single/', assign_student_single, name='assign-student-single'),
     path('api/student-assignments/<int:assignment_id>/delete/', delete_assignment, name='delete-assignment'),
     path('api/student-assignments/delete-bulk/', delete_assignments_bulk, name='delete-assignments-bulk'),
+    path('api/student-assignments/available-schedules/', get_available_schedules, name='get-available-schedules'),
+    
 ]

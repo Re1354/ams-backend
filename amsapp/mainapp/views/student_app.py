@@ -543,3 +543,137 @@ def calculate_exam_result_helper(student_id, exam_id):
         
     except (Students.DoesNotExist, Exam.DoesNotExist):
         return None
+
+
+@extend_schema(
+    operation_id='get_student_scheduled_exams',
+    summary="Get student scheduled exams",
+    description="Get all scheduled exams assigned to a specific student based on StudentAssignTeacherExam assignments",
+    tags=['Student App'],
+    responses={200: {
+        'type': 'object',
+        'properties': {
+            'student_id': {'type': 'integer'},
+            'student_info': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string'},
+                    'f_id': {'type': 'string'},
+                    'department_shortname': {'type': 'string'}
+                }
+            },
+            'scheduled_exams': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'assignment_id': {'type': 'integer'},
+                        'schedule_id': {'type': 'integer'},
+                        'exam_id': {'type': 'integer'},
+                        'exam_details': {
+                            'type': 'object',
+                            'properties': {
+                                'department': {'type': 'string'},
+                                'semester': {'type': 'string'},
+                                'total_questions': {'type': 'integer'},
+                                'total_marks': {'type': 'integer'},
+                                'duration_minutes': {'type': 'integer'},
+                                'language': {'type': 'string'},
+                                'faculty': {'type': 'string'}
+                            }
+                        },
+                        'schedule_details': {
+                            'type': 'object',
+                            'properties': {
+                                'start_time': {'type': 'string'},
+                                'end_time': {'type': 'string'},
+                                'is_active': {'type': 'boolean'}
+                            }
+                        },
+                        'teacher_info': {
+                            'type': 'object',
+                            'properties': {
+                                'teacher_id': {'type': 'integer'},
+                                'teacher_name': {'type': 'string'}
+                            }
+                        },
+                        'assigned_at': {'type': 'string'}
+                    }
+                }
+            },
+            'total_assigned_exams': {'type': 'integer'}
+        }
+    }}
+)
+@api_view(['GET'])
+def get_student_scheduled_exams(request, student_id):
+    """Get all scheduled exams assigned to a specific student"""
+    try:
+        student = Students.objects.get(id=student_id)
+    except Students.DoesNotExist:
+        return Response(
+            {'error': 'Student not found'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Get all assignments for this student with related data
+    from ..models import StudentAssignTeacherExam
+    assignments = StudentAssignTeacherExam.objects.filter(
+        student=student
+    ).select_related(
+        'exam', 'teacher', 'schedule'
+    ).order_by('-created_at')
+    
+    if not assignments.exists():
+        return Response({
+            'student_id': student.id,
+            'student_info': {
+                'username': student.username,
+                'f_id': student.f_id,
+                'department_shortname': student.department_shortname
+            },
+            'scheduled_exams': [],
+            'total_assigned_exams': 0
+        }, status=status.HTTP_200_OK)
+    
+    scheduled_exams = []
+    
+    for assignment in assignments:
+        exam_data = {
+            'assignment_id': assignment.id,
+            'schedule_id': assignment.schedule.id,
+            'exam_id': assignment.exam.id,
+            'exam_details': {
+                'department': assignment.exam.department,
+                'semester': assignment.exam.semester,
+                'total_questions': assignment.exam.total_questions,
+                'total_marks': assignment.exam.total_marks,
+                'duration_minutes': assignment.exam.duration_minutes,
+                'language': assignment.exam.language,
+                'faculty': assignment.exam.faculty
+            },
+            'schedule_details': {
+                'start_time': assignment.schedule.start_time,
+                'end_time': assignment.schedule.end_time,
+                'is_active': assignment.schedule.is_active
+            },
+            'teacher_info': {
+                'teacher_id': assignment.teacher.id,
+                'teacher_name': assignment.teacher.username
+            },
+            'assigned_at': assignment.created_at
+        }
+        scheduled_exams.append(exam_data)
+    
+    response_data = {
+        'student_id': student.id,
+        'student_info': {
+            'username': student.username,
+            'f_id': student.f_id,
+            'department_shortname': student.department_shortname
+        },
+        'scheduled_exams': scheduled_exams,
+        'total_assigned_exams': len(scheduled_exams)
+    }
+    
+    return Response(response_data, status=status.HTTP_200_OK)
