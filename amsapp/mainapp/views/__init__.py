@@ -18,6 +18,10 @@ from .student_assign_teacher_exam import (
     assign_students_bulk, assign_student_single, get_all_assignments, 
     delete_assignment, delete_assignments_bulk, get_available_schedules
 )
+from .results import (
+    toggle_exam_publication, get_student_exam_result_enhanced,
+    get_all_results_by_teacher, get_published_exams
+)
 
 # Make all views available when importing from mainapp.views
 __all__ = [
@@ -49,5 +53,9 @@ __all__ = [
     
     # Student Assignments
     'assign_students_bulk', 'assign_student_single', 'get_all_assignments', 
-    'delete_assignment', 'delete_assignments_bulk', 'get_available_schedules'
+    'delete_assignment', 'delete_assignments_bulk', 'get_available_schedules',
+    
+    # Results Management
+    'toggle_exam_publication', 'get_student_exam_result_enhanced',
+    'get_all_results_by_teacher', 'get_published_exams'
 ]

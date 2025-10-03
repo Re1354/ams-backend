@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from ..models import Exam, ExamQuestion, ExamSchedule, ScrappedQuestion
 from datetime import timedelta
 
@@ -90,6 +91,7 @@ class ExamScheduleSerializer(serializers.ModelSerializer):
         fields = ['id', 'exam', 'exam_details', 'start_time', 'end_time', 'is_active', 'created_at']
         read_only_fields = ['id', 'created_at']
     
+    @extend_schema_field(serializers.DictField())
     def get_exam_details(self, obj):
         """Get detailed exam information with department shortnames from questions"""
         if obj.exam:

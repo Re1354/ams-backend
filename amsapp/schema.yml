@@ -1,0 +1,5191 @@
+openapi: 3.0.3
+info:
+  title: AMS DIU Backend API
+  version: 1.0.0
+  description: API for Academic Management System - DIU Backend with scrapped questions
+    and educational content
+paths:
+  /api/all-exams/:
+    get:
+      operationId: all_exams_list
+      description: 'Retrieve exams with role-based filtering: superadmin sees all
+        exams, other users only see exams that contain questions matching their department_shortname.'
+      summary: Get all exams
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Exam
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedExamList'
+          description: ''
+  /api/all-scrapped-questions/:
+    get:
+      operationId: all_scrapped_questions_list
+      description: Retrieve all scrapped questions with optional filtering, sorting,
+        and pagination. Returns questions with pagination metadata.
+      summary: Get all scrapped questions
+      parameters:
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number (default 1)
+      - in: query
+        name: per_page
+        schema:
+          type: integer
+        description: Items per page (default 10, max 100)
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Search in question text and subject
+      - in: query
+        name: semester
+        schema:
+          type: string
+        description: Filter questions by semester
+      - in: query
+        name: sort_by
+        schema:
+          type: string
+          enum:
+          - -id
+          - -marks
+          - -semester
+          - -subject
+          - -type
+          - id
+          - marks
+          - semester
+          - subject
+          - type
+        description: Sort questions by field
+      - in: query
+        name: subject
+        schema:
+          type: string
+        description: Filter questions by subject
+      - in: query
+        name: type
+        schema:
+          type: string
+          enum:
+          - option
+          - text
+        description: Filter questions by type
+      tags:
+      - Questions
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedScrappedQuestionList'
+          description: ''
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: Authenticate user and return simple token with user details
+      summary: User Login
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: Username for login
+                  example: admin
+                password:
+                  type: string
+                  description: Password for login
+                  example: admin123
+              required:
+              - username
+              - password
+            examples:
+              LoginRequest:
+                value:
+                  username: admin
+                  password: admin123
+                summary: Example login request
+                description: Login with username and password
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Login successful
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: Login successful
+                      data:
+                        token: abc123def456ghi789...
+                        user:
+                          id: 1
+                          username: admin
+                          email: admin@example.com
+                          created_at: '2024-01-01T10:00:00Z'
+                          role_details:
+                            id: 1
+                            role_name: superadmin
+                          department_details:
+                            id: 1
+                            department_name: Computer Science
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Invalid credentials or validation error
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Invalid credentials
+                      errors:
+                      - Invalid credentials
+          description: ''
+  /api/auth/refresh/:
+    post:
+      operationId: auth_refresh_create
+      description: Refresh access token using refresh token
+      summary: Refresh Token
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh:
+                  type: string
+                  description: Refresh token
+                  example: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+              required:
+              - refresh
+            examples:
+              RefreshTokenRequest:
+                value:
+                  refresh: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+                summary: Example refresh token request
+                description: Refresh access token using refresh token
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Token refreshed successfully
+                content:
+                  application/json:
+                    example:
+                      access: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Invalid refresh token
+                content:
+                  application/json:
+                    example:
+                      detail: Token is blacklisted
+                      code: token_not_valid
+          description: ''
+  /api/auth/verify/:
+    post:
+      operationId: auth_verify_create
+      description: Verify token and return user details
+      summary: Verify Token
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: Authentication token
+                  example: abc123def456ghi789...
+              required:
+              - token
+            examples:
+              VerifyTokenRequest:
+                value:
+                  token: abc123def456ghi789...
+                summary: Example token verification request
+                description: Verify authentication token
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Token is valid
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: Token is valid
+                      data:
+                        user:
+                          id: 1
+                          username: admin
+                          email: admin@example.com
+                          created_at: '2024-01-01T10:00:00Z'
+                          role_details:
+                            id: 1
+                            role_name: superadmin
+                          department_details:
+                            id: 1
+                            department_name: Computer Science
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Invalid token
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Invalid token
+                      errors:
+                      - Token is invalid or expired
+          description: ''
+  /api/create-exam/:
+    post:
+      operationId: create_exam_create
+      description: Create an exam by selecting questions from different subjects based
+        on percentage distribution.
+      summary: Create exam with questions
+      tags:
+      - Exam
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExamCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExamCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExamCreateRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exam_id:
+                    type: integer
+                    description: Created exam ID
+                  total_questions:
+                    type: integer
+                    description: Total questions in exam
+                  total_marks:
+                    type: integer
+                    description: Total marks for exam
+                  message:
+                    type: string
+                    description: Success message
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Bad request - validation errors
+          description: ''
+  /api/departments/:
+    get:
+      operationId: get_all_departments
+      description: Retrieve all departments in the system with their names and shortnames.
+      summary: Get all departments
+      tags:
+      - Departments
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Departments retrieved successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      data:
+                      - id: 1
+                        department_name: Computer Science and Engineering
+                        department_shortname: CSE
+                      - id: 2
+                        department_name: Electrical and Electronic Engineering
+                        department_shortname: EEE
+                      message: Departments retrieved successfully
+          description: ''
+  /api/departments/{department_id}/:
+    get:
+      operationId: get_department_by_id
+      description: Retrieve a specific department by its ID with name and shortname.
+      summary: Get department by ID
+      parameters:
+      - in: path
+        name: department_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Departments
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Department retrieved successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      data:
+                        id: 1
+                        department_name: Computer Science and Engineering
+                        department_shortname: CSE
+                      message: Department retrieved successfully
+          description: ''
+        '404':
+          description: Department not found
+  /api/departments/{department_id}/delete/:
+    delete:
+      operationId: delete_department
+      description: 'Delete a department. Only superadmin can perform this action.
+        Warning: This will affect all users assigned to this department.'
+      summary: Delete department
+      parameters:
+      - in: path
+        name: department_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Departments
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Department deleted successfully
+        '403':
+          description: Only superadmin can delete departments
+        '404':
+          description: Department not found
+  /api/departments/{department_id}/update/:
+    put:
+      operationId: update_department_full
+      description: Update department name and shortname. Only superadmin can perform
+        this action. Requires all fields.
+      summary: Update department (PUT)
+      parameters:
+      - in: path
+        name: department_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Departments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                department_name:
+                  type: string
+                  description: Full name of the department
+                  example: Computer Science and Engineering
+                department_shortname:
+                  type: string
+                  description: Short name/abbreviation of the department
+                  example: CSE
+              required:
+              - department_name
+              - department_shortname
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Department updated successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      data:
+                        id: 1
+                        department_name: Computer Science and Engineering
+                        department_shortname: CSE
+                      message: Department "Computer Science and Engineering" updated
+                        successfully
+          description: ''
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can update departments
+        '404':
+          description: Department not found
+    patch:
+      operationId: update_department_partial
+      description: Partially update department name and/or shortname. Only superadmin
+        can perform this action. Only provided fields will be updated.
+      summary: Update department (PATCH)
+      parameters:
+      - in: path
+        name: department_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Departments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                department_name:
+                  type: string
+                  description: Full name of the department
+                  example: Computer Science and Engineering
+                department_shortname:
+                  type: string
+                  description: Short name/abbreviation of the department
+                  example: CSE
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Department updated successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      data:
+                        id: 1
+                        department_name: Computer Science and Engineering
+                        department_shortname: CSE
+                      message: Department "Computer Science and Engineering" updated
+                        successfully
+          description: ''
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can update departments
+        '404':
+          description: Department not found
+  /api/departments/create/:
+    post:
+      operationId: create_department
+      description: Create a new department with name and shortname. Only superadmin
+        can perform this action.
+      summary: Create a new department
+      tags:
+      - Departments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                department_name:
+                  type: string
+                  description: Full name of the department
+                  example: Computer Science and Engineering
+                department_shortname:
+                  type: string
+                  description: Short name/abbreviation of the department
+                  example: CSE
+              required:
+              - department_name
+              - department_shortname
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: Department created successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      data:
+                        id: 1
+                        department_name: Computer Science and Engineering
+                        department_shortname: CSE
+                      message: Department "Computer Science and Engineering" created
+                        successfully
+          description: ''
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can create departments
+  /api/exam-questions/{exam_id}/:
+    get:
+      operationId: exam_questions_list
+      description: Retrieve all questions that belong to a specific exam
+      summary: Get all questions in an exam
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Exam
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedExamQuestionList'
+          description: ''
+  /api/exam-questions/{exam_id}/add/:
+    post:
+      operationId: exam_questions_add_create
+      description: Add a single question to a specific exam. Validates that present_question
+        count doesn't exceed total_questions limit.
+      summary: Add individual question to exam
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Exam
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExamQuestionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExamQuestionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExamQuestionRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    description: Success message
+                  question:
+                    $ref: '#/components/schemas/ExamQuestion'
+                  exam_stats:
+                    type: object
+                    properties:
+                      present_question:
+                        type: integer
+                      total_questions:
+                        type: integer
+                      remaining_slots:
+                        type: integer
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Bad request - validation errors or exam full
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Exam not found
+          description: ''
+  /api/exam-questions/{exam_id}/delete/:
+    delete:
+      operationId: exam_questions_delete_destroy
+      description: Delete a specific exam and all its associated questions
+      summary: Delete exam
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Exam
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    description: Success message
+                  deleted_exam_id:
+                    type: integer
+                    description: ID of deleted exam
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Exam not found
+          description: ''
+  /api/exam-questions/{exam_id}/question/{question_id}/:
+    get:
+      operationId: exam_questions_question_retrieve
+      description: Update or delete a specific question within an exam. Use PUT to
+        update question details or DELETE to remove the question from the exam.
+      summary: Edit or delete specific question in an exam
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: question_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Exam
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    description: Success message
+                  question:
+                    $ref: '#/components/schemas/ExamQuestion'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Question or exam not found
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Bad request - validation errors
+          description: ''
+    put:
+      operationId: exam_questions_question_update
+      description: Update or delete a specific question within an exam. Use PUT to
+        update question details or DELETE to remove the question from the exam.
+      summary: Edit or delete specific question in an exam
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: question_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Exam
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExamQuestionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExamQuestionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExamQuestionRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    description: Success message
+                  question:
+                    $ref: '#/components/schemas/ExamQuestion'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Question or exam not found
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Bad request - validation errors
+          description: ''
+    patch:
+      operationId: exam_questions_question_partial_update
+      description: Update or delete a specific question within an exam. Use PUT to
+        update question details or DELETE to remove the question from the exam.
+      summary: Edit or delete specific question in an exam
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: question_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Exam
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedExamQuestionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedExamQuestionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedExamQuestionRequest'
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    description: Success message
+                  question:
+                    $ref: '#/components/schemas/ExamQuestion'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Question or exam not found
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Bad request - validation errors
+          description: ''
+    delete:
+      operationId: exam_questions_question_destroy
+      description: Update or delete a specific question within an exam. Use PUT to
+        update question details or DELETE to remove the question from the exam.
+      summary: Edit or delete specific question in an exam
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: question_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Exam
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    description: Success message
+                  question:
+                    $ref: '#/components/schemas/ExamQuestion'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Question or exam not found
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Bad request - validation errors
+          description: ''
+  /api/exams/generate/:
+    post:
+      operationId: generate_exam
+      description: Generate exam questions based on subjects and marks. Questions
+        are not saved until explicitly requested.
+      summary: Generate exam questions
+      tags:
+      - Exam Generation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExamGenerationRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExamGenerationRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExamGenerationRequestRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratedExamResponse'
+          description: Exam questions generated successfully
+        '400':
+          description: Invalid request data
+        '404':
+          description: Not enough questions available
+  /api/exams/save-generated/:
+    post:
+      operationId: save_generated_exam
+      description: Save exam data and questions directly to database. Creates exam
+        record and associated exam questions.
+      summary: Save exam with questions
+      tags:
+      - Exam Generation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExamSaveRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExamSaveRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExamSaveRequestRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          description: Exam saved successfully
+        '400':
+          description: Invalid request data
+  /api/get-all-results-by-teacher/{teacher_id}/:
+    get:
+      operationId: get_all_results_by_teacher
+      description: Get paginated results summary for all students under a teacher.
+        Superadmin sees all results, others see results based on teacher_id.
+      summary: Get all exam results summary for a teacher
+      parameters:
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Number of results per page
+      - in: query
+        name: semester
+        schema:
+          type: string
+        description: Filter by semester
+      - in: path
+        name: teacher_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Exam Results
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultsSummary'
+          description: Results summary retrieved successfully
+        '404':
+          description: Teacher not found
+  /api/info/:
+    get:
+      operationId: get_api_info
+      description: Get basic information about the AMS DIU Backend API
+      summary: API Information
+      tags:
+      - Information
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIInfoResponse'
+          description: ''
+  /api/menus/:
+    get:
+      operationId: menus_retrieve
+      description: Retrieve all available menus in the system.
+      summary: Get all menus
+      tags:
+      - Menus
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Menu'
+          description: List of all menus
+  /api/menus/{menu_id}/delete/:
+    delete:
+      operationId: menus_delete_destroy
+      description: Delete a menu from the system. Only superadmin can perform this
+        action. This will also remove all role-menu assignments for this menu.
+      summary: Delete a menu
+      parameters:
+      - in: path
+        name: menu_id
+        schema:
+          type: integer
+        description: Menu ID to delete
+        required: true
+      tags:
+      - Menu Management
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Menu deleted successfully
+        '403':
+          description: Only superadmin can delete menus
+        '404':
+          description: Menu not found
+  /api/menus/{menu_id}/update/:
+    put:
+      operationId: menus_update_update
+      description: Update an existing menu. Only superadmin can perform this action.
+      summary: Update a menu
+      parameters:
+      - in: path
+        name: menu_id
+        schema:
+          type: integer
+        description: Menu ID to update
+        required: true
+      tags:
+      - Menu Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  description: Menu display name
+                icon:
+                  type: string
+                  description: Frontend icon identifier
+                link:
+                  type: string
+                  description: Frontend route path
+              example:
+                label: Updated Reports
+                icon: FileBarChart2
+                link: /reports-v2
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Menu'
+          description: Menu updated successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can update menus
+        '404':
+          description: Menu not found
+    patch:
+      operationId: menus_update_partial_update
+      description: Update an existing menu. Only superadmin can perform this action.
+      summary: Update a menu
+      parameters:
+      - in: path
+        name: menu_id
+        schema:
+          type: integer
+        description: Menu ID to update
+        required: true
+      tags:
+      - Menu Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  description: Menu display name
+                icon:
+                  type: string
+                  description: Frontend icon identifier
+                link:
+                  type: string
+                  description: Frontend route path
+              example:
+                label: Updated Reports
+                icon: FileBarChart2
+                link: /reports-v2
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Menu'
+          description: Menu updated successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can update menus
+        '404':
+          description: Menu not found
+  /api/menus/create/:
+    post:
+      operationId: menus_create_create
+      description: Create a new menu in the system. Only superadmin can perform this
+        action.
+      summary: Create a new menu
+      tags:
+      - Menu Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  description: Menu display name
+                icon:
+                  type: string
+                  description: Frontend icon identifier
+                link:
+                  type: string
+                  description: Frontend route path
+              required:
+              - label
+              - link
+              example:
+                label: Reports
+                icon: FileBarChart
+                link: /reports
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Menu'
+          description: Menu created successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can create menus
+  /api/menus/user/:
+    get:
+      operationId: menus_user_retrieve
+      description: Get all menus accessible to the current authenticated user based
+        on their role.
+      summary: Get current user's menus
+      tags:
+      - User Menus
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: User's accessible menus with permissions
+  /api/published-exams/:
+    get:
+      operationId: get_published_exams
+      description: Get list of all exams with their publication status
+      summary: Get all published exams
+      tags:
+      - Exam Results
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublishedExam'
+          description: Published exams retrieved successfully
+  /api/questions-stats/:
+    get:
+      operationId: questions_stats_retrieve
+      description: Get comprehensive statistics about all questions including counts
+        by subject, type, and semester.
+      summary: Get questions statistics
+      tags:
+      - Statistics
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_questions:
+                    type: integer
+                    description: Total number of questions
+                  subjects:
+                    type: object
+                    description: Count by subject
+                    example:
+                      Mathematics: 3
+                      English: 11
+                      Physics: 5
+                      General Knowledge: 3
+                      IT - Using AI and ChatGPT: 3
+                  types:
+                    type: object
+                    description: Count by question type
+                    example:
+                      option: 20
+                      text: 5
+                  semesters:
+                    type: object
+                    description: Count by semester
+                    example:
+                      General: 25
+          description: ''
+  /api/questions/block/:
+    post:
+      operationId: block_question
+      description: Move a question from scrapped_questions to blocklist_questions
+        with remarks
+      summary: Block a question
+      tags:
+      - Question Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlockQuestionRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BlockQuestionRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BlockQuestionRequestRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Question blocked successfully
+        '400':
+          description: Invalid request data
+        '404':
+          description: Question not found
+  /api/questions/blocked/:
+    get:
+      operationId: get_blocked_questions
+      description: Retrieve all questions in the blocklist
+      summary: Get all blocked questions
+      tags:
+      - Question Management
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BlocklistQuestion'
+          description: Blocked questions retrieved successfully
+  /api/questions/unblock/:
+    put:
+      operationId: unblock_question
+      description: Move a question back from blocklist_questions to scrapped_questions
+      summary: Unblock a question
+      tags:
+      - Question Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnblockQuestionRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UnblockQuestionRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UnblockQuestionRequestRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Question unblocked successfully
+        '400':
+          description: Invalid request data
+        '404':
+          description: Blocklist entry not found
+  /api/result/published/:
+    post:
+      operationId: toggle_exam_publication
+      description: Toggle the publication status of exam results. Same endpoint handles
+        both publish and unpublish actions.
+      summary: Toggle exam result publication status
+      tags:
+      - Exam Results
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TogglePublishRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TogglePublishRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TogglePublishRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishedExam'
+          description: Publication status toggled successfully
+        '404':
+          description: Exam not found
+        '400':
+          description: Invalid request data
+  /api/roles/:
+    get:
+      operationId: get_all_roles
+      description: Retrieve all roles in the system
+      summary: Get All Roles
+      tags:
+      - Roles
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Roles retrieved successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: Roles retrieved successfully
+                      data:
+                      - id: 1
+                        role_name: Admin
+                      - id: 2
+                        role_name: Teacher
+                      - id: 3
+                        role_name: Student
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/roles/{role_id}/:
+    get:
+      operationId: get_role_by_id
+      description: Retrieve a specific role by its ID
+      summary: Get Role by ID
+      parameters:
+      - in: path
+        name: role_id
+        schema:
+          type: integer
+        description: ID of the role to retrieve
+        required: true
+      tags:
+      - Roles
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Role retrieved successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: Role retrieved successfully
+                      data:
+                        id: 1
+                        role_name: Admin
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Role not found
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Role not found
+                      errors:
+                      - Role with ID 999 does not exist
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/roles/{role_id}/delete/:
+    delete:
+      operationId: roles_delete_destroy
+      description: Delete an existing role
+      summary: Delete Role
+      parameters:
+      - in: path
+        name: role_id
+        schema:
+          type: integer
+        description: ID of the role to delete
+        required: true
+      tags:
+      - Roles
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Role deleted successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: Role deleted successfully
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Cannot delete role with associated users
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Cannot delete role
+                      errors:
+                      - Cannot delete role. There are 3 users associated with this
+                        role.
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Role not found
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Role not found
+                      errors:
+                      - Role with ID 999 does not exist
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/roles/{role_id}/menus/:
+    get:
+      operationId: roles_menus_retrieve
+      description: Retrieve all menus assigned to a specific role with permissions.
+      summary: Get menus for a specific role
+      parameters:
+      - in: path
+        name: role_id
+        schema:
+          type: integer
+        description: Role ID to get menus for
+        required: true
+      tags:
+      - Menus
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoleMenu'
+          description: List of menus for the role
+        '404':
+          description: Role not found
+  /api/roles/{role_id}/menus/{menu_id}/remove/:
+    delete:
+      operationId: roles_menus_remove_destroy
+      description: Remove a menu assignment from a role. Only superadmin can perform
+        this action.
+      summary: Remove menu from role
+      parameters:
+      - in: path
+        name: menu_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: role_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Role-Menu Management
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Menu removed from role successfully
+        '403':
+          description: Only superadmin can remove menus
+        '404':
+          description: Role-Menu assignment not found
+  /api/roles/{role_id}/update/:
+    put:
+      operationId: roles_update_update
+      description: Update an existing role
+      summary: Update Role
+      parameters:
+      - in: path
+        name: role_id
+        schema:
+          type: integer
+        description: ID of the role to update
+        required: true
+      tags:
+      - Roles
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role_name:
+                  type: string
+                  description: Updated name of the role
+                  example: Senior Manager
+              required:
+              - role_name
+            examples:
+              UpdateRoleRequest:
+                value:
+                  role_name: Senior Manager
+                summary: Example role update request
+                description: Update an existing role with a new name
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Role updated successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: Role updated successfully
+                      data:
+                        id: 4
+                        role_name: Senior Manager
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Validation error
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Validation error
+                      errors:
+                        role_name:
+                        - Role name already exists
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Role not found
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Role not found
+                      errors:
+                      - Role with ID 999 does not exist
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/roles/assign-menus/:
+    post:
+      operationId: roles_assign_menus_create
+      description: Assign multiple menus to a role with specific permissions. Only
+        superadmin can perform this action.
+      summary: Assign menus to role
+      tags:
+      - Role-Menu Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role_id:
+                  type: integer
+                  description: Role ID
+                menus:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      menu_id:
+                        type: integer
+                      permissions:
+                        type: object
+                        properties:
+                          read:
+                            type: boolean
+                          write:
+                            type: boolean
+                          edit:
+                            type: boolean
+                          delete:
+                            type: boolean
+              example:
+                role_id: 2
+                menus:
+                - menu_id: 1
+                  permissions:
+                    read: true
+                    write: false
+                    edit: false
+                    delete: false
+                - menu_id: 2
+                  permissions:
+                    read: true
+                    write: true
+                    edit: true
+                    delete: false
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Menus assigned successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can assign menus
+        '404':
+          description: Role or Menu not found
+  /api/roles/create/:
+    post:
+      operationId: roles_create_create
+      description: Create a new role in the system
+      summary: Create New Role
+      tags:
+      - Roles
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role_name:
+                  type: string
+                  description: Name of the role
+                  example: Manager
+              required:
+              - role_name
+            examples:
+              CreateRoleRequest:
+                value:
+                  role_name: Manager
+                summary: Example role creation request
+                description: Create a new role with a unique name
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: Role created successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: Role created successfully
+                      data:
+                        id: 4
+                        role_name: Manager
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Validation error
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Validation error
+                      errors:
+                        role_name:
+                        - Role name already exists
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/schedules/:
+    get:
+      operationId: schedules_list
+      description: 'Retrieve exam schedules with detailed exam information. Role-based
+        filtering: superadmin sees all schedules, other users only see schedules for
+        exams matching their department_shortname.'
+      summary: Get all exam schedules with exam details
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Schedule
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedExamScheduleList'
+          description: ''
+    post:
+      operationId: schedules_create
+      description: 'Retrieve exam schedules with detailed exam information. Role-based
+        filtering: superadmin sees all schedules, other users only see schedules for
+        exams matching their department_shortname.'
+      summary: Get all exam schedules with exam details
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Schedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExamScheduleRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExamScheduleRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExamScheduleRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedExamScheduleList'
+          description: ''
+  /api/schedules/{schedule_id}/:
+    get:
+      operationId: schedules_retrieve
+      description: Retrieve, update or delete a specific exam schedule
+      summary: Schedule detail
+      parameters:
+      - in: path
+        name: schedule_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Schedule
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExamSchedule'
+          description: ''
+    put:
+      operationId: schedules_update
+      description: Retrieve, update or delete a specific exam schedule
+      summary: Schedule detail
+      parameters:
+      - in: path
+        name: schedule_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Schedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExamScheduleRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExamScheduleRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExamScheduleRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExamSchedule'
+          description: ''
+    patch:
+      operationId: schedules_partial_update
+      description: Retrieve, update or delete a specific exam schedule
+      summary: Schedule detail
+      parameters:
+      - in: path
+        name: schedule_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Schedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedExamScheduleRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedExamScheduleRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedExamScheduleRequest'
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExamSchedule'
+          description: ''
+    delete:
+      operationId: schedules_destroy
+      description: Retrieve, update or delete a specific exam schedule
+      summary: Schedule detail
+      parameters:
+      - in: path
+        name: schedule_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Schedule
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExamSchedule'
+          description: ''
+  /api/schedules/create/:
+    post:
+      operationId: schedules_create_create
+      description: "Create a new exam schedule with exam ID and start time.\n    \n\
+        \    The end time is automatically calculated based on the exam's duration.\n\
+        \    \n    Example Usage:\n    - Provide exam_id and start_time\n    - System\
+        \ automatically calculates end_time using exam duration\n    - If exam duration\
+        \ is 120 minutes and start_time is 15:00, end_time will be 17:00\n    - Times\
+        \ should be in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)\n    "
+      summary: Create exam schedule
+      tags:
+      - Schedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExamScheduleRequest'
+            examples:
+              Auto-CalculateEndTime:
+                value:
+                  exam_id: 16
+                  start_time: '2025-09-26T15:00:00Z'
+                  is_active: true
+                summary: Example request with auto-calculated end time
+                description: Provide only exam_id and start_time. End time is calculated
+                  automatically based on exam duration.
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreateExamScheduleRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateExamScheduleRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    description: Success message
+                  schedule:
+                    $ref: '#/components/schemas/ExamSchedule'
+                  exam_details:
+                    type: object
+                    properties:
+                      exam_id:
+                        type: integer
+                      department:
+                        type: string
+                      semester:
+                        type: string
+                      total_questions:
+                        type: integer
+                      present_question:
+                        type: integer
+                      duration_minutes:
+                        type: integer
+                example:
+                  message: 'Exam schedule created successfully (Duration: 120 minutes)'
+                  schedule:
+                    id: 1
+                    exam: 16
+                    start_time: '2025-09-26T15:00:00Z'
+                    end_time: '2025-09-26T17:00:00Z'
+                    is_active: true
+                    created_at: '2025-09-26T14:30:00Z'
+                  exam_details:
+                    exam_id: 16
+                    department: Computer Science
+                    semester: Fall 2025
+                    total_questions: 10
+                    present_question: 10
+                    duration_minutes: 120
+                  calculated_times:
+                    start_time: '2025-09-26T15:00:00+00:00'
+                    end_time: '2025-09-26T17:00:00+00:00'
+                    duration_minutes: 120
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Bad request - validation errors
+                content:
+                  application/json:
+                    examples:
+                      missing_exam_id:
+                        summary: Missing exam_id
+                        value:
+                          error: exam_id is required
+                      missing_times:
+                        summary: Missing time fields
+                        value:
+                          error: start_time is required
+                      invalid_time_format:
+                        summary: Invalid time format
+                        value:
+                          start_time:
+                          - 'Datetime has wrong format. Use one of these formats instead:
+                            YYYY-MM-DD[T]HH:MM[:ss[.uuuuuu]][+HH:MM|-HH:MM|Z].'
+                      end_before_start:
+                        summary: End time before start time
+                        value:
+                          non_field_errors:
+                          - End time must be after start time
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: Exam not found
+                content:
+                  application/json:
+                    example:
+                      error: Exam with ID 999 not found
+          description: ''
+  /api/student-assignments/:
+    get:
+      operationId: get_all_assignments
+      description: Retrieve all student-teacher-exam assignments. Superadmin sees
+        all, others see assignments filtered by department_shortname.
+      summary: Get all student assignments
+      tags:
+      - Student Assignment
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StudentAssignTeacherExam'
+          description: Assignments retrieved successfully
+  /api/student-assignments/{assignment_id}/delete/:
+    delete:
+      operationId: delete_assignment
+      description: Delete a specific student-teacher-exam assignment by ID.
+      summary: Delete student assignment
+      parameters:
+      - in: path
+        name: assignment_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Student Assignment
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Assignment deleted successfully
+        '404':
+          description: Assignment not found
+  /api/student-assignments/assign-bulk/:
+    post:
+      operationId: assign_students_bulk
+      description: Assign multiple students to a teacher and exam in one request.
+        The exam_id is automatically retrieved from the ExamSchedule. Supports bulk
+        operations.
+      summary: Bulk assign students to teacher and exam
+      tags:
+      - Student Assignment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentAssignBulkRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StudentAssignBulkRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StudentAssignBulkRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          description: Students assigned successfully
+        '400':
+          description: Invalid request data
+        '409':
+          description: Some assignments already exist
+  /api/student-assignments/assign-single/:
+    post:
+      operationId: assign_student_single
+      description: Assign a single student to a teacher and exam. The exam_id is automatically
+        retrieved from the ExamSchedule.
+      summary: Assign single student to teacher and exam
+      tags:
+      - Student Assignment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentAssignSingleRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StudentAssignSingleRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StudentAssignSingleRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          description: Student assigned successfully
+        '400':
+          description: Invalid request data
+        '409':
+          description: Assignment already exists
+  /api/student-assignments/available-schedules/:
+    get:
+      operationId: get_available_schedules
+      description: Retrieve all active exam schedules that can be used for student
+        assignment. Each schedule contains the exam information automatically.
+      summary: Get available exam schedules for assignment
+      tags:
+      - Student Assignment
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExamSchedule'
+          description: Available schedules retrieved successfully
+  /api/student-assignments/delete-bulk/:
+    delete:
+      operationId: delete_assignments_bulk
+      description: Delete multiple student-teacher-exam assignments by their IDs.
+      summary: Bulk delete student assignments
+      tags:
+      - Student Assignment
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Assignments deleted successfully
+        '400':
+          description: Invalid request data
+  /api/student/{student_id}/schedule/:
+    get:
+      operationId: get_student_schedule
+      description: "\n    Retrieve all scheduled exams for a specific student by student\
+        \ ID.\n    Returns comprehensive schedule information including exam details,\
+        \ timing, and teacher information.\n    "
+      summary: Get student's exam schedule
+      parameters:
+      - in: path
+        name: student_id
+        schema:
+          type: integer
+        description: Student ID to get schedule for
+        required: true
+      tags:
+      - Student API
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        assignment_id:
+                          type: integer
+                        schedule_id:
+                          type: integer
+                        exam_id:
+                          type: integer
+                        exam_name:
+                          type: string
+                        exam_duration:
+                          type: integer
+                        total_questions:
+                          type: integer
+                        schedule_start_time:
+                          type: string
+                          format: date-time
+                        schedule_end_time:
+                          type: string
+                          format: date-time
+                        teacher_name:
+                          type: string
+                        teacher_department:
+                          type: string
+                        subject_name:
+                          type: string
+                        department_shortnames:
+                          type: array
+                          items:
+                            type: string
+                        assigned_at:
+                          type: string
+                          format: date-time
+                  message:
+                    type: string
+          description: Student schedule retrieved successfully
+        '404':
+          description: Student not found
+        '403':
+          description: Authentication required
+  /api/student/{student_id}/scheduled-exams/:
+    get:
+      operationId: get_student_scheduled_exams
+      description: Get all scheduled exams assigned to a specific student based on
+        StudentAssignTeacherExam assignments
+      summary: Get student scheduled exams
+      parameters:
+      - in: path
+        name: student_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Student App
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  student_id:
+                    type: integer
+                  student_info:
+                    type: object
+                    properties:
+                      username:
+                        type: string
+                      f_id:
+                        type: string
+                      department_shortname:
+                        type: string
+                  scheduled_exams:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        assignment_id:
+                          type: integer
+                        schedule_id:
+                          type: integer
+                        exam_id:
+                          type: integer
+                        exam_details:
+                          type: object
+                          properties:
+                            department:
+                              type: string
+                            semester:
+                              type: string
+                            total_questions:
+                              type: integer
+                            total_marks:
+                              type: integer
+                            duration_minutes:
+                              type: integer
+                            language:
+                              type: string
+                            faculty:
+                              type: string
+                        schedule_details:
+                          type: object
+                          properties:
+                            start_time:
+                              type: string
+                            end_time:
+                              type: string
+                            is_active:
+                              type: boolean
+                        teacher_info:
+                          type: object
+                          properties:
+                            teacher_id:
+                              type: integer
+                            teacher_name:
+                              type: string
+                        assigned_at:
+                          type: string
+                  total_assigned_exams:
+                    type: integer
+          description: ''
+  /api/student/available-exams/:
+    get:
+      operationId: student_available_exams_list
+      description: Get all active exam schedules available to students
+      summary: Student available exams
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Student App
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - count
+                - results
+                properties:
+                  count:
+                    type: integer
+                    example: 123
+                  next:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?page=4
+                  previous:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?page=2
+                  results:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          schedule_id:
+                            type: integer
+                          exam_id:
+                            type: integer
+                          exam_name:
+                            type: string
+                          department:
+                            type: string
+                          semester:
+                            type: string
+                          total_questions:
+                            type: integer
+                          duration_minutes:
+                            type: integer
+                          start_time:
+                            type: string
+                          end_time:
+                            type: string
+                          is_active:
+                            type: boolean
+          description: ''
+  /api/student/exam/{exam_id}/questions/:
+    get:
+      operationId: student_exam_questions_retrieve
+      description: Get all questions for a specific exam
+      summary: Student exam questions
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Student App
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exam_id:
+                    type: integer
+                  exam_details:
+                    type: object
+                    properties:
+                      department:
+                        type: string
+                      semester:
+                        type: string
+                      total_questions:
+                        type: integer
+                      duration_minutes:
+                        type: integer
+                  questions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        question_id:
+                          type: integer
+                        question_text:
+                          type: string
+                        options:
+                          type: array
+                          items:
+                            type: string
+                        question_type:
+                          type: string
+          description: ''
+  /api/student/exam/{exam_id}/result/{student_id}/:
+    get:
+      operationId: student_exam_result_retrieve
+      description: Get student's exam result and performance details
+      summary: Get exam result
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: student_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Student App
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  student_id:
+                    type: integer
+                  exam_id:
+                    type: integer
+                  student_name:
+                    type: string
+                  exam_details:
+                    type: object
+                    properties:
+                      department:
+                        type: string
+                      semester:
+                        type: string
+                      total_questions:
+                        type: integer
+                  results:
+                    type: object
+                    properties:
+                      total_questions_attempted:
+                        type: integer
+                      correct_answers:
+                        type: integer
+                      wrong_answers:
+                        type: integer
+                      score_percentage:
+                        type: number
+                      grade:
+                        type: string
+          description: ''
+  /api/student/exam/{exam_id}/submit/:
+    post:
+      operationId: submit_exam
+      description: Submit student answers for an exam
+      summary: Submit exam answers
+      parameters:
+      - in: path
+        name: exam_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Student App
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExamSubmissionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExamSubmissionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExamSubmissionRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExamSubmissionResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+          description: ''
+  /api/student/login/:
+    post:
+      operationId: student_login
+      description: Authenticate student with username and password
+      summary: Student login
+      tags:
+      - Student App
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentLoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StudentLoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StudentLoginRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentLoginResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+          description: ''
+  /api/students/:
+    get:
+      operationId: students_list
+      description: Retrieve all registered students
+      summary: Get all students
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Students
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStudentsList'
+          description: ''
+    post:
+      operationId: students_create
+      description: Retrieve all registered students
+      summary: Get all students
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Students
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentsRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StudentsRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StudentsRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStudentsList'
+          description: ''
+  /api/students/{student_id}/:
+    get:
+      operationId: students_retrieve
+      description: Retrieve, update or delete a specific student
+      summary: Student detail
+      parameters:
+      - in: path
+        name: student_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Students
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Students'
+          description: ''
+    put:
+      operationId: students_update
+      description: Retrieve, update or delete a specific student
+      summary: Student detail
+      parameters:
+      - in: path
+        name: student_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Students
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentsRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StudentsRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StudentsRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Students'
+          description: ''
+    patch:
+      operationId: students_partial_update
+      description: Retrieve, update or delete a specific student
+      summary: Student detail
+      parameters:
+      - in: path
+        name: student_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Students
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedStudentsRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedStudentsRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedStudentsRequest'
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Students'
+          description: ''
+    delete:
+      operationId: students_destroy
+      description: Retrieve, update or delete a specific student
+      summary: Student detail
+      parameters:
+      - in: path
+        name: student_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Students
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Students'
+          description: ''
+  /api/subject-departments/:
+    get:
+      operationId: get_all_subject_departments
+      description: Retrieve all department-subject mappings with subject details.
+      summary: Get all department-subject mappings
+      tags:
+      - Subject-Department Mapping
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubjectDepartment'
+          description: List of all department-subject mappings
+  /api/subject-departments/{mapping_id}/:
+    get:
+      operationId: get_subject_department_by_id
+      description: Retrieve a specific department-subject mapping by its ID.
+      summary: Get department-subject mapping by ID
+      parameters:
+      - in: path
+        name: mapping_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subject-Department Mapping
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDepartment'
+          description: Department-subject mapping details
+        '404':
+          description: Mapping not found
+  /api/subject-departments/{mapping_id}/add-subjects/:
+    post:
+      operationId: subject_departments_add_subjects_create
+      description: Add additional subjects to an existing department. Only superadmin
+        can perform this action.
+      summary: Add subjects to department
+      parameters:
+      - in: path
+        name: mapping_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subject-Department Mapping
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: Array of subject IDs to add to department
+              required:
+              - subject_ids
+              example:
+                subject_ids:
+                - 8
+                - 9
+                - 10
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDepartment'
+          description: Subjects added to department successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can modify mappings
+        '404':
+          description: Department not found
+  /api/subject-departments/{mapping_id}/delete/:
+    delete:
+      operationId: subject_departments_delete_destroy
+      description: Delete a department-subject mapping. Only superadmin can perform
+        this action.
+      summary: Delete department-subject mapping
+      parameters:
+      - in: path
+        name: mapping_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subject-Department Mapping
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Department-subject mapping deleted successfully
+        '403':
+          description: Only superadmin can delete mappings
+        '404':
+          description: Mapping not found
+  /api/subject-departments/{mapping_id}/remove-subjects/:
+    post:
+      operationId: subject_departments_remove_subjects_create
+      description: Remove subjects from an existing department. Only superadmin can
+        perform this action.
+      summary: Remove subjects from department
+      parameters:
+      - in: path
+        name: mapping_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subject-Department Mapping
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: Array of subject IDs to remove from department
+              required:
+              - subject_ids
+              example:
+                subject_ids:
+                - 2
+                - 3
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDepartment'
+          description: Subjects removed from department successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can modify mappings
+        '404':
+          description: Department not found
+  /api/subject-departments/{mapping_id}/update/:
+    put:
+      operationId: subject_departments_update_update
+      description: Update department or assigned subjects. Only superadmin can perform
+        this action.
+      summary: Update department-subject mapping
+      parameters:
+      - in: path
+        name: mapping_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subject-Department Mapping
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                department:
+                  type: integer
+                  description: Department ID
+                subject_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: Array of subject IDs to assign to department
+              example:
+                department: 1
+                subject_ids:
+                - 1
+                - 2
+                - 3
+                - 5
+                - 7
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDepartment'
+          description: Department-subject mapping updated successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can update mappings
+        '404':
+          description: Mapping not found
+    patch:
+      operationId: subject_departments_update_partial_update
+      description: Update department or assigned subjects. Only superadmin can perform
+        this action.
+      summary: Update department-subject mapping
+      parameters:
+      - in: path
+        name: mapping_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subject-Department Mapping
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                department:
+                  type: integer
+                  description: Department ID
+                subject_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: Array of subject IDs to assign to department
+              example:
+                department: 1
+                subject_ids:
+                - 1
+                - 2
+                - 3
+                - 5
+                - 7
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDepartment'
+          description: Department-subject mapping updated successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can update mappings
+        '404':
+          description: Mapping not found
+  /api/subject-departments/create/:
+    post:
+      operationId: subject_departments_create_create
+      description: Create a new department with assigned subjects. Only superadmin
+        can perform this action.
+      summary: Create department-subject mapping
+      tags:
+      - Subject-Department Mapping
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                department:
+                  type: integer
+                  description: Department ID
+                subject_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: Array of subject IDs to assign to department
+              required:
+              - department
+              example:
+                department: 1
+                subject_ids:
+                - 1
+                - 2
+                - 3
+                - 5
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDepartment'
+          description: Department-subject mapping created successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can create mappings
+  /api/subject-departments/department/{department_id}/:
+    get:
+      operationId: subject_departments_department_retrieve
+      description: Retrieve subjects assigned to a specific department.
+      summary: Get subjects by department ID
+      parameters:
+      - in: path
+        name: department_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subject-Department Mapping
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDepartment'
+          description: Department subjects
+        '404':
+          description: Department not found
+  /api/subjects/:
+    get:
+      operationId: get_all_subjects
+      description: Retrieve all subjects in the system.
+      summary: Get all subjects
+      tags:
+      - Subjects
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Subject'
+          description: List of all subjects
+  /api/subjects/{subject_id}/:
+    get:
+      operationId: get_subject_by_id
+      description: Retrieve a specific subject by its ID.
+      summary: Get subject by ID
+      parameters:
+      - in: path
+        name: subject_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subjects
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subject'
+          description: Subject details
+        '404':
+          description: Subject not found
+  /api/subjects/{subject_id}/delete/:
+    delete:
+      operationId: subjects_delete_destroy
+      description: 'Delete a subject. Only superadmin can perform this action. Warning:
+        This may affect department-subject mappings.'
+      summary: Delete subject
+      parameters:
+      - in: path
+        name: subject_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subjects
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Subject deleted successfully
+        '403':
+          description: Only superadmin can delete subjects
+        '404':
+          description: Subject not found
+  /api/subjects/{subject_id}/update/:
+    put:
+      operationId: subjects_update_update
+      description: Update subject details. Only superadmin can perform this action.
+      summary: Update subject
+      parameters:
+      - in: path
+        name: subject_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subjects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubjectRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubjectRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subject'
+          description: Subject updated successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can update subjects
+        '404':
+          description: Subject not found
+    patch:
+      operationId: subjects_update_partial_update
+      description: Update subject details. Only superadmin can perform this action.
+      summary: Update subject
+      parameters:
+      - in: path
+        name: subject_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Subjects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSubjectRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSubjectRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSubjectRequest'
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subject'
+          description: Subject updated successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can update subjects
+        '404':
+          description: Subject not found
+  /api/subjects/create/:
+    post:
+      operationId: subjects_create_create
+      description: Create a new subject. Only superadmin can perform this action.
+      summary: Create a new subject
+      tags:
+      - Subjects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubjectRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubjectRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subject'
+          description: Subject created successfully
+        '400':
+          description: Invalid data
+        '403':
+          description: Only superadmin can create subjects
+  /api/total-questions/:
+    get:
+      operationId: total_questions_retrieve
+      description: Returns total number of questions and per-subject counts.
+      summary: Get total questions count by subject
+      tags:
+      - Statistics
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotalQuestions'
+          description: ''
+  /api/users/:
+    get:
+      operationId: get_all_users
+      description: 'Retrieve users with role-based filtering: superadmin sees all
+        users, other users only see users from their department'
+      summary: Get All Users
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Users retrieved successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: Users retrieved successfully
+                      data:
+                      - id: 1
+                        username: admin
+                        email: admin@example.com
+                        created_at: '2024-01-01T10:00:00Z'
+                        role_details:
+                          id: 1
+                          role_name: Admin
+                        department_details:
+                          id: 1
+                          department_name: IT Department
+                      - id: 2
+                        username: teacher1
+                        email: teacher1@example.com
+                        created_at: '2024-01-02T10:00:00Z'
+                        role_details:
+                          id: 2
+                          role_name: Teacher
+                        department_details:
+                          id: 2
+                          department_name: Computer Science
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/users/{user_id}/:
+    get:
+      operationId: get_user_by_id
+      description: Retrieve a specific user by their ID with role information
+      summary: Get User by ID
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        description: ID of the user to retrieve
+        required: true
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: User retrieved successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: User retrieved successfully
+                      data:
+                        id: 1
+                        username: admin
+                        email: admin@example.com
+                        created_at: '2024-01-01T10:00:00Z'
+                        role_details:
+                          id: 1
+                          role_name: Admin
+                        department_details:
+                          id: 1
+                          department_name: IT Department
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: User not found
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: User not found
+                      errors:
+                      - User with ID 999 does not exist
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/users/{user_id}/delete/:
+    delete:
+      operationId: users_delete_destroy
+      description: Delete an existing user
+      summary: Delete User
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        description: ID of the user to delete
+        required: true
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: User deleted successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: User deleted successfully
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: User not found
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: User not found
+                      errors:
+                      - User with ID 999 does not exist
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/users/{user_id}/update/:
+    put:
+      operationId: users_update_update
+      description: Update an existing user with optional role and password changes
+      summary: Update User
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        description: ID of the user to update
+        required: true
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: Updated username for the user
+                  example: updateduser
+                email:
+                  type: string
+                  format: email
+                  description: Updated email address for the user
+                  example: updated@example.com
+                password:
+                  type: string
+                  description: New password for the user (optional, will be hashed)
+                  example: newsecurepassword123
+                role_id:
+                  type: integer
+                  description: ID of the role to assign to the user (optional, use
+                    0 to remove role)
+                  example: 3
+                  nullable: true
+            examples:
+              UpdateUserRequest:
+                value:
+                  username: updateduser
+                  email: updated@example.com
+                  role_id: 3
+                  department_id: 2
+                summary: Example user update request
+                description: Update an existing user with new role and department
+                  assignment
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: User updated successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: User updated successfully
+                      data:
+                        id: 3
+                        username: updateduser
+                        email: updated@example.com
+                        role_name: Manager
+                        created_at: '2024-01-03T10:00:00Z'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Validation error
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Validation error
+                      errors:
+                        username:
+                        - Username already exists
+                        role_id:
+                        - Role does not exist
+                        department_id:
+                        - Department does not exist
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: User not found
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: User not found
+                      errors:
+                      - User with ID 999 does not exist
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/users/create/:
+    post:
+      operationId: users_create_create
+      description: Create a new user in the system with optional role assignment
+      summary: Create New User
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: Unique username for the user
+                  example: newuser
+                email:
+                  type: string
+                  format: email
+                  description: Unique email address for the user
+                  example: newuser@example.com
+                password:
+                  type: string
+                  description: Password for the user (will be hashed)
+                  example: securepassword123
+                role_id:
+                  type: integer
+                  description: ID of the role to assign to the user (optional)
+                  example: 2
+                  nullable: true
+                department_id:
+                  type: integer
+                  description: ID of the department to assign to the user (optional)
+                  example: 1
+                  nullable: true
+              required:
+              - username
+              - email
+              - password
+            examples:
+              CreateUserRequest:
+                value:
+                  username: newuser
+                  email: newuser@example.com
+                  password: securepassword123
+                  role_id: 2
+                  department_id: 1
+                summary: Example user creation request
+                description: Create a new user with role and department assignment
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: User created successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: User created successfully
+                      data:
+                        id: 3
+                        username: newuser
+                        email: newuser@example.com
+                        role_name: Teacher
+                        department_name: Computer Science
+                        created_at: '2024-01-03T10:00:00Z'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Validation error
+                content:
+                  application/json:
+                    example:
+                      success: false
+                      message: Validation error
+                      errors:
+                        username:
+                        - Username already exists
+                        email:
+                        - Email already exists
+                        department_id:
+                        - Department does not exist
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+                content:
+                  application/json:
+                    example:
+                      detail: Authentication credentials were not provided.
+          description: ''
+  /api/users/teachers/:
+    get:
+      operationId: get_all_teachers
+      description: 'Retrieve teachers with role-based filtering: superadmin sees all
+        teachers, other users only see teachers from their department'
+      summary: Get All Teachers
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Teachers retrieved successfully
+                content:
+                  application/json:
+                    example:
+                      success: true
+                      message: Teachers retrieved successfully
+                      data:
+                      - id: 2
+                        username: teacher1
+                        email: teacher1@example.com
+                        created_at: '2024-01-02T10:00:00Z'
+                        role_details:
+                          id: 2
+                          role_name: Teacher
+                        department_details:
+                          id: 2
+                          department_name: Computer Science
+          description: ''
+components:
+  schemas:
+    APIInfoResponse:
+      type: object
+      description: Serializer for API information response
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        description:
+          type: string
+        documentation:
+          type: object
+          additionalProperties: {}
+        endpoints:
+          type: object
+          additionalProperties: {}
+        features:
+          type: array
+          items:
+            type: string
+      required:
+      - description
+      - documentation
+      - endpoints
+      - features
+      - name
+      - version
+    BlockQuestionRequestRequest:
+      type: object
+      description: Serializer for blocking a question
+      properties:
+        question_id:
+          type: integer
+        remarks:
+          type: string
+          minLength: 1
+      required:
+      - question_id
+      - remarks
+    BlocklistQuestion:
+      type: object
+      description: Serializer for BlocklistQuestion model
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        subject:
+          type: string
+          maxLength: 255
+        questions:
+          type: string
+        type:
+          $ref: '#/components/schemas/TypeBa3Enum'
+        text:
+          type: string
+          nullable: true
+        options:
+          nullable: true
+        answer:
+          nullable: true
+        marks:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        semester:
+          type: string
+        department_shortname:
+          type: string
+        original_question_id:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: ID of the original scrapped question
+        remarks:
+          type: string
+          description: Reason for blocking this question
+        creator:
+          type: integer
+        creator_username:
+          type: string
+          readOnly: true
+        issue_solved:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - creator
+      - creator_username
+      - id
+      - original_question_id
+      - questions
+      - remarks
+      - semester
+      - subject
+      - type
+      - updated_at
+    CreateExamScheduleRequest:
+      type: object
+      description: |-
+        Serializer for creating exam schedules
+        Auto-calculates end_time based on exam duration
+      properties:
+        exam_id:
+          type: integer
+          minimum: 1
+          description: ID of the exam to schedule (must exist in Exam table)
+        start_time:
+          type: string
+          format: date-time
+          description: Start time of the exam in ISO 8601 format (e.g., 2024-12-15T10:00:00Z)
+        is_active:
+          type: boolean
+          default: true
+          description: 'Whether the schedule is active (default: true)'
+      required:
+      - exam_id
+      - start_time
+    EnhancedExamResult:
+      type: object
+      description: Enhanced serializer for exam results with subject breakdown
+      properties:
+        student_id:
+          type: integer
+        exam_id:
+          type: integer
+        student_name:
+          type: string
+        exam_details:
+          type: object
+          additionalProperties: {}
+        results:
+          type: object
+          additionalProperties: {}
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubjectResult'
+      required:
+      - exam_details
+      - exam_id
+      - results
+      - student_id
+      - student_name
+      - subjects
+    Exam:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        department:
+          type: string
+          maxLength: 255
+        semester:
+          type: string
+          maxLength: 50
+        total_questions:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: Maximum allowed questions for this exam
+        present_question:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: Current number of questions in this exam
+        total_marks:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        duration_minutes:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        except_semesters:
+          type: array
+          items:
+            type: string
+            maxLength: 100
+          description: List of semesters to exclude
+        language:
+          type: string
+          maxLength: 50
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        faculty:
+          type: string
+          nullable: true
+          maxLength: 255
+      required:
+      - created_at
+      - department
+      - duration_minutes
+      - id
+      - semester
+      - total_marks
+      - total_questions
+      - updated_at
+    ExamCreateRequest:
+      type: object
+      properties:
+        department:
+          type: string
+          minLength: 1
+          maxLength: 255
+        semester:
+          type: string
+          minLength: 1
+          maxLength: 50
+        total_questions:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: Maximum allowed questions for this exam
+        duration_minutes:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        subject_distribution:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          description: Percentage distribution of subjects (sum must be 100)
+        except_semesters:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          description: List of semesters to exclude
+      required:
+      - department
+      - duration_minutes
+      - semester
+      - subject_distribution
+      - total_questions
+    ExamGenerationRequestRequest:
+      type: object
+      description: Serializer for exam generation request
+      properties:
+        department_id:
+          type: integer
+        semester:
+          type: string
+          minLength: 1
+          maxLength: 50
+        duration_minutes:
+          type: integer
+          minimum: 1
+        language:
+          type: string
+          minLength: 1
+          default: english
+          maxLength: 50
+        faculty:
+          type: string
+          minLength: 1
+          maxLength: 255
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubjectMarksRequest'
+        regenerate:
+          type: boolean
+          default: false
+        exclude_questions:
+          type: array
+          items:
+            type: integer
+      required:
+      - department_id
+      - duration_minutes
+      - faculty
+      - semester
+      - subjects
+    ExamQuestion:
+      type: object
+      description: Serializer for ExamQuestion model - used for editing exam questions
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        exam:
+          type: integer
+          readOnly: true
+        subject:
+          type: string
+          maxLength: 255
+        question_text:
+          type: string
+        type:
+          $ref: '#/components/schemas/TypeBa3Enum'
+        text:
+          type: string
+          nullable: true
+        options:
+          nullable: true
+        answer:
+          type: string
+          nullable: true
+        marks:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+      required:
+      - exam
+      - id
+      - question_text
+      - subject
+      - type
+    ExamQuestionRequest:
+      type: object
+      description: Serializer for ExamQuestion model - used for editing exam questions
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 255
+        question_text:
+          type: string
+          minLength: 1
+        type:
+          $ref: '#/components/schemas/TypeBa3Enum'
+        text:
+          type: string
+          nullable: true
+        options:
+          nullable: true
+        answer:
+          type: string
+          nullable: true
+        marks:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+      required:
+      - question_text
+      - subject
+      - type
+    ExamQuestionSaveRequest:
+      type: object
+      description: Serializer for individual question data when saving exam
+      properties:
+        id:
+          type: integer
+          description: Optional original question ID
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 255
+        questions:
+          type: string
+          minLength: 1
+          description: Question text
+        type:
+          $ref: '#/components/schemas/ExamQuestionSaveTypeEnum'
+        text:
+          type: string
+          nullable: true
+        options:
+          nullable: true
+        answer:
+          nullable: true
+          description: Can be string or array
+        marks:
+          type: integer
+          minimum: 1
+          default: 1
+        semester:
+          type: string
+          minLength: 1
+          description: Original semester info
+          maxLength: 100
+        department_shortname:
+          type: string
+          minLength: 1
+          default: CSE
+          maxLength: 50
+      required:
+      - questions
+      - subject
+      - type
+    ExamQuestionSaveTypeEnum:
+      enum:
+      - mcq
+      - option
+      - short
+      - long
+      - tf
+      - fill
+      type: string
+      description: |-
+        * `mcq` - Multiple Choice
+        * `option` - Multiple Choice Option
+        * `short` - Short Answer
+        * `long` - Long Answer
+        * `tf` - True/False
+        * `fill` - Fill in the blank
+    ExamSaveRequestRequest:
+      type: object
+      description: Serializer for saving exam with questions
+      properties:
+        department:
+          type: string
+          minLength: 1
+          description: Department name (not ID)
+          maxLength: 255
+        semester:
+          type: string
+          minLength: 1
+          maxLength: 50
+        total_questions:
+          type: integer
+          minimum: 1
+        total_marks:
+          type: integer
+          minimum: 1
+        duration_minutes:
+          type: integer
+          minimum: 1
+        except_semesters:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: List of semesters to exclude
+        language:
+          type: string
+          minLength: 1
+          default: English
+          maxLength: 50
+        faculty:
+          type: string
+          nullable: true
+          maxLength: 255
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExamQuestionSaveRequest'
+          description: Array of question objects
+      required:
+      - department
+      - duration_minutes
+      - questions
+      - semester
+      - total_marks
+      - total_questions
+    ExamSchedule:
+      type: object
+      description: Serializer for ExamSchedule model with detailed exam information
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        exam:
+          type: integer
+        exam_details:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - end_time
+      - exam
+      - exam_details
+      - id
+      - start_time
+    ExamScheduleRequest:
+      type: object
+      description: Serializer for ExamSchedule model with detailed exam information
+      properties:
+        exam:
+          type: integer
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+      required:
+      - end_time
+      - exam
+      - start_time
+    ExamSubmissionRequest:
+      type: object
+      description: Serializer for exam submission
+      properties:
+        student_id:
+          type: integer
+          description: ID of the student submitting the exam
+        submissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubmissionItemRequest'
+          description: List of question answers
+      required:
+      - student_id
+      - submissions
+    ExamSubmissionResponse:
+      type: object
+      description: Serializer for exam submission response
+      properties:
+        message:
+          type: string
+        total_submitted:
+          type: integer
+      required:
+      - message
+      - total_submitted
+    GeneratedExamResponse:
+      type: object
+      description: Serializer for exam generation response
+      properties:
+        exam_id:
+          type: integer
+          nullable: true
+        department_id:
+          type: integer
+        semester:
+          type: string
+        duration_minutes:
+          type: integer
+        language:
+          type: string
+        faculty:
+          type: string
+        total_marks:
+          type: integer
+        subjects: {}
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeneratedQuestion'
+      required:
+      - department_id
+      - duration_minutes
+      - faculty
+      - language
+      - questions
+      - semester
+      - subjects
+      - total_marks
+    GeneratedQuestion:
+      type: object
+      description: Serializer for generated questions response
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        subject:
+          type: string
+          maxLength: 255
+        questions:
+          type: string
+        type:
+          $ref: '#/components/schemas/TypeBa3Enum'
+        text:
+          type: string
+          nullable: true
+        options:
+          nullable: true
+        answer:
+          nullable: true
+        marks:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        semester:
+          type: string
+        department_shortname:
+          type: string
+      required:
+      - id
+      - questions
+      - semester
+      - subject
+      - type
+    Menu:
+      type: object
+      description: Serializer for Menu model
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        label:
+          type: string
+          maxLength: 100
+        icon:
+          type: string
+          nullable: true
+          maxLength: 100
+        link:
+          type: string
+          maxLength: 255
+        component:
+          type: string
+          maxLength: 255
+      required:
+      - component
+      - id
+      - label
+      - link
+    PaginatedExamList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Exam'
+    PaginatedExamQuestionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExamQuestion'
+    PaginatedExamScheduleList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExamSchedule'
+    PaginatedScrappedQuestionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScrappedQuestion'
+    PaginatedStudentsList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Students'
+    PatchedExamQuestionRequest:
+      type: object
+      description: Serializer for ExamQuestion model - used for editing exam questions
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 255
+        question_text:
+          type: string
+          minLength: 1
+        type:
+          $ref: '#/components/schemas/TypeBa3Enum'
+        text:
+          type: string
+          nullable: true
+        options:
+          nullable: true
+        answer:
+          type: string
+          nullable: true
+        marks:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+    PatchedExamScheduleRequest:
+      type: object
+      description: Serializer for ExamSchedule model with detailed exam information
+      properties:
+        exam:
+          type: integer
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+    PatchedStudentsRequest:
+      type: object
+      description: Serializer for Students model
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 100
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 255
+        f_id:
+          type: string
+          minLength: 1
+          description: Form ID
+          maxLength: 50
+        full_name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        department_shortname:
+          type: string
+          minLength: 1
+          description: Department short name
+          maxLength: 50
+    PatchedSubjectRequest:
+      type: object
+      description: Serializer for Subject model
+      properties:
+        subject_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+    PublishedExam:
+      type: object
+      description: Serializer for PublishedExam model
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        exam:
+          type: integer
+        is_published:
+          type: boolean
+          description: Whether the exam results are published
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When the results were published
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        exam_details:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+      required:
+      - created_at
+      - exam
+      - exam_details
+      - id
+      - published_at
+      - updated_at
+    ResultsSummary:
+      type: object
+      description: Serializer for results summary with pagination
+      properties:
+        pagination:
+          type: object
+          additionalProperties: {}
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnhancedExamResult'
+        filters:
+          type: object
+          additionalProperties: {}
+      required:
+      - filters
+      - pagination
+      - results
+    RoleMenu:
+      type: object
+      description: Serializer for RoleMenu model with nested menu details
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        role_name:
+          type: string
+          readOnly: true
+        menu_details:
+          allOf:
+          - $ref: '#/components/schemas/Menu'
+          readOnly: true
+        permissions:
+          description: 'Example: {"read": true, "write": false, "edit": false, "delete":
+            false}'
+      required:
+      - id
+      - menu_details
+      - role_name
+    ScrappedQuestion:
+      type: object
+      description: Serializer for ScrappedQuestion model
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        subject:
+          type: string
+          maxLength: 255
+        questions:
+          type: string
+        type:
+          $ref: '#/components/schemas/TypeBa3Enum'
+        text:
+          type: string
+          nullable: true
+        options:
+          nullable: true
+        answer:
+          nullable: true
+        marks:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        semester:
+          type: string
+        department_shortname:
+          type: string
+      required:
+      - id
+      - questions
+      - semester
+      - subject
+      - type
+    StudentAssignBulkRequest:
+      type: object
+      description: Serializer for bulk assignment of students to teacher and exam
+      properties:
+        student_ids:
+          type: array
+          items:
+            type: integer
+          description: List of student IDs to assign
+          minItems: 1
+        teacher_id:
+          type: integer
+          description: Teacher ID who is assigning the exam
+        schedule_id:
+          type: integer
+          description: Schedule ID for the exam (exam_id will be automatically retrieved
+            from schedule)
+      required:
+      - schedule_id
+      - student_ids
+      - teacher_id
+    StudentAssignSingleRequest:
+      type: object
+      description: Serializer for single student assignment to teacher and exam
+      properties:
+        student_id:
+          type: integer
+          description: Student ID to assign
+        teacher_id:
+          type: integer
+          description: Teacher ID who is assigning the exam
+        schedule_id:
+          type: integer
+          description: Schedule ID for the exam (exam_id will be automatically retrieved
+            from schedule)
+      required:
+      - schedule_id
+      - student_id
+      - teacher_id
+    StudentAssignTeacherExam:
+      type: object
+      description: Serializer for StudentAssignTeacherExam model
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        student:
+          type: integer
+        teacher:
+          type: integer
+          description: Teacher who assigned the exam
+        exam:
+          type: integer
+        schedule:
+          type: integer
+          default: 0
+          description: Schedule of the exam
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        student_username:
+          type: string
+          readOnly: true
+        student_full_name:
+          type: string
+          readOnly: true
+        student_f_id:
+          type: string
+          readOnly: true
+        teacher_username:
+          type: string
+          readOnly: true
+        exam_department:
+          type: string
+          readOnly: true
+        exam_semester:
+          type: string
+          readOnly: true
+        schedule_exam_date:
+          type: string
+          format: date-time
+          readOnly: true
+        schedule_duration:
+          type: integer
+          readOnly: true
+      required:
+      - created_at
+      - exam
+      - exam_department
+      - exam_semester
+      - id
+      - schedule_duration
+      - schedule_exam_date
+      - student
+      - student_f_id
+      - student_full_name
+      - student_username
+      - teacher
+      - teacher_username
+    StudentLoginRequest:
+      type: object
+      description: Serializer for student login
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Student username
+        password:
+          type: string
+          minLength: 1
+          description: Student password
+      required:
+      - password
+      - username
+    StudentLoginResponse:
+      type: object
+      description: Serializer for student login response
+      properties:
+        message:
+          type: string
+        student:
+          type: object
+          additionalProperties: {}
+      required:
+      - message
+      - student
+    Students:
+      type: object
+      description: Serializer for Students model
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          maxLength: 100
+        f_id:
+          type: string
+          description: Form ID
+          maxLength: 50
+        full_name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        department_shortname:
+          type: string
+          description: Department short name
+          maxLength: 50
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - f_id
+      - id
+      - username
+    StudentsRequest:
+      type: object
+      description: Serializer for Students model
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 100
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 255
+        f_id:
+          type: string
+          minLength: 1
+          description: Form ID
+          maxLength: 50
+        full_name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        department_shortname:
+          type: string
+          minLength: 1
+          description: Department short name
+          maxLength: 50
+      required:
+      - f_id
+      - password
+      - username
+    Subject:
+      type: object
+      description: Serializer for Subject model
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        subject_name:
+          type: string
+          maxLength: 255
+      required:
+      - id
+      - subject_name
+    SubjectDepartment:
+      type: object
+      description: Serializer for SubjectDepartment model
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        department_id:
+          type: integer
+          readOnly: true
+        department_name:
+          type: string
+          readOnly: true
+        subject_ids:
+          type: array
+          items:
+            type: integer
+            maximum: 2147483647
+            minimum: -2147483648
+          description: An array of subject IDs belonging to the department.
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subject'
+          readOnly: true
+      required:
+      - department_id
+      - department_name
+      - id
+      - subjects
+    SubjectMarksRequest:
+      type: object
+      description: Serializer for subject and marks in exam generation
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 255
+        marks:
+          type: integer
+          minimum: 1
+      required:
+      - marks
+      - subject
+    SubjectRequest:
+      type: object
+      description: Serializer for Subject model
+      properties:
+        subject_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+      required:
+      - subject_name
+    SubjectResult:
+      type: object
+      description: Serializer for individual subject results
+      properties:
+        subject_id:
+          type: integer
+        subject_name:
+          type: string
+        total_questions:
+          type: integer
+        correct_answers:
+          type: integer
+        wrong_answers:
+          type: integer
+        score_percentage:
+          type: number
+          format: double
+      required:
+      - correct_answers
+      - score_percentage
+      - subject_id
+      - subject_name
+      - total_questions
+      - wrong_answers
+    SubmissionItemRequest:
+      type: object
+      description: Serializer for individual submission item
+      properties:
+        question_id:
+          type: integer
+          description: ID of the exam question
+        answer:
+          type: string
+          minLength: 1
+          description: Student's answer to the question
+      required:
+      - answer
+      - question_id
+    TogglePublishRequest:
+      type: object
+      description: Serializer for toggling exam publication status
+      properties:
+        exam_id:
+          type: integer
+          description: ID of the exam to toggle publication status
+      required:
+      - exam_id
+    TotalQuestions:
+      type: object
+      properties:
+        total_questions:
+          type: integer
+        subjects:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Dynamic mapping of subject name -> number of questions
+      required:
+      - subjects
+      - total_questions
+    TypeBa3Enum:
+      enum:
+      - option
+      - text
+      type: string
+      description: |-
+        * `option` - Option
+        * `text` - Text
+    UnblockQuestionRequestRequest:
+      type: object
+      description: Serializer for unblocking a question
+      properties:
+        blocklist_id:
+          type: integer
+      required:
+      - blocklist_id
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+servers:
+- url: https://ams-diu-backend.onrender.com
+  description: Production server (update with your actual domain)
+- url: http://localhost:8000
+  description: Local development server
+tags:
+- name: Authentication
+  description: User authentication and JWT token management
+- name: Users
+  description: User management operations (CRUD) - Requires Authentication
+- name: Roles
+  description: Role management operations (CRUD) - Requires Authentication
+- name: Questions
+  description: Operations related to scrapped questions
+- name: Statistics
+  description: Statistics and analytics endpoints

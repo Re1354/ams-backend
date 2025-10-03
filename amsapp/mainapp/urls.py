@@ -32,6 +32,10 @@ from .views.student_assign_teacher_exam import (
     assign_students_bulk, assign_student_single, get_all_assignments, 
     delete_assignment, delete_assignments_bulk, get_available_schedules
 )
+from .views.results import (
+    toggle_exam_publication, get_student_exam_result_enhanced,
+    get_all_results_by_teacher, get_published_exams
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -143,5 +147,11 @@ urlpatterns = [
     path('api/student-assignments/<int:assignment_id>/delete/', delete_assignment, name='delete-assignment'),
     path('api/student-assignments/delete-bulk/', delete_assignments_bulk, name='delete-assignments-bulk'),
     path('api/student-assignments/available-schedules/', get_available_schedules, name='get-available-schedules'),
+    
+    # Results Management API
+    path('api/result/published/', toggle_exam_publication, name='toggle-exam-publication'),
+    path('api/published-exams/', get_published_exams, name='get-published-exams'),
+    path('api/student/exam/<int:exam_id>/result/<int:student_id>/', get_student_exam_result_enhanced, name='get-student-exam-result-enhanced'),
+    path('api/get-all-results-by-teacher/<int:teacher_id>/', get_all_results_by_teacher, name='get-all-results-by-teacher'),
     
 ]

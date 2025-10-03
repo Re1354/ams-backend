@@ -13,6 +13,7 @@ from .subjects_demartments import SubjectDepartment
 from .subjects import Subject
 from .blocklist_question import BlocklistQuestion
 from .student_assign_teacher_exam import StudentAssignTeacherExam
+from .published_exam import PublishedExam
 
 __all__ = [
     'Role',
@@ -30,4 +31,5 @@ __all__ = [
     'Subject',
     'BlocklistQuestion',
     'StudentAssignTeacherExam',
+    'PublishedExam',
 ]

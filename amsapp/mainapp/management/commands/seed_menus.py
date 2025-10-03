@@ -87,6 +87,24 @@ class Command(BaseCommand):
                     'icon':'UserPlus',
                     'link':'/student-assign-teacher-exam',
                     'component':'StudentAssignTeacherExam'
+                },
+                {
+                    'label': 'Results',
+                    'icon': 'FilePlus',
+                    'link': '/results',
+                    'component': 'Results'
+                },
+                {
+                    'label': 'Blocked Questions',
+                    'icon': 'Slash',
+                    'link': '/blocked-questions',
+                    'component': 'BlockedQuestions'
+                },
+                {
+                    'label': 'Published Exams',
+                    'icon': 'FileCheck',
+                    'link': '/published-exams',
+                    'component': 'PublishedExams'
                 }
                
             ]

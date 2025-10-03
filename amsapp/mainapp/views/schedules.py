@@ -217,7 +217,11 @@ def create_exam_schedule(request):
     if schedule_serializer.is_valid():
         # Save the schedule
         schedule = schedule_serializer.save()
-        
+
+        # Ensure a PublishedExam entry exists for this exam (is_published=False)
+        from ..models import PublishedExam
+        PublishedExam.objects.get_or_create(exam=exam, defaults={"is_published": False})
+
         return Response({
             "message": f"Exam schedule created successfully (Duration: {exam.duration_minutes} minutes)",
             "schedule": ExamScheduleSerializer(schedule).data,
