@@ -36,6 +36,9 @@ from .views.results import (
     toggle_exam_publication, get_student_exam_result_enhanced,
     get_all_results_by_teacher, get_published_exams
 )
+from .views.blocklist_question import (
+    block_question, get_all_blocked_questions, restore_blocked_question, delete_blocked_question
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -153,5 +156,11 @@ urlpatterns = [
     path('api/published-exams/', get_published_exams, name='get-published-exams'),
     path('api/student/exam/<int:exam_id>/result/<int:student_id>/', get_student_exam_result_enhanced, name='get-student-exam-result-enhanced'),
     path('api/get-all-results-by-teacher/<int:teacher_id>/', get_all_results_by_teacher, name='get-all-results-by-teacher'),
+    
+    # Blocklist Question Management API
+    path('api/question/block/', block_question, name='block-question'),
+    path('api/get-all-blocked-questions/', get_all_blocked_questions, name='get-all-blocked-questions'),
+    path('api/blocked-question/<int:question_id>/restore/', restore_blocked_question, name='restore-blocked-question'),
+    path('api/blocked-question/<int:question_id>/delete/', delete_blocked_question, name='delete-blocked-question'),
     
 ]

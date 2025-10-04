@@ -22,6 +22,9 @@ from .results import (
     toggle_exam_publication, get_student_exam_result_enhanced,
     get_all_results_by_teacher, get_published_exams
 )
+from .blocklist_question import (
+    block_question, get_all_blocked_questions, restore_blocked_question, delete_blocked_question
+)
 
 # Make all views available when importing from mainapp.views
 __all__ = [
@@ -57,5 +60,8 @@ __all__ = [
     
     # Results Management
     'toggle_exam_publication', 'get_student_exam_result_enhanced',
-    'get_all_results_by_teacher', 'get_published_exams'
+    'get_all_results_by_teacher', 'get_published_exams',
+    
+    # Blocklist Question Management
+    'block_question', 'get_all_blocked_questions', 'restore_blocked_question', 'delete_blocked_question'
 ]

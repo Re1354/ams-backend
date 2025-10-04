@@ -23,6 +23,38 @@ class BlocklistQuestion(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @classmethod
+    def create_from_scrapped_question(cls, scrapped_question, creator, remarks):
+        """Create a BlocklistQuestion from a ScrappedQuestion instance"""
+        return cls.objects.create(
+            subject=scrapped_question.subject,
+            questions=scrapped_question.questions,
+            type=scrapped_question.type,
+            text=scrapped_question.text,
+            options=scrapped_question.options,
+            answer=scrapped_question.answer,
+            marks=scrapped_question.marks,
+            semester=scrapped_question.semester,
+            department_shortname=scrapped_question.department_shortname,
+            original_question_id=scrapped_question.id,
+            remarks=remarks,
+            creator=creator
+        )
+
+    def restore_to_scrapped_question(self):
+        """Restore this blocked question back to ScrappedQuestion"""
+        return ScrappedQuestion.objects.create(
+            subject=self.subject,
+            questions=self.questions,
+            type=self.type,
+            text=self.text,
+            options=self.options,
+            answer=self.answer,
+            marks=self.marks,
+            semester=self.semester,
+            department_shortname=self.department_shortname
+        )
+
     class Meta:
         db_table = "blocklist_questions"
 
