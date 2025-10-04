@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParamet
 
 from ..models import BlocklistQuestion, ScrappedQuestion, User
 from ..serializers.blocklist_question import (
-    BlockQuestionSerializer, BlocklistQuestionSerializer, RestoreQuestionSerializer
+    BlockQuestionSerializer, BlockedQuestionSerializer, RestoreQuestionSerializer
 )
 from ..authentication import CustomJWTAuthentication
 
@@ -21,7 +21,7 @@ from ..authentication import CustomJWTAuthentication
     request=BlockQuestionSerializer,
     responses={
         201: OpenApiResponse(
-            response=BlocklistQuestionSerializer,
+            response=BlockedQuestionSerializer,
             description="Question blocked successfully"
         ),
         400: OpenApiResponse(description="Invalid request data"),
@@ -50,8 +50,8 @@ def block_question(request):
             # Get the scrapped question
             scrapped_question = ScrappedQuestion.objects.get(id=question_id)
             
-            # Get the current user
-            creator = request.user
+            # Get the current user (extract the actual User model instance from CustomUser wrapper)
+            creator = request.user.custom_user
             
             # Create blocked question from scrapped question
             blocked_question = BlocklistQuestion.create_from_scrapped_question(
@@ -66,7 +66,7 @@ def block_question(request):
             return Response({
                 'success': True,
                 'message': 'Question blocked successfully',
-                'data': BlocklistQuestionSerializer(blocked_question).data
+                'data': BlockedQuestionSerializer(blocked_question).data
             }, status=status.HTTP_201_CREATED)
             
     except ScrappedQuestion.DoesNotExist:
@@ -94,7 +94,7 @@ def block_question(request):
     ],
     responses={
         200: OpenApiResponse(
-            response=BlocklistQuestionSerializer(many=True),
+            response=BlockedQuestionSerializer(many=True),
             description="Blocked questions retrieved successfully"
         )
     }
@@ -157,7 +157,7 @@ def get_all_blocked_questions(request):
     # Order by creation date (newest first)
     blocked_questions = blocked_questions.order_by('-created_at')
     
-    serializer = BlocklistQuestionSerializer(blocked_questions, many=True)
+    serializer = BlockedQuestionSerializer(blocked_questions, many=True)
     return Response({
         'success': True,
         'count': blocked_questions.count(),

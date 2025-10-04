@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
-from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission
+from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission, PublishedExam
 from ..serializers import (
     StudentsSerializer, StudentLoginSerializer, ExamSubmissionSerializer,
     StudentLoginResponseSerializer, ExamSubmissionResponseSerializer
@@ -316,6 +316,21 @@ def get_exam_result(request, student_id, exam_id):
         return Response(
             {'error': 'Invalid student or exam ID'}, 
             status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Check if results are published
+    try:
+        published_exam = PublishedExam.objects.get(exam=exam)
+        if not published_exam.is_published:
+            return Response(
+                {'error': 'Results are not published yet'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+    except PublishedExam.DoesNotExist:
+        # If no PublishedExam record exists, treat as unpublished
+        return Response(
+            {'error': 'Results are not published yet'}, 
+            status=status.HTTP_403_FORBIDDEN
         )
     
     # Get all submissions for this student and exam

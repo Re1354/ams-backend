@@ -25,9 +25,7 @@ from .views.subject_departments import (
     get_subjects_by_department, update_subject_department, add_subjects_to_department,
     remove_subjects_from_department, delete_subject_department
 )
-from .views.exam_generation import (
-    generate_exam, save_generated_exam, block_question, unblock_question, get_blocked_questions
-)
+from .views.exam_generation import generate_exam, save_generated_exam
 from .views.student_assign_teacher_exam import (
     assign_students_bulk, assign_student_single, get_all_assignments, 
     delete_assignment, delete_assignments_bulk, get_available_schedules
@@ -37,7 +35,7 @@ from .views.results import (
     get_all_results_by_teacher, get_published_exams
 )
 from .views.blocklist_question import (
-    block_question, get_all_blocked_questions, restore_blocked_question, delete_blocked_question
+    block_question as block_question_new, get_all_blocked_questions, restore_blocked_question, delete_blocked_question
 )
 from .api_info import api_info, home
 
@@ -139,9 +137,6 @@ urlpatterns = [
     # Exam Generation API
     path('api/exams/generate/', generate_exam, name='generate-exam'),
     path('api/exams/save-generated/', save_generated_exam, name='save-generated-exam'),
-    path('api/questions/block/', block_question, name='block-question'),
-    path('api/questions/unblock/', unblock_question, name='unblock-question'),
-    path('api/questions/blocked/', get_blocked_questions, name='get-blocked-questions'),
     
     # Student Assignment API
     path('api/student-assignments/', get_all_assignments, name='get-all-assignments'),
@@ -158,7 +153,7 @@ urlpatterns = [
     path('api/get-all-results-by-teacher/<int:teacher_id>/', get_all_results_by_teacher, name='get-all-results-by-teacher'),
     
     # Blocklist Question Management API
-    path('api/question/block/', block_question, name='block-question'),
+    path('api/question/block/', block_question_new, name='block-question-new'),
     path('api/get-all-blocked-questions/', get_all_blocked_questions, name='get-all-blocked-questions'),
     path('api/blocked-question/<int:question_id>/restore/', restore_blocked_question, name='restore-blocked-question'),
     path('api/blocked-question/<int:question_id>/delete/', delete_blocked_question, name='delete-blocked-question'),

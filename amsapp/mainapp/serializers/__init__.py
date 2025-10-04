@@ -55,7 +55,7 @@ from .exam_generation import (
     ExamGenerationRequestSerializer,
     ExamSaveRequestSerializer,
     GeneratedExamResponseSerializer,
-    BlocklistQuestionSerializer,
+    ExamGenerationBlocklistSerializer,
     BlockQuestionRequestSerializer,
     UnblockQuestionRequestSerializer
 )

@@ -83,23 +83,22 @@ WSGI_APPLICATION = 'amsapp.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# Default SQLite database for local development
+# Use PostgreSQL by default
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'ams_db_yim9',
-        'USER': 'ams_db_yim9_user',
-        'PASSWORD': 'MWFsvDM81DcwxDf548eQMLYmsXe3vRmq',
-        'HOST': 'dpg-d39sm10dl3ps73agniu0-a.oregon-postgres.render.com',
-        'PORT': '5432',
+        'NAME': config('DB_NAME', default='ams_db_yim9'),
+        'USER': config('DB_USER', default='ams_db_yim9_user'),
+        'PASSWORD': config('DB_PASSWORD', default='MWFsvDM81DcwxDf548eQMLYmsXe3vRmq'),
+        'HOST': config('DB_HOST', default='dpg-d39sm10dl3ps73agniu0-a.oregon-postgres.render.com'),
+        'PORT': config('DB_PORT', default='5432'),
         'OPTIONS': {
             'sslmode': 'require',  # Render requires SSL
         },
     }
 }
 
-
-# Override with PostgreSQL if DATABASE_URL is provided (for production)
+# Override with DATABASE_URL if provided (for production environments like Render)
 DATABASE_URL = config('DATABASE_URL', default=None)
 if DATABASE_URL:
     DATABASES['default'] = dj_database_url.parse(DATABASE_URL)
@@ -211,11 +210,11 @@ SPECTACULAR_SETTINGS = {
     'POSTPROCESSING_HOOKS': [
         'drf_spectacular.hooks.postprocess_schema_enums'
     ],
-    # 'ENUM_NAME_OVERRIDES': {
-    #     'mainapp.models.ScrappedQuestion.type': 'ScrappedQuestionTypeEnum',
-    #     'mainapp.models.ExamQuestion.type': 'ExamQuestionTypeEnum', 
-    #     'mainapp.models.BlocklistQuestion.type': 'BlocklistQuestionTypeEnum',
-    # },
+    'ENUM_NAME_OVERRIDES': {
+        'mainapp.models.ScrappedQuestion.type': 'ScrappedQuestionTypeEnum',
+        'mainapp.models.ExamQuestion.type': 'ExamQuestionTypeEnum', 
+        'mainapp.models.BlocklistQuestion.type': 'BlocklistQuestionTypeEnum',
+    },
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
         'displayRequestDuration': True,

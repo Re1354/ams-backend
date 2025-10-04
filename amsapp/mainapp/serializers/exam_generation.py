@@ -128,8 +128,8 @@ class GeneratedExamResponseSerializer(serializers.Serializer):
         return obj.get('subjects', [])
 
 
-class BlocklistQuestionSerializer(serializers.ModelSerializer):
-    """Serializer for BlocklistQuestion model"""
+class ExamGenerationBlocklistSerializer(serializers.ModelSerializer):
+    """Serializer for BlocklistQuestion model in exam generation context"""
     creator_username = serializers.CharField(source='creator.username', read_only=True)
     
     class Meta:

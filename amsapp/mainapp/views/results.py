@@ -431,7 +431,7 @@ def get_published_exams(request):
                     # Get exam IDs that match user's department
                     from ..models.exam_question import ExamQuestion
                     exam_ids = ExamQuestion.objects.filter(
-                        department_shortnames__icontains=user_dept_shortname
+                        department_shortname__icontains=user_dept_shortname
                     ).values_list('exam_id', flat=True).distinct()
                     
                     published_exams = PublishedExam.objects.filter(

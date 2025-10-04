@@ -15,23 +15,22 @@ class BlockQuestionSerializer(serializers.Serializer):
         return value
 
 
-class BlocklistQuestionSerializer(serializers.ModelSerializer):
+class BlockedQuestionSerializer(serializers.ModelSerializer):
     """Serializer for BlocklistQuestion model"""
     
     creator_username = serializers.CharField(source='creator.username', read_only=True)
-    creator_name = serializers.CharField(source='creator.first_name', read_only=True)
     
     class Meta:
         model = BlocklistQuestion
         fields = [
             'id', 'subject', 'questions', 'type', 'text', 'options', 'answer', 
             'marks', 'semester', 'department_shortname', 'original_question_id',
-            'remarks', 'creator', 'creator_username', 'creator_name', 
+            'remarks', 'creator', 'creator_username', 
             'issue_solved', 'created_at', 'updated_at'
         ]
         read_only_fields = [
             'id', 'original_question_id', 'creator', 'creator_username', 
-            'creator_name', 'created_at', 'updated_at'
+            'created_at', 'updated_at'
         ]
 
 

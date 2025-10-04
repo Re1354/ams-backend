@@ -11,9 +11,7 @@ from ..models import ScrappedQuestion, Exam, ExamQuestion, BlocklistQuestion, De
 from ..authentication import CustomJWTAuthentication
 from ..serializers.exam_generation import (
     ExamGenerationRequestSerializer, ExamSaveRequestSerializer,
-    GeneratedExamResponseSerializer, GeneratedQuestionSerializer,
-    BlocklistQuestionSerializer, BlockQuestionRequestSerializer, 
-    UnblockQuestionRequestSerializer
+    GeneratedExamResponseSerializer, GeneratedQuestionSerializer
 )
 
 
@@ -221,157 +219,9 @@ def save_generated_exam(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@extend_schema(
-    operation_id='block_question',
-    tags=['Question Management'],
-    summary="Block a question",
-    description="Move a question from scrapped_questions to blocklist_questions with remarks",
-    request=BlockQuestionRequestSerializer,
-    responses={
-        200: OpenApiResponse(description="Question blocked successfully"),
-        400: OpenApiResponse(description="Invalid request data"),
-        404: OpenApiResponse(description="Question not found")
-    }
-)
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-@authentication_classes([CustomJWTAuthentication])
-def block_question(request):
-    """Block a question by moving it to blocklist"""
-    
-    serializer = BlockQuestionRequestSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response({
-            'success': False,
-            'message': 'Invalid request data',
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    question_id = serializer.validated_data['question_id']
-    remarks = serializer.validated_data['remarks']
-    
-    try:
-        with transaction.atomic():
-            # Get the question
-            question = ScrappedQuestion.objects.get(id=question_id)
-            
-            # Create blocklist entry
-            BlocklistQuestion.objects.create(
-                subject=question.subject,
-                questions=question.questions,
-                type=question.type,
-                text=question.text,
-                options=question.options,
-                answer=question.answer,
-                marks=question.marks,
-                semester=question.semester,
-                department_shortname=question.department_shortname,
-                original_question_id=question.id,
-                remarks=remarks,
-                creator=request.user.custom_user,  # Use the actual User model instance
-                issue_solved=False
-            )
-            
-            # Delete from scrapped questions
-            question.delete()
-            
-            return Response({
-                'success': True,
-                'message': 'Question blocked successfully'
-            })
-            
-    except ScrappedQuestion.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': 'Question not found'
-        }, status=status.HTTP_404_NOT_FOUND)
 
 
-@extend_schema(
-    operation_id='unblock_question',
-    tags=['Question Management'],
-    summary="Unblock a question",
-    description="Move a question back from blocklist_questions to scrapped_questions",
-    request=UnblockQuestionRequestSerializer,
-    responses={
-        200: OpenApiResponse(description="Question unblocked successfully"),
-        400: OpenApiResponse(description="Invalid request data"),
-        404: OpenApiResponse(description="Blocklist entry not found")
-    }
-)
-@api_view(['PUT'])
-@permission_classes([IsAuthenticated])
-@authentication_classes([CustomJWTAuthentication])
-def unblock_question(request):
-    """Unblock a question by moving it back to scrapped questions"""
-    
-    serializer = UnblockQuestionRequestSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response({
-            'success': False,
-            'message': 'Invalid request data',
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    blocklist_id = serializer.validated_data['blocklist_id']
-    
-    try:
-        with transaction.atomic():
-            # Get the blocklist entry
-            blocked_question = BlocklistQuestion.objects.get(id=blocklist_id)
-            
-            # Create new scrapped question
-            ScrappedQuestion.objects.create(
-                subject=blocked_question.subject,
-                questions=blocked_question.questions,
-                type=blocked_question.type,
-                text=blocked_question.text,
-                options=blocked_question.options,
-                answer=blocked_question.answer,
-                marks=blocked_question.marks,
-                semester=blocked_question.semester,
-                department_shortname=blocked_question.department_shortname
-            )
-            
-            # Update blocklist entry to mark as solved (but keep the record)
-            blocked_question.issue_solved = True
-            blocked_question.save()
-            
-            return Response({
-                'success': True,
-                'message': 'Question unblocked successfully'
-            })
-            
-    except BlocklistQuestion.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': 'Blocklist entry not found'
-        }, status=status.HTTP_404_NOT_FOUND)
 
 
-@extend_schema(
-    operation_id='get_blocked_questions',
-    tags=['Question Management'],
-    summary="Get all blocked questions",
-    description="Retrieve all questions in the blocklist",
-    responses={
-        200: OpenApiResponse(
-            response=BlocklistQuestionSerializer(many=True),
-            description="Blocked questions retrieved successfully"
-        )
-    }
-)
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-@authentication_classes([CustomJWTAuthentication])
-def get_blocked_questions(request):
-    """Get all blocked questions"""
-    
-    blocked_questions = BlocklistQuestion.objects.select_related('creator').all().order_by('-created_at')
-    serializer = BlocklistQuestionSerializer(blocked_questions, many=True)
-    
-    return Response({
-        'success': True,
-        'data': serializer.data,
-        'message': 'Blocked questions retrieved successfully'
-    })
+
+

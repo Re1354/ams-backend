@@ -381,7 +381,7 @@ def get_available_schedules(request):
                     # Get schedules where exam's department matches user's department
                     from ..models.exam_question import ExamQuestion
                     exam_ids = ExamQuestion.objects.filter(
-                        department_shortnames__icontains=user_dept_shortname
+                        department_shortname__icontains=user_dept_shortname
                     ).values_list('exam_id', flat=True).distinct()
                     
                     schedules = ExamSchedule.objects.filter(
