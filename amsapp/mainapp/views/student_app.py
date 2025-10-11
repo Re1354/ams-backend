@@ -656,6 +656,16 @@ def get_student_scheduled_exams(request, student_id):
     scheduled_exams = []
     
     for assignment in assignments:
+        # Check if student has submitted any answers for this exam
+        submission_count = Submission.objects.filter(
+            student=student,
+            exam=assignment.exam
+        ).count()
+        
+        # Check if student has submitted for all questions in the exam
+        total_exam_questions = assignment.exam.total_questions
+        has_submitted_all = submission_count == total_exam_questions
+        
         exam_data = {
             'assignment_id': assignment.id,
             'schedule_id': assignment.schedule.id,
@@ -677,6 +687,13 @@ def get_student_scheduled_exams(request, student_id):
             'teacher_info': {
                 'teacher_id': assignment.teacher.id,
                 'teacher_name': assignment.teacher.username
+            },
+            'submission_status': {
+                'number_of_submissions': submission_count,
+                'total_questions': total_exam_questions,
+                'has_submitted': submission_count > 0,
+                'is_completed': has_submitted_all,
+                'completion_percentage': round((submission_count / total_exam_questions * 100), 2) if total_exam_questions > 0 else 0
             },
             'assigned_at': assignment.created_at
         }

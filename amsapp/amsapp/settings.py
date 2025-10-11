@@ -211,10 +211,11 @@ SPECTACULAR_SETTINGS = {
         'drf_spectacular.hooks.postprocess_schema_enums'
     ],
     'ENUM_NAME_OVERRIDES': {
-        'mainapp.models.ScrappedQuestion.type': 'ScrappedQuestionTypeEnum',
-        'mainapp.models.ExamQuestion.type': 'ExamQuestionTypeEnum', 
-        'mainapp.models.BlocklistQuestion.type': 'BlocklistQuestionTypeEnum',
+        'mainapp.models.scrapped_question.ScrappedQuestion.type': 'QuestionTypeEnum',
+        'mainapp.models.exam_question.ExamQuestion.type': 'QuestionTypeEnum',
+        'mainapp.models.blocklist_question.BlocklistQuestion.type': 'QuestionTypeEnum',
     },
+    'ENUM_ADD_NULL_CHOICE': False,
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
         'displayRequestDuration': True,
