@@ -25,6 +25,14 @@ from .results import (
 from .blocklist_question import (
     block_question, get_all_blocked_questions, restore_blocked_question, delete_blocked_question
 )
+from .viva_rubrics import (
+    create_viva_rubrics, get_all_viva_rubrics, get_viva_rubrics_by_id,
+    get_viva_rubrics_by_department, update_viva_rubrics, delete_viva_rubrics
+)
+from .marks_distribution import (
+    create_marks_distribution, get_all_marks_distribution, get_marks_distribution_by_id,
+    get_marks_distribution_by_department, update_marks_distribution, delete_marks_distribution
+)
 
 # Make all views available when importing from mainapp.views
 __all__ = [
@@ -63,5 +71,13 @@ __all__ = [
     'get_all_results_by_teacher', 'get_published_exams',
     
     # Blocklist Question Management
-    'block_question', 'get_all_blocked_questions', 'restore_blocked_question', 'delete_blocked_question'
+    'block_question', 'get_all_blocked_questions', 'restore_blocked_question', 'delete_blocked_question',
+    
+    # Viva Rubrics Management
+    'create_viva_rubrics', 'get_all_viva_rubrics', 'get_viva_rubrics_by_id',
+    'get_viva_rubrics_by_department', 'update_viva_rubrics', 'delete_viva_rubrics',
+    
+    # Marks Distribution Management
+    'create_marks_distribution', 'get_all_marks_distribution', 'get_marks_distribution_by_id',
+    'get_marks_distribution_by_department', 'update_marks_distribution', 'delete_marks_distribution'
 ]

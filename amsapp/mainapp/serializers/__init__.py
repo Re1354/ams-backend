@@ -73,6 +73,20 @@ from .api_info import (
     APIInfoResponseSerializer
 )
 
+# Viva Rubrics
+from .viva_rubrics import (
+    VivaRubricsSerializer,
+    VivaRubricsCreateSerializer,
+    VivaRubricsUpdateSerializer
+)
+
+# Marks Distribution
+from .marks_distribution import (
+    MarksDistributionSerializer,
+    MarksDistributionCreateSerializer,
+    MarksDistributionUpdateSerializer
+)
+
 __all__ = [
     # Auth
     'RoleSerializer',
@@ -127,5 +141,15 @@ __all__ = [
     'ExamSubmissionResponseSerializer',
     
     # API Info
-    'APIInfoResponseSerializer'
+    'APIInfoResponseSerializer',
+    
+    # Viva Rubrics
+    'VivaRubricsSerializer',
+    'VivaRubricsCreateSerializer',
+    'VivaRubricsUpdateSerializer',
+    
+    # Marks Distribution
+    'MarksDistributionSerializer',
+    'MarksDistributionCreateSerializer',
+    'MarksDistributionUpdateSerializer'
 ]

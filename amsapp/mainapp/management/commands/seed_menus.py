@@ -105,6 +105,24 @@ class Command(BaseCommand):
                     'icon': 'FileCheck',
                     'link': '/published-exams',
                     'component': 'PublishedExams'
+                },
+                {
+                    'label':'Viva Management',
+                    'icon':'Mic',
+                    'link':'/viva-management',
+                    'component':'VivaManagement'
+                },
+                {
+                    'label':'Viva Assign',
+                    'icon':'Cpu',
+                    'link':'/viva-assign',
+                    'component':'VivaAssign'
+                },
+                {
+                    'label':'Marks Distribution',
+                    'icon':'Percent',
+                    'link':'/marks-distribution',
+                    'component':'MarksDistribution'
                 }
                
             ]

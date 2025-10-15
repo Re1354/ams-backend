@@ -37,6 +37,14 @@ from .views.results import (
 from .views.blocklist_question import (
     block_question as block_question_new, get_all_blocked_questions, restore_blocked_question, delete_blocked_question
 )
+from .views.viva_rubrics import (
+    create_viva_rubrics, get_all_viva_rubrics, get_viva_rubrics_by_id,
+    get_viva_rubrics_by_department, update_viva_rubrics, delete_viva_rubrics
+)
+from .views.marks_distribution import (
+    create_marks_distribution, get_all_marks_distribution, get_marks_distribution_by_id,
+    get_marks_distribution_by_department, update_marks_distribution, delete_marks_distribution
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -157,5 +165,21 @@ urlpatterns = [
     path('api/get-all-blocked-questions/', get_all_blocked_questions, name='get-all-blocked-questions'),
     path('api/blocked-question/<int:question_id>/restore/', restore_blocked_question, name='restore-blocked-question'),
     path('api/blocked-question/<int:question_id>/delete/', delete_blocked_question, name='delete-blocked-question'),
+    
+    # Viva Rubrics Management API
+    path('api/create-rubrics/', create_viva_rubrics, name='create-viva-rubrics'),
+    path('api/all-rubrics/', get_all_viva_rubrics, name='get-all-viva-rubrics'),
+    path('api/rubrics/<int:rubrics_id>/', get_viva_rubrics_by_id, name='get-viva-rubrics-by-id'),
+    path('api/rubrics/department/<int:department_id>/', get_viva_rubrics_by_department, name='get-viva-rubrics-by-department'),
+    path('api/rubrics/<int:rubrics_id>/update/', update_viva_rubrics, name='update-viva-rubrics'),
+    path('api/rubrics/<int:rubrics_id>/delete/', delete_viva_rubrics, name='delete-viva-rubrics'),
+    
+    # Marks Distribution Management API  
+    path('api/create-marks-distribution/', create_marks_distribution, name='create-marks-distribution'),
+    path('api/all-marks-distribution/', get_all_marks_distribution, name='get-all-marks-distribution'),
+    path('api/marks-distribution/<int:marks_distribution_id>/', get_marks_distribution_by_id, name='get-marks-distribution-by-id'),
+    path('api/marks-distribution/department/<int:department_id>/', get_marks_distribution_by_department, name='get-marks-distribution-by-department'),
+    path('api/marks-distribution/<int:marks_distribution_id>/update/', update_marks_distribution, name='update-marks-distribution'),
+    path('api/marks-distribution/<int:marks_distribution_id>/delete/', delete_marks_distribution, name='delete-marks-distribution'),
     
 ]
