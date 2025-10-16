@@ -33,6 +33,9 @@ from .marks_distribution import (
     create_marks_distribution, get_all_marks_distribution, get_marks_distribution_by_id,
     get_marks_distribution_by_department, update_marks_distribution, delete_marks_distribution
 )
+from .viva_assign import (
+    create_viva_assignment, get_all_viva_assignments, delete_viva_assignment
+)
 
 # Make all views available when importing from mainapp.views
 __all__ = [
@@ -79,5 +82,8 @@ __all__ = [
     
     # Marks Distribution Management
     'create_marks_distribution', 'get_all_marks_distribution', 'get_marks_distribution_by_id',
-    'get_marks_distribution_by_department', 'update_marks_distribution', 'delete_marks_distribution'
+    'get_marks_distribution_by_department', 'update_marks_distribution', 'delete_marks_distribution',
+
+    # Viva Assignment Management
+    'create_viva_assignment', 'get_all_viva_assignments', 'delete_viva_assignment'
 ]

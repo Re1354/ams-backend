@@ -16,6 +16,10 @@ from .student_assign_teacher_exam import StudentAssignTeacherExam
 from .published_exam import PublishedExam
 from .viva_rubrics import VivaRubrics
 from .marks_distribution import MarksDistribution
+from .viva_marks import VivaMarks
+from .viva_assign import VivaAssignment
+
+
 
 __all__ = [
     'Role',
@@ -36,5 +40,7 @@ __all__ = [
     'PublishedExam',
     'VivaRubrics',
     'MarksDistribution',
+    'VivaMarks',
+    'VivaAssignment',
 
 ]
