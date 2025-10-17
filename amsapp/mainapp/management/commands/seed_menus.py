@@ -123,6 +123,12 @@ class Command(BaseCommand):
                     'icon':'Percent',
                     'link':'/marks-distribution',
                     'component':'MarksDistribution'
+                },
+                {
+                    'label':'Viva marks',
+                    'icon':'Edit',
+                    'link':'/viva-marks',
+                    'component':'VivaMarks'
                 }
                
             ]
