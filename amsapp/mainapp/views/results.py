@@ -12,6 +12,7 @@ from ..models import (
     PublishedExam, Exam, Students, Submission, Subject, 
     StudentAssignTeacherExam, User, ExamQuestion
 )
+from ..models.viva_marks import VivaMarks
 from ..serializers.results import (
     PublishedExamSerializer, TogglePublishSerializer, 
     EnhancedExamResultSerializer, ResultsSummarySerializer
@@ -335,6 +336,22 @@ def get_all_results_by_teacher(request, teacher_id):
                         correct = subject_data['correct_answers']
                         subject_data['score_percentage'] = (correct / total * 100) if total > 0 else 0
 
+                    # Get viva marks for this student
+                    viva_marks_data = None
+                    try:
+                        viva_marks = VivaMarks.objects.get(student=student)
+                        viva_marks_data = {
+                            'marks': viva_marks.marks,
+                            'rubrics_marks': viva_marks.rubrics_marks,
+                            'remarks': viva_marks.remarks
+                        }
+                    except VivaMarks.DoesNotExist:
+                        viva_marks_data = {
+                            'marks': 0,
+                            'rubrics_marks': {},
+                            'remarks': None
+                        }
+
                     result_item = {
                         'student_id': student.id,
                         'exam_id': exam.id,
@@ -349,7 +366,8 @@ def get_all_results_by_teacher(request, teacher_id):
                             'wrong_answers': wrong_submissions,
                             'score_percentage': round(score_percentage, 2)
                         },
-                        'subjects': list(subjects_data.values())
+                        'subjects': list(subjects_data.values()),
+                        'viva_marks': viva_marks_data
                     }
                     results_data.append(result_item)
 

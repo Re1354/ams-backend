@@ -4,6 +4,7 @@ from .students import Students
 class VivaMarks(models.Model):
     student = models.OneToOneField(Students, on_delete=models.CASCADE, related_name="viva_marks")
     marks = models.IntegerField(default=0)
+    rubrics_marks = models.JSONField(default=dict, help_text="Marks for each rubric in JSON format")
     remarks = models.TextField(blank=True, null=True)
 
     class Meta:

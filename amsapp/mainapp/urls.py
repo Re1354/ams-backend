@@ -48,6 +48,9 @@ from .views.marks_distribution import (
 from .views.viva_assign import (
     create_viva_assignment, get_all_viva_assignments, delete_viva_assignment
 )
+from .views.viva_marks import (
+    add_viva_marks, delete_viva_marks
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -189,4 +192,8 @@ urlpatterns = [
     path('api/viva-assignments/', get_all_viva_assignments, name='get-all-viva-assignments'),
     path('api/viva-assignments/create/', create_viva_assignment, name='create-viva-assignment'),
     path('api/viva-assignments/<int:assignment_id>/delete/', delete_viva_assignment, name='delete-viva-assignment'),
+
+    # Viva Marks Management API
+    path('api/add-viva-marks/<int:student_id>/', add_viva_marks, name='add-viva-marks'),
+    path('api/delete-viva-marks/<int:student_id>/', delete_viva_marks, name='delete-viva-marks'),
 ]
