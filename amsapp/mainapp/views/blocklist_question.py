@@ -82,6 +82,73 @@ def block_question(request):
 
 
 @extend_schema(
+    operation_id='block_question_by_id',
+    tags=['Question Management'],
+    summary="Block a scrapped question by ID",
+    description="Move a specific scrapped question to blocklist by its ID with remarks. The question will be deleted from scrapped_questions and added to blocklist_questions.",
+    request=BlockQuestionSerializer,
+    responses={
+        201: OpenApiResponse(
+            response=BlockedQuestionSerializer,
+            description="Question blocked successfully"
+        ),
+        400: OpenApiResponse(description="Invalid request data"),
+        404: OpenApiResponse(description="Question not found")
+    }
+)
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def block_question_by_id(request, question_id):
+    """Block a scrapped question by ID and move it to blocklist"""
+    
+    serializer = BlockQuestionSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'message': 'Invalid request data',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    remarks = serializer.validated_data['remarks']
+    
+    try:
+        with transaction.atomic():
+            # Get the scrapped question by ID from URL parameter
+            scrapped_question = ScrappedQuestion.objects.get(id=question_id)
+            
+            # Get the current user (extract the actual User model instance from CustomUser wrapper)
+            creator = request.user.custom_user
+            
+            # Create blocked question from scrapped question
+            blocked_question = BlocklistQuestion.create_from_scrapped_question(
+                scrapped_question=scrapped_question,
+                creator=creator,
+                remarks=remarks
+            )
+            
+            # Delete the original scrapped question
+            scrapped_question.delete()
+            
+            return Response({
+                'success': True,
+                'message': f'Question ID {question_id} blocked successfully',
+                'data': BlockedQuestionSerializer(blocked_question).data
+            }, status=status.HTTP_201_CREATED)
+            
+    except ScrappedQuestion.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': f'Scrapped question with ID {question_id} not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error blocking question: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@extend_schema(
     operation_id='get_all_blocked_questions',
     tags=['Question Management'],
     summary="Get all blocked questions",

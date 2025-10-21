@@ -2,11 +2,14 @@ from django.urls import path
 from .views import (
     AllScrappedQuestionsView, questions_stats, total_questions, CreateExamAPIView, 
     ExamQuestionListView, AddQuestionToExamView, ExamQuestionDetailView, AllExamsView, DeleteExamView,
-    AllStudentsView, StudentDetailView, AllSchedulesView, ScheduleDetailView, create_exam_schedule,
+    AllSchedulesView, ScheduleDetailView, create_exam_schedule,
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
     submit_exam, get_exam_result, get_student_scheduled_exams, get_student_schedule, login_view, refresh_token_view, verify_token_view,
     get_all_roles, create_role, get_role_by_id, update_role, delete_role,
     get_all_users, create_user, get_user_by_id, update_user, delete_user, get_all_teachers
+)
+from .views.students import (
+    get_all_students, create_student, get_student_by_id, update_student, delete_student
 )
 from .views.menus import (
     all_menus, role_menus, assign_menus_to_role, remove_menu_from_role, user_menus,
@@ -35,7 +38,7 @@ from .views.results import (
     get_all_results_by_teacher, get_published_exams
 )
 from .views.blocklist_question import (
-    block_question as block_question_new, get_all_blocked_questions, restore_blocked_question, delete_blocked_question
+    block_question as block_question_new, get_all_blocked_questions, restore_blocked_question, delete_blocked_question, block_question_by_id
 )
 from .views.viva_rubrics import (
     create_viva_rubrics, get_all_viva_rubrics, get_viva_rubrics_by_id,
@@ -76,8 +79,11 @@ urlpatterns = [
     path('api/exam-questions/<int:exam_id>/delete/', DeleteExamView.as_view(), name='delete-exam'),
     
     # Student Management API
-    path('api/students/', AllStudentsView.as_view(), name='all-students'),
-    path('api/students/<int:student_id>/', StudentDetailView.as_view(), name='student-detail'),
+    path('api/students/', get_all_students, name='get-all-students'),
+    path('api/students/create/', create_student, name='create-student'),
+    path('api/students/<int:student_id>/', get_student_by_id, name='get-student-by-id'),
+    path('api/students/<int:student_id>/update/', update_student, name='update-student'),
+    path('api/students/<int:student_id>/delete/', delete_student, name='delete-student'),
     
     # Schedule Management API
     path('api/schedules/', AllSchedulesView.as_view(), name='all-schedules'),
@@ -168,6 +174,7 @@ urlpatterns = [
     
     # Blocklist Question Management API
     path('api/question/block/', block_question_new, name='block-question-new'),
+    path('api/question/block/<int:question_id>/', block_question_by_id, name='block-question-by-id'),
     path('api/get-all-blocked-questions/', get_all_blocked_questions, name='get-all-blocked-questions'),
     path('api/blocked-question/<int:question_id>/restore/', restore_blocked_question, name='restore-blocked-question'),
     path('api/blocked-question/<int:question_id>/delete/', delete_blocked_question, name='delete-blocked-question'),

@@ -4,7 +4,7 @@ from .exams import (
     CreateExamAPIView, AllExamsView, ExamQuestionListView, AddQuestionToExamView,
     ExamQuestionDetailView, DeleteExamView
 )
-from .students import AllStudentsView, StudentDetailView
+from .students import get_all_students, create_student, get_student_by_id, update_student, delete_student
 from .schedules import AllSchedulesView, create_exam_schedule, ScheduleDetailView
 from .student_app import (
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
@@ -23,7 +23,7 @@ from .results import (
     get_all_results_by_teacher, get_published_exams
 )
 from .blocklist_question import (
-    block_question, get_all_blocked_questions, restore_blocked_question, delete_blocked_question
+    block_question, get_all_blocked_questions, restore_blocked_question, delete_blocked_question, block_question_by_id
 )
 from .viva_rubrics import (
     create_viva_rubrics, get_all_viva_rubrics, get_viva_rubrics_by_id,
@@ -50,7 +50,7 @@ __all__ = [
     'AddQuestionToExamView', 'ExamQuestionDetailView', 'DeleteExamView',
     
     # Students
-    'AllStudentsView', 'StudentDetailView',
+    'get_all_students', 'create_student', 'get_student_by_id', 'update_student', 'delete_student',
     
     # Schedules
     'AllSchedulesView', 'create_exam_schedule', 'ScheduleDetailView',
@@ -77,7 +77,7 @@ __all__ = [
     'get_all_results_by_teacher', 'get_published_exams',
     
     # Blocklist Question Management
-    'block_question', 'get_all_blocked_questions', 'restore_blocked_question', 'delete_blocked_question',
+    'block_question', 'get_all_blocked_questions', 'restore_blocked_question', 'delete_blocked_question', 'block_question_by_id',
     
     # Viva Rubrics Management
     'create_viva_rubrics', 'get_all_viva_rubrics', 'get_viva_rubrics_by_id',

@@ -7,7 +7,7 @@ class StudentsSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Students
-        fields = ['id', 'username', 'password', 'f_id', 'full_name', 'email', 'department_shortname', 'created_at']
+        fields = ['id', 'username', 'password', 'f_id', 'full_name', 'email', 'department_shortname', 'created_at', 'ssc', 'hsc', 'diploma']
         read_only_fields = ['id', 'created_at']
         extra_kwargs = {
             'password': {'write_only': True}  # Never return password in API responses
@@ -23,6 +23,92 @@ class StudentsSerializer(serializers.ModelSerializer):
             # For creation
             if Students.objects.filter(username=value).exists():
                 raise serializers.ValidationError("Username already exists")
+        return value
+    
+    def validate_ssc(self, value):
+        """Validate SSC marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("SSC marks cannot be negative")
+        return value
+    
+    def validate_hsc(self, value):
+        """Validate HSC marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("HSC marks cannot be negative")
+        return value
+    
+    def validate_diploma(self, value):
+        """Validate Diploma marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("Diploma marks cannot be negative")
+        return value
+
+
+class StudentCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating students"""
+    
+    class Meta:
+        model = Students
+        fields = ['username', 'password', 'f_id', 'full_name', 'email', 'department_shortname', 'ssc', 'hsc', 'diploma']
+        extra_kwargs = {
+            'password': {'write_only': True}
+        }
+    
+    def validate_username(self, value):
+        """Validate username is unique"""
+        if Students.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Username already exists")
+        return value
+    
+    def validate_ssc(self, value):
+        """Validate SSC marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("SSC marks cannot be negative")
+        return value
+    
+    def validate_hsc(self, value):
+        """Validate HSC marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("HSC marks cannot be negative")
+        return value
+    
+    def validate_diploma(self, value):
+        """Validate Diploma marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("Diploma marks cannot be negative")
+        return value
+
+
+class StudentUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating students"""
+    
+    class Meta:
+        model = Students
+        fields = ['username', 'f_id', 'full_name', 'email', 'department_shortname', 'ssc', 'hsc', 'diploma']
+        # Note: Password update should be handled separately for security
+    
+    def validate_username(self, value):
+        """Validate username is unique"""
+        if self.instance and Students.objects.filter(username=value).exclude(id=self.instance.id).exists():
+            raise serializers.ValidationError("Username already exists")
+        return value
+    
+    def validate_ssc(self, value):
+        """Validate SSC marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("SSC marks cannot be negative")
+        return value
+    
+    def validate_hsc(self, value):
+        """Validate HSC marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("HSC marks cannot be negative")
+        return value
+    
+    def validate_diploma(self, value):
+        """Validate Diploma marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("Diploma marks cannot be negative")
         return value
 
 

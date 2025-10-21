@@ -9,7 +9,9 @@ class Students(models.Model):
     email = models.EmailField(blank=True)
     department_shortname = models.CharField(max_length=50, default='CSE', help_text="Department short name")
     created_at = models.DateTimeField(auto_now_add=True)
-
+    ssc = models.IntegerField(default=0)
+    hsc = models.IntegerField(default=0)
+    diploma = models.IntegerField(default=0)
 
     class Meta:
         db_table = 'students'

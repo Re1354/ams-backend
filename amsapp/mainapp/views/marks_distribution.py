@@ -263,7 +263,9 @@ def delete_marks_distribution(request, marks_distribution_id):
             'department_name': marks_distribution.department.department_name,
             'ssc': marks_distribution.ssc,
             'hsc': marks_distribution.hsc,
-            'diploma': marks_distribution.diploma
+            'diploma': marks_distribution.diploma,
+            'main_marks': marks_distribution.main_marks,
+            'viva_marks': marks_distribution.viva_marks
         }
         
         marks_distribution.delete()

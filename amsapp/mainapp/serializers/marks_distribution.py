@@ -11,7 +11,7 @@ class MarksDistributionSerializer(serializers.ModelSerializer):
         model = MarksDistribution
         fields = [
             'id', 'department', 'department_name', 'department_shortname', 
-            'ssc', 'hsc', 'diploma', 'main_marks'
+            'ssc', 'hsc', 'diploma', 'main_marks', 'viva_marks'
         ]
         read_only_fields = ['id']
 
@@ -37,6 +37,12 @@ class MarksDistributionSerializer(serializers.ModelSerializer):
         if value < 0:
             raise serializers.ValidationError("Main Marks cannot be negative")
         return value
+
+    def validate_viva_marks(self, value):
+        """Validate that Viva marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("Viva marks cannot be negative")
+        return value
     
     def validate_department(self, value):
         """Validate that the department exists"""
@@ -50,7 +56,7 @@ class MarksDistributionCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = MarksDistribution
-        fields = ['department', 'ssc', 'hsc', 'diploma', 'main_marks']
+        fields = ['department', 'ssc', 'hsc', 'diploma', 'main_marks', 'viva_marks']
 
     def validate_ssc(self, value):
         """Validate that SSC marks is non-negative"""
@@ -74,12 +80,18 @@ class MarksDistributionCreateSerializer(serializers.ModelSerializer):
         """Validate that Main Marks is non-negative"""
         if value < 0:
             raise serializers.ValidationError("Main Marks cannot be negative")
+        return value
+
+    def validate_viva_marks(self, value):
+        """Validate that Viva marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("Viva marks cannot be negative")
         return value    
 
     def validate(self, data):
         """Validate that at least one mark is greater than 0"""
-        if data.get('ssc', 0) == 0 and data.get('hsc', 0) == 0 and data.get('diploma', 0) == 0 and data.get('main_marks', 0) == 0:
-            raise serializers.ValidationError("At least one mark (SSC, HSC, Diploma, or Main Marks) must be greater than 0")
+        if data.get('ssc', 0) == 0 and data.get('hsc', 0) == 0 and data.get('diploma', 0) == 0 and data.get('main_marks', 0) == 0 and data.get('viva_marks', 0) == 0:
+            raise serializers.ValidationError("At least one mark (SSC, HSC, Diploma, Main Marks, or Viva Marks) must be greater than 0")
         return data
 
 
@@ -88,7 +100,7 @@ class MarksDistributionUpdateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = MarksDistribution
-        fields = ['ssc', 'hsc', 'diploma', 'main_marks']
+        fields = ['ssc', 'hsc', 'diploma', 'main_marks', 'viva_marks']
         
     def validate_ssc(self, value):
         """Validate that SSC marks is non-negative"""
@@ -112,10 +124,16 @@ class MarksDistributionUpdateSerializer(serializers.ModelSerializer):
         """Validate that Main Marks is non-negative"""
         if value < 0:
             raise serializers.ValidationError("Main Marks cannot be negative")
+        return value
+
+    def validate_viva_marks(self, value):   
+        """Validate that Viva marks is non-negative"""
+        if value < 0:
+            raise serializers.ValidationError("Viva marks cannot be negative")
         return value    
 
     def validate(self, data):
         """Validate that at least one mark is greater than 0"""
-        if all(data.get(field, 1) == 0 for field in ['ssc', 'hsc', 'diploma', 'main_marks']):
-            raise serializers.ValidationError("At least one mark (SSC, HSC, Diploma, or Main Marks) must be greater than 0")
+        if all(data.get(field, 1) == 0 for field in ['ssc', 'hsc', 'diploma', 'main_marks', 'viva_marks']):
+            raise serializers.ValidationError("At least one mark (SSC, HSC, Diploma, Main Marks, or Viva Marks) must be greater than 0")
         return data
