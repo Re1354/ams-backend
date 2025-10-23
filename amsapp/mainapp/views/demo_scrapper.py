@@ -352,12 +352,28 @@ def parse_docx_fileobj(fileobj, filename: str):
         ans_b, ans_e = normalize_answer_cell(ans_raw)
         ans_b = re.sub(r"[()]", "", ans_b).strip()
         ans_e = re.sub(r"[()]", "", ans_e).strip()
+
+        options_bangla = {}
+        options_english = {}
+        for opt in options:
+            b_text = opt.get("bangla", "").strip()
+            e_text = opt.get("english", "").strip()
+
+            match_b = re.match(r"[\(（]?([ক-ঘ])[\)）]?\s*(.*)", b_text)
+            match_e = re.match(r"[\(（]?([A-Da-d])[\)）]?\s*(.*)", e_text)
+
+            if match_b:
+                options_bangla[match_b.group(1)] = match_b.group(2).strip()
+            if match_e:
+                options_english[match_e.group(1).upper()] = match_e.group(2).strip()
+
+        options_structured = {"bangla": options_bangla, "english": options_english}
         item = {
             "subject": subject,
             "question_bangla": q_bangla,
             "question_english": q_english,
             "question_both": f"{q_bangla}({q_english})".strip(),
-            "options": options,
+            "options": options_structured,
             "answer": {
                 "both": [ans_b] if ans_b else [],
                 "english": [ans_e] if ans_e else []
