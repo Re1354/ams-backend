@@ -367,7 +367,7 @@ def parse_docx_fileobj(fileobj, filename: str):
             if match_e:
                 options_english[match_e.group(1).upper()] = match_e.group(2).strip()
 
-        options_structured = {"bangla": options_bangla, "english": options_english}
+        options_structured = {"both": options_bangla, "english": options_english}
         item = {
             "subject": subject,
             "question_bangla": q_bangla,
