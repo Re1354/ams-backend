@@ -8,6 +8,7 @@ from .views import (
     get_all_roles, create_role, get_role_by_id, update_role, delete_role,
     get_all_users, create_user, get_user_by_id, update_user, delete_user, get_all_teachers
 )
+from .views import upload_docx_scrape_multipart
 from .views.students import (
     get_all_students, create_student, get_student_by_id, update_student, delete_student
 )
@@ -203,4 +204,6 @@ urlpatterns = [
     # Viva Marks Management API
     path('api/add-viva-marks/<int:student_id>/', add_viva_marks, name='add-viva-marks'),
     path('api/delete-viva-marks/<int:student_id>/', delete_viva_marks, name='delete-viva-marks'),
+    # Document scraper upload
+    path('api/scrape-docx/', upload_docx_scrape_multipart, name='upload-docx-scrape'),
 ]

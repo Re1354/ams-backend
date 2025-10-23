@@ -39,6 +39,7 @@ from .viva_assign import (
 from .viva_marks import (
     add_viva_marks, delete_viva_marks
 )
+from .scrapper import upload_docx_scrape_multipart
 
 # Make all views available when importing from mainapp.views
 __all__ = [
@@ -91,5 +92,6 @@ __all__ = [
     'create_viva_assignment', 'get_all_viva_assignments', 'delete_viva_assignment',
     
     # Viva Marks Management
-    'add_viva_marks', 'delete_viva_marks'
+    'add_viva_marks', 'delete_viva_marks',
+    'upload_docx_scrape_multipart'
 ]

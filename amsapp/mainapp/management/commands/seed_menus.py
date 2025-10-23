@@ -17,6 +17,12 @@ class Command(BaseCommand):
                     'component': 'Dashboard'
                 },
                 {
+                    'label':'Insert Questions',
+                    'icon':'FilePlus',
+                    'link': '/insert-questions',
+                    'component': 'InsertQuestions'
+                },
+                {
                     'label': 'Create Questions',
                     'icon': 'Plus',
                     'link': '/create-questions',
