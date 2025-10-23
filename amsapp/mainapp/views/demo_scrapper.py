@@ -353,13 +353,16 @@ def parse_docx_fileobj(fileobj, filename: str):
 
         item = {
             "subject": subject,
-            "question_mixed": q_bangla,
+            "question_bangla": q_bangla,
             "question_english": q_english,
+            "question_both": f"{q_bangla}({q_english})".strip(),
             "options": options,
-            "answer": {"bangla": ans_b, "english": ans_e},
+            "answer": {
+                "both": [ans_b] if ans_b else [],
+                "english": [ans_e] if ans_e else []
+            },
             "session": session,
             "department": dept,
-            "qno": qnum,
         }
         output.append(item)
 
