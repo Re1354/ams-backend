@@ -353,7 +353,7 @@ def parse_docx_fileobj(fileobj, filename: str):
 
         item = {
             "subject": subject,
-            "question_bangla": q_bangla,
+            "question_mixed": q_bangla,
             "question_english": q_english,
             "options": options,
             "answer": {"bangla": ans_b, "english": ans_e},
