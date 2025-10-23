@@ -350,7 +350,8 @@ def parse_docx_fileobj(fileobj, filename: str):
 
         ans_raw = answers_map.get(qnum, "")
         ans_b, ans_e = normalize_answer_cell(ans_raw)
-
+        ans_b = re.sub(r"[()]", "", ans_b).strip()
+        ans_e = re.sub(r"[()]", "", ans_e).strip()
         item = {
             "subject": subject,
             "question_bangla": q_bangla,
