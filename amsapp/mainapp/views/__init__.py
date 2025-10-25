@@ -1,5 +1,6 @@
 # Import all views to make them available when importing from views
 from .questions import AllScrappedQuestionsView, questions_stats, total_questions
+from .questions import insert_scrapped_questions
 from .exams import (
     CreateExamAPIView, AllExamsView, ExamQuestionListView, AddQuestionToExamView,
     ExamQuestionDetailView, DeleteExamView
@@ -93,5 +94,6 @@ __all__ = [
     
     # Viva Marks Management
     'add_viva_marks', 'delete_viva_marks',
-    'upload_docx_scrape_multipart'
+    'upload_docx_scrape_multipart',
+    'insert_scrapped_questions'
 ]

@@ -2,6 +2,47 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
+
+from ..authentication import CustomJWTAuthentication
+
+# This view reuses parsing helpers from demo_scrapper.py to keep parsing logic untouched.
+from .demo_scrapper import parse_docx_fileobj
+
+
+@extend_schema(
+    operation_id='upload_docx_scrape_multipart',
+    tags=['Document Scraper'],
+    summary='Upload one or many .docx files and extract questions (multipart)',
+    parameters=[
+        OpenApiParameter(name='files', description='One or many .docx files', required=True, type=str),
+    ],
+    responses={200: OpenApiResponse(description='Extraction results')}
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def upload_docx_scrape_multipart(request):
+    files = request.FILES.getlist('files')
+    if not files:
+        return Response({'success': False, 'message': 'No files provided. Use multipart/form-data with key "files".'}, status=status.HTTP_400_BAD_REQUEST)
+
+    results = []
+    for f in files:
+        try:
+            if not f.name.lower().endswith('.docx'):
+                results.append({'filename': f.name, 'success': False, 'message': 'Unsupported file type'})
+                continue
+            extracted = parse_docx_fileobj(f, f.name)
+            results.append({'filename': f.name, 'success': True, 'count': len(extracted), 'data': extracted})
+        except Exception as e:
+            results.append({'filename': f.name, 'success': False, 'message': str(e)})
+
+    return Response({'success': True, 'results': results})
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from ..serializers.scrapper import ScrapperUploadSerializer

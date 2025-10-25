@@ -8,8 +8,8 @@ class ScrappedQuestion(models.Model):
     ]
 
     subject = models.CharField(max_length=255)
-    questions = models.TextField()
-    type = models.CharField(max_length=10, choices=TYPE_CHOICES)
+    questions = models.JSONField()
+    type = models.CharField(max_length=10, choices=TYPE_CHOICES,default='option')
     text = models.TextField(null=True, blank=True, default=None)
     options = models.JSONField(null=True, blank=True, default=None)
     answer = models.JSONField(null=True, blank=True, default=None)

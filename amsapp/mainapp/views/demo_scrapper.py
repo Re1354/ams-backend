@@ -378,7 +378,7 @@ def parse_docx_fileobj(fileobj, filename: str):
                 "both": [ans_b] if ans_b else [],
                 "english": [ans_e] if ans_e else []
             },
-            "session": session,
+            "semester": session,
             "department": dept,
         }
         output.append(item)
