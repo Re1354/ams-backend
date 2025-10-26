@@ -38,7 +38,8 @@ class ExamQuestionSaveSerializer(serializers.Serializer):
     """Serializer for individual question data when saving exam"""
     id = serializers.IntegerField(required=False, help_text="Optional original question ID")
     subject = serializers.CharField(max_length=255)
-    questions = serializers.CharField(help_text="Question text")  # Changed from question_text to questions
+    # questions may be a string or a dict containing 'both'/'english' keys depending on generation language
+    questions = serializers.JSONField(help_text="Question text or object (string or {both, english})")  # Changed to JSONField to accept both dict and string
     type = serializers.ChoiceField(choices=[
         ('mcq', 'Multiple Choice'),
         ('option', 'Multiple Choice Option'),  # Added option type

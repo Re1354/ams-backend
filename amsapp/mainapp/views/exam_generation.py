@@ -13,6 +13,7 @@ from ..serializers.exam_generation import (
     ExamGenerationRequestSerializer, ExamSaveRequestSerializer,
     GeneratedExamResponseSerializer, GeneratedQuestionSerializer
 )
+import json
 
 
 @extend_schema(
@@ -224,23 +225,49 @@ def save_generated_exam(request):
             
             # Create exam questions
             for question_data in validated_data['questions']:
-                # Handle answer field - convert array to string if needed
+                # Handle question text which may be a string or a dict containing 'english'/'both'
+                q_field = question_data.get('questions')
+                req_lang = validated_data.get('language', 'English')
+                qtext = ''
+                if isinstance(q_field, dict):
+                    if req_lang and str(req_lang).lower() == 'english':
+                        qtext = q_field.get('english') or q_field.get('both') or json.dumps(q_field, ensure_ascii=False)
+                    elif req_lang and str(req_lang).lower() == 'both':
+                        # store the 'both' text as the snapshot (string)
+                        qtext = q_field.get('both') or q_field.get('english') or json.dumps(q_field, ensure_ascii=False)
+                    else:
+                        # default: prefer english then both
+                        qtext = q_field.get('english') or q_field.get('both') or json.dumps(q_field, ensure_ascii=False)
+                else:
+                    qtext = str(q_field or '')
+
+                # Options can be JSON/dict and stored as-is
+                options_value = question_data.get('options')
+
+                # Answer may be a list, dict or string. Store as JSON string if list/dict, else as string
                 answer_value = question_data.get('answer', '')
-                if isinstance(answer_value, list):
-                    answer_value = ', '.join(str(item) for item in answer_value)
+                if isinstance(answer_value, (list, dict)):
+                    answer_stored = json.dumps(answer_value, ensure_ascii=False)
                 elif answer_value is None:
-                    answer_value = ''
-                
+                    answer_stored = ''
+                else:
+                    answer_stored = str(answer_value)
+
+                # semester and department_shortname
+                semester_val = question_data.get('semester') or validated_data.get('semester', '')
+                dept_sn = question_data.get('department_shortname') or validated_data.get('department', '') or 'CSE'
+
                 ExamQuestion.objects.create(
                     exam=exam,
                     subject=question_data['subject'],
-                    question_text=question_data['questions'],  # Changed from question_text to questions
+                    question_text=qtext,
                     type=question_data['type'],
                     text=question_data.get('text', ''),
-                    options=question_data.get('options'),
-                    answer=str(answer_value),  # Ensure it's a string
+                    options=options_value,
+                    answer=answer_stored,
                     marks=question_data.get('marks', 1),
-                    department_shortname=question_data.get('department_shortname', 'CSE')
+                    semester=semester_val,
+                    department_shortname=dept_sn
                 )
             
             return Response({

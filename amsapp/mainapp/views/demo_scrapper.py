@@ -302,7 +302,7 @@ def parse_docx_file(path: str, output_json: Optional[str] = None):
             "question_english": q_english,
             "options": options,
             "answer": {"bangla": ans_b, "english": ans_e},
-            "session": session,
+            "semester": session,
             "department": dept,
             "qno": qnum
         }
