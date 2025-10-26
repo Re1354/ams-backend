@@ -112,7 +112,54 @@ def generate_exam(request):
     
     # Serialize the questions properly
     questions_serializer = GeneratedQuestionSerializer(generated_questions, many=True)
-    
+
+    # Transform serialized questions according to requested language and attach department_shortname
+    raw_questions = questions_serializer.data
+    transformed_questions = []
+    req_language = data.get('language', 'english')
+    for q in raw_questions:
+        # Work on a copy to avoid mutating serializer output
+        item = dict(q)
+
+        # Ensure department_shortname is set from Department lookup
+        try:
+            item['department_shortname'] = department.department_shortname
+        except Exception:
+            # fallback to existing value or empty
+            item['department_shortname'] = item.get('department_shortname', '')
+
+        # Normalize questions/options/answer based on language
+        # If language == 'english' => return english-only values
+        # If language == 'both' => return only the 'both' sub-values (not the full dict)
+        lang = (req_language or '').lower()
+        qfield = item.get('questions')
+        ofield = item.get('options')
+        afield = item.get('answer')
+
+        if lang == 'english':
+            # questions field might be a dict with 'english'/'both'
+            if isinstance(qfield, dict):
+                item['questions'] = qfield.get('english', qfield)
+
+            if isinstance(ofield, dict):
+                # options may be {'both': {...}, 'english': {...}}
+                item['options'] = ofield.get('english', ofield)
+
+            if isinstance(afield, dict):
+                item['answer'] = afield.get('english', afield)
+
+        elif lang == 'both':
+            # For 'both' requests, return only the 'both' subfields
+            if isinstance(qfield, dict):
+                item['questions'] = qfield.get('both', qfield)
+
+            if isinstance(ofield, dict):
+                item['options'] = ofield.get('both', ofield)
+
+            if isinstance(afield, dict):
+                item['answer'] = afield.get('both', afield)
+        transformed_questions.append(item)
+
     # Prepare response data
     response_data = {
         'exam_id': None,  # Not saved yet
@@ -123,7 +170,7 @@ def generate_exam(request):
         'faculty': data['faculty'],
         'total_marks': total_marks,
         'subjects': subjects_info,
-        'questions': questions_serializer.data
+        'questions': transformed_questions
     }
     
     return Response({
