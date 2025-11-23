@@ -87,10 +87,10 @@ WSGI_APPLICATION = 'amsapp.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='ams_diu'),
-        'USER': config('DB_USER', default='ams_diu_user'),
-        'PASSWORD': config('DB_PASSWORD', default='v21EVjnoIPZ8rn36GGm6HStTuhTTHqFd'),
-        'HOST': config('DB_HOST', default='dpg-d3uffsgdl3ps73f46hv0-a.oregon-postgres.render.com'),
+        'NAME': config('DB_NAME', default='ams_08zb'),
+        'USER': config('DB_USER', default='ams_08zb_user'),
+        'PASSWORD': config('DB_PASSWORD', default='0CevnknjcZWfP4PEe6WuS52rjfqLaiPL'),
+        'HOST': config('DB_HOST', default='dpg-d4h0586r433s73arberg-a.oregon-postgres.render.com'),
         'PORT': config('DB_PORT', default='5432'),
         'OPTIONS': {
             'sslmode': 'require',  # Render requires SSL
@@ -101,7 +101,7 @@ DATABASES = {
 # Override with DATABASE_URL if provided (for production environments like Render)
 DATABASE_URL = config(
     'DATABASE_URL',
-    default='postgresql://ams_diu_user:v21EVjnoIPZ8rn36GGm6HStTuhTTHqFd@dpg-d3uffsgdl3ps73f46hv0-a.oregon-postgres.render.com/ams_diu'
+    default='postgresql://ams_08zb_user:0CevnknjcZWfP4PEe6WuS52rjfqLaiPL@dpg-d4h0586r433s73arberg-a.oregon-postgres.render.com/ams_08zb'
 )
 if DATABASE_URL:
     DATABASES['default'] = dj_database_url.parse(DATABASE_URL)
