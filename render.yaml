@@ -11,7 +11,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: "postgresql://ams_db_yim9_user:MWFsvDM81DcwxDf548eQMLYmsXe3vRmq@dpg-d39sm10dl3ps73agniu0-a.oregon-postgres.render.com:5432/ams_db_yim9?sslmode=require"
+        value: "postgresql://ams_08zb_user:0CevnknjcZWfP4PEe6WuS52rjfqLaiPL@dpg-d4h0586r433s73arberg-a.oregon-postgres.render.com:5432/ams_08zb"
       - key: ALLOWED_HOSTS
         value: "*"
       - key: CORS_ALLOW_ALL_ORIGINS
