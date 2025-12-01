@@ -101,10 +101,14 @@ DATABASES = {
 # Override with DATABASE_URL if provided (for production environments like Render)
 DATABASE_URL = config(
     'DATABASE_URL',
-    default='postgresql://ams_08zb_user:0CevnknjcZWfP4PEe6WuS52rjfqLaiPL@dpg-d4h0586r433s73arberg-a.oregon-postgres.render.com/ams_08zb'
+    default='postgresql://ams_db_yim9_user:MWFsvDM81DcwxDf548eQMLYmsXe3vRmq@dpg-d39sm10dl3ps73agniu0-a.oregon-postgres.render.com:5432/ams_db_yim9?sslmode=require'
 )
 if DATABASE_URL:
-    DATABASES['default'] = dj_database_url.parse(DATABASE_URL)
+    DATABASES['default'] = dj_database_url.parse(DATABASE_URL, conn_max_age=600, ssl_require=True)
+    # Ensure SSL is enforced
+    if 'OPTIONS' not in DATABASES['default']:
+        DATABASES['default']['OPTIONS'] = {}
+    DATABASES['default']['OPTIONS']['sslmode'] = 'require'
 
 
 # Password validation
