@@ -33,7 +33,8 @@ from .views.subject_departments import (
 from .views.exam_generation import generate_exam, save_generated_exam
 from .views.student_assign_teacher_exam import (
     assign_students_bulk, assign_student_single, get_all_assignments, 
-    delete_assignment, delete_assignments_bulk, get_available_schedules
+    delete_assignment, delete_assignments_bulk, get_available_schedules,
+    get_student_assignments_by_teacher
 )
 from .views.results import (
     toggle_exam_publication, get_student_exam_result_enhanced,
@@ -51,7 +52,8 @@ from .views.marks_distribution import (
     get_marks_distribution_by_department, update_marks_distribution, delete_marks_distribution
 )
 from .views.viva_assign import (
-    create_viva_assignment, get_all_viva_assignments, delete_viva_assignment
+    create_viva_assignment, get_all_viva_assignments, delete_viva_assignment,
+    get_viva_assignments_by_teacher
 )
 from .views.viva_marks import (
     add_viva_marks, delete_viva_marks
@@ -162,6 +164,7 @@ urlpatterns = [
     
     # Student Assignment API
     path('api/student-assignments/', get_all_assignments, name='get-all-assignments'),
+    path('api/student-assignments/<int:teacher_id>/', get_student_assignments_by_teacher, name='get-student-assignments-by-teacher'),
     path('api/student-assignments/assign-bulk/', assign_students_bulk, name='assign-students-bulk'),
     path('api/student-assignments/assign-single/', assign_student_single, name='assign-student-single'),
     path('api/student-assignments/<int:assignment_id>/delete/', delete_assignment, name='delete-assignment'),
@@ -199,6 +202,7 @@ urlpatterns = [
 
     # Viva Assignment Management API
     path('api/viva-assignments/', get_all_viva_assignments, name='get-all-viva-assignments'),
+    path('api/viva-assignments/<int:teacher_id>/', get_viva_assignments_by_teacher, name='get-viva-assignments-by-teacher'),
     path('api/viva-assignments/create/', create_viva_assignment, name='create-viva-assignment'),
     path('api/viva-assignments/<int:assignment_id>/delete/', delete_viva_assignment, name='delete-viva-assignment'),
 

@@ -341,6 +341,54 @@ def delete_assignments_bulk(request):
 
 
 @extend_schema(
+    operation_id='get_student_assignments_by_teacher',
+    tags=['Student Assignment'],
+    summary="Get all student assignments for a specific teacher",
+    description="Retrieve all students assigned to a specific teacher for exams",
+    responses={
+        200: OpenApiResponse(
+            response=StudentAssignTeacherExamSerializer(many=True),
+            description="Student assignments retrieved successfully"
+        ),
+        404: OpenApiResponse(description="Teacher not found")
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def get_student_assignments_by_teacher(request, teacher_id):
+    """Get all student assignments for a specific teacher"""
+    
+    # Check if teacher exists
+    try:
+        teacher = User.objects.get(id=teacher_id)
+    except User.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Teacher not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    
+    # Get all student assignments for this teacher
+    assignments = StudentAssignTeacherExam.objects.filter(
+        teacher_id=teacher_id
+    ).select_related('student', 'teacher', 'exam', 'schedule').order_by('-created_at')
+    
+    serializer = StudentAssignTeacherExamSerializer(assignments, many=True)
+    
+    return Response({
+        'success': True,
+        'teacher': {
+            'id': teacher.id,
+            'username': teacher.username,
+            'email': teacher.email
+        },
+        'count': assignments.count(),
+        'data': serializer.data,
+        'message': f'Found {assignments.count()} student assignments for teacher {teacher.username}'
+    })
+
+
+@extend_schema(
     operation_id='get_available_schedules',
     tags=['Student Assignment'],
     summary="Get available exam schedules for assignment",

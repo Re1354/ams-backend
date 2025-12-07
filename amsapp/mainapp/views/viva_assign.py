@@ -108,6 +108,55 @@ def get_all_viva_assignments(request):
     })
 
 @extend_schema(
+    operation_id='get_viva_assignments_by_teacher',
+    tags=['Viva Assignment Management'],
+    summary="Get all viva assignments for a specific teacher",
+    description="Retrieve all students assigned to a specific teacher for viva examination",
+    responses={
+        200: OpenApiResponse(
+            response=VivaAssignmentSerializer(many=True),
+            description="Viva assignments retrieved successfully"
+        ),
+        404: OpenApiResponse(description="Teacher not found")
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def get_viva_assignments_by_teacher(request, teacher_id):
+    """Get all viva assignments for a specific teacher"""
+    from ..models import User
+    
+    # Check if teacher exists
+    try:
+        teacher = User.objects.get(id=teacher_id)
+    except User.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Teacher not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    
+    # Get all viva assignments for this teacher
+    viva_assignments = VivaAssignment.objects.filter(
+        teacher_id=teacher_id
+    ).select_related('student', 'teacher', 'exam').order_by('-created_at')
+    
+    serializer = VivaAssignmentSerializer(viva_assignments, many=True)
+    
+    return Response({
+        'success': True,
+        'teacher': {
+            'id': teacher.id,
+            'username': teacher.username,
+            'email': teacher.email
+        },
+        'count': viva_assignments.count(),
+        'assignments': serializer.data,
+        'message': f'Found {viva_assignments.count()} viva assignments for teacher {teacher.username}'
+    })
+
+
+@extend_schema(
     operation_id='delete_viva_assignment',
     tags=['Viva Assignment Management'],
     summary="Delete viva assignment",
