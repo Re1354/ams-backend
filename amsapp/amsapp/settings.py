@@ -87,10 +87,17 @@ WSGI_APPLICATION = 'amsapp.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
+<<<<<<< HEAD
         'NAME': config('DB_NAME', default='ams_diu_9b89'),
         'USER': config('DB_USER', default='ams_diu_9b89_user'),
         'PASSWORD': config('DB_PASSWORD', default='JzAG2YdR4cjsexJnGwgO3xeL5FfigzbP'),
         'HOST': config('DB_HOST', default='dpg-d4qqkrili9vc73a2poj0-a.oregon-postgres.render.com'),
+=======
+        'NAME': config('DB_NAME', default='ams_08zb'),
+        'USER': config('DB_USER', default='ams_08zb_user'),
+        'PASSWORD': config('DB_PASSWORD', default='0CevnknjcZWfP4PEe6WuS52rjfqLaiPL'),
+        'HOST': config('DB_HOST', default='dpg-d4h0586r433s73arberg-a.oregon-postgres.render.com'),
+>>>>>>> f19ec492854d15728954511b5fd67eace5b26037
         'PORT': config('DB_PORT', default='5432'),
         'OPTIONS': {
             'sslmode': 'require',  # Render requires SSL
@@ -101,10 +108,19 @@ DATABASES = {
 # Override with DATABASE_URL if provided (for production environments like Render)
 DATABASE_URL = config(
     'DATABASE_URL',
+<<<<<<< HEAD
     default='postgresql://ams_diu_9b89_user:JzAG2YdR4cjsexJnGwgO3xeL5FfigzbP@dpg-d4qqkrili9vc73a2poj0-a.virginia-postgres.render.com/ams_diu_9b89'
+=======
+    default=None
+>>>>>>> f19ec492854d15728954511b5fd67eace5b26037
 )
 if DATABASE_URL:
-    DATABASES['default'] = dj_database_url.parse(DATABASE_URL)
+    DATABASES['default'] = dj_database_url.parse(DATABASE_URL, conn_max_age=600)
+    # Configure SSL for Render PostgreSQL
+    if 'OPTIONS' not in DATABASES['default']:
+        DATABASES['default']['OPTIONS'] = {}
+    # Use require mode for SSL
+    DATABASES['default']['OPTIONS']['sslmode'] = 'require'
 
 
 # Password validation
