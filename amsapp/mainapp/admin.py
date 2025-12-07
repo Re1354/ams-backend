@@ -202,6 +202,7 @@ class VivaMarksAdmin(admin.ModelAdmin):
     remarks_preview.short_description = 'Remarks'
 
 
+
 @admin.register(VivaAssignment)
 class VivaAssignmentAdmin(admin.ModelAdmin):
     list_display = ('id', 'student', 'teacher', 'exam', 'time', 'room', 'created_at')
