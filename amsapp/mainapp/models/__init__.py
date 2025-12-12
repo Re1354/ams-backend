@@ -18,6 +18,8 @@ from .viva_rubrics import VivaRubrics
 from .marks_distribution import MarksDistribution
 from .viva_marks import VivaMarks
 from .viva_assign import VivaAssignment
+from .department_threshold import DepartmentThreshold
+from .admission_result import AdmissionResult
 
 
 
@@ -42,5 +44,7 @@ __all__ = [
     'MarksDistribution',
     'VivaMarks',
     'VivaAssignment',
+    'DepartmentThreshold',
+    'AdmissionResult',
 
 ]

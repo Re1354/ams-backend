@@ -20,6 +20,8 @@ from .models import (
     MarksDistribution,
     VivaMarks,
     VivaAssignment,
+    DepartmentThreshold,
+    AdmissionResult,
 )
 
 # Register your models here.
@@ -210,3 +212,45 @@ class VivaAssignmentAdmin(admin.ModelAdmin):
     search_fields = ('student__username', 'teacher__username', 'exam__department', 'room')
     list_per_page = 25
     raw_id_fields = ('student', 'teacher', 'exam')
+
+
+@admin.register(DepartmentThreshold)
+class DepartmentThresholdAdmin(admin.ModelAdmin):
+    list_display = ('id', 'exam', 'department', 'min_threshold_mark', 'created_at', 'updated_at')
+    list_filter = ('department', 'created_at', 'updated_at')
+    search_fields = ('exam__department', 'department__department_name')
+    list_per_page = 25
+    raw_id_fields = ('exam', 'department')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(AdmissionResult)
+class AdmissionResultAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'student', 'exam', 'department', 'total_marks', 
+        'is_selected', 'status', 'created_at'
+    )
+    list_filter = ('is_selected', 'status', 'department', 'created_at')
+    search_fields = (
+        'student__username', 'student__f_id', 'student__full_name',
+        'exam__department', 'department__department_name'
+    )
+    list_per_page = 25
+    raw_id_fields = ('exam', 'student', 'department')
+    readonly_fields = ('total_marks', 'created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('exam', 'student', 'department', 'status')
+        }),
+        ('Marks Details', {
+            'fields': ('mcq_marks', 'viva_marks', 'total_marks', 'subject_wise_marks')
+        }),
+        ('Selection', {
+            'fields': ('is_selected', 'threshold_applied', 'remarks')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )

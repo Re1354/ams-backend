@@ -204,6 +204,7 @@ def total_questions(request):
     tags=['Questions'],
     summary='Insert scrapped questions in bulk',
     description='Accepts scraper results (list of files with data) and inserts each question into scrapped_questions table.',
+    request=None,
     responses={201: OpenApiResponse(description='Questions inserted successfully')}
 )
 @api_view(['POST'])
