@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     AllScrappedQuestionsView, questions_stats, total_questions, CreateExamAPIView, 
     ExamQuestionListView, AddQuestionToExamView, ExamQuestionDetailView, AllExamsView, DeleteExamView,
-    AllSchedulesView, ScheduleDetailView, create_exam_schedule,
+    AllSchedulesView, ScheduleDetailView, create_exam_schedule, get_teacher_schedule,
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
     submit_exam, get_exam_result, get_student_scheduled_exams, get_student_schedule, login_view, refresh_token_view, verify_token_view,
     get_all_roles, create_role, get_role_by_id, update_role, delete_role,
@@ -100,6 +100,7 @@ urlpatterns = [
     path('api/schedules/', AllSchedulesView.as_view(), name='all-schedules'),
     path('api/schedules/create/', create_exam_schedule, name='create-exam-schedule'),
     path('api/schedules/<int:schedule_id>/', ScheduleDetailView.as_view(), name='schedule-detail'),
+    path('api/get-schedule/<int:teacher_id>/', get_teacher_schedule, name='get-teacher-schedule'),
     
     # Student App API (for React app)
     path('api/student/login/', student_login, name='student-login'),

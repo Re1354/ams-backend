@@ -6,7 +6,7 @@ from .exams import (
     ExamQuestionDetailView, DeleteExamView
 )
 from .students import get_all_students, create_student, get_student_by_id, update_student, delete_student
-from .schedules import AllSchedulesView, create_exam_schedule, ScheduleDetailView
+from .schedules import AllSchedulesView, create_exam_schedule, ScheduleDetailView, get_teacher_schedule
 from .student_app import (
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
     submit_exam, get_exam_result, calculate_exam_result, calculate_exam_result_helper,
@@ -55,7 +55,7 @@ __all__ = [
     'get_all_students', 'create_student', 'get_student_by_id', 'update_student', 'delete_student',
     
     # Schedules
-    'AllSchedulesView', 'create_exam_schedule', 'ScheduleDetailView',
+    'AllSchedulesView', 'create_exam_schedule', 'ScheduleDetailView', 'get_teacher_schedule',
     
     # Student App
     'student_login', 'StudentAvailableExamsView', 'StudentExamQuestionsView',

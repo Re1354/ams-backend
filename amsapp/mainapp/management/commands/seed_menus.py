@@ -135,6 +135,30 @@ class Command(BaseCommand):
                     'icon':'Edit',
                     'link':'/viva-marks',
                     'component':'VivaMarks'
+                },
+                {
+                    'label':'Threshold Management',
+                    'icon':'Sliders',
+                    'link':'/threshold-management',
+                    'component':'ThresholdManagement'
+                },
+                {
+                    'label':'My Students',
+                    'icon':'UserGroup',
+                    'link':'/my-students',
+                    'component':'MyStudents'
+                },
+                {
+                    'label':'All Results',
+                    'icon':'FileText',
+                    'link':'/all-results',
+                    'component':'AllResults'
+                },
+                {
+                    'label':'My Schedule',
+                    'icon':'FileSearch',
+                    'link':'/my-schedule',
+                    'component':'MySchedule'
                 }
                
             ]

@@ -254,3 +254,97 @@ class ScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = ExamSchedule.objects.all()
     serializer_class = ExamScheduleSerializer
     lookup_url_kwarg = 'schedule_id'
+
+
+@extend_schema(
+    summary="Get schedules for a specific teacher",
+    description="Retrieve all exam schedules assigned to a specific teacher based on StudentAssignTeacherExam assignments. Returns unique schedules with exam details.",
+    tags=['Schedule'],
+    responses={
+        200: {
+            'type': 'object',
+            'properties': {
+                'success': {'type': 'boolean'},
+                'teacher': {
+                    'type': 'object',
+                    'properties': {
+                        'id': {'type': 'integer'},
+                        'username': {'type': 'string'},
+                        'email': {'type': 'string'}
+                    }
+                },
+                'count': {'type': 'integer'},
+                'schedules': {'type': 'array', 'items': {'$ref': '#/components/schemas/ExamSchedule'}},
+                'message': {'type': 'string'}
+            }
+        },
+        404: {
+            'type': 'object',
+            'properties': {
+                'success': {'type': 'boolean'},
+                'message': {'type': 'string'}
+            }
+        }
+    }
+)
+@api_view(['GET'])
+@csrf_exempt
+def get_teacher_schedule(request, teacher_id):
+    """
+    Get all exam schedules assigned to a specific teacher.
+    
+    This endpoint retrieves all unique schedules where the teacher has been assigned
+    students through the StudentAssignTeacherExam model.
+    """
+    from ..models import User, StudentAssignTeacherExam
+    from ..authentication import CustomJWTAuthentication
+    from rest_framework.permissions import IsAuthenticated
+    
+    # Authenticate the request
+    authenticator = CustomJWTAuthentication()
+    try:
+        user_auth_tuple = authenticator.authenticate(request)
+        if user_auth_tuple is None:
+            return Response({
+                'success': False,
+                'message': 'Authentication required'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Authentication failed: {str(e)}'
+        }, status=status.HTTP_401_UNAUTHORIZED)
+    
+    # Check if teacher exists
+    try:
+        teacher = User.objects.get(id=teacher_id)
+    except User.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Teacher not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    
+    # Get all unique schedules assigned to this teacher
+    assignments = StudentAssignTeacherExam.objects.filter(
+        teacher_id=teacher_id
+    ).select_related('schedule', 'schedule__exam').values_list('schedule_id', flat=True).distinct()
+    
+    # Get schedule objects
+    schedules = ExamSchedule.objects.filter(
+        id__in=assignments
+    ).select_related('exam').order_by('-start_time')
+    
+    # Serialize schedules
+    serializer = ExamScheduleSerializer(schedules, many=True)
+    
+    return Response({
+        'success': True,
+        'teacher': {
+            'id': teacher.id,
+            'username': teacher.username,
+            'email': teacher.email
+        },
+        'count': schedules.count(),
+        'schedules': serializer.data,
+        'message': f'Found {schedules.count()} schedules for teacher {teacher.username}'
+    })
