@@ -58,6 +58,13 @@ from .views.viva_assign import (
 from .views.viva_marks import (
     add_viva_marks, delete_viva_marks
 )
+from .views.admission_threshold import (
+    set_threshold_mapping, get_threshold_mapping, get_threshold_by_id, delete_threshold_mapping
+)
+from .views.admission_results import (
+    calculate_results, get_admission_results, get_admission_result_by_id,
+    get_student_admission_result, publish_admission_results, recalculate_student_result
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -209,6 +216,21 @@ urlpatterns = [
     # Viva Marks Management API
     path('api/add-viva-marks/<int:student_id>/', add_viva_marks, name='add-viva-marks'),
     path('api/delete-viva-marks/<int:student_id>/', delete_viva_marks, name='delete-viva-marks'),
+    
+    # Admission Threshold Management API
+    path('api/admission/threshold-mapping/', set_threshold_mapping, name='set-threshold-mapping'),
+    path('api/admission/get-threshold-mapping/', get_threshold_mapping, name='get-threshold-mapping'),
+    path('api/admission/threshold/<int:threshold_id>/', get_threshold_by_id, name='get-threshold-by-id'),
+    path('api/admission/threshold/<int:threshold_id>/delete/', delete_threshold_mapping, name='delete-threshold-mapping'),
+    
+    # Admission Results Management API
+    path('api/admission/calculate-results/', calculate_results, name='calculate-admission-results'),
+    path('api/admission/results/', get_admission_results, name='get-admission-results'),
+    path('api/admission/results/<int:result_id>/', get_admission_result_by_id, name='get-admission-result-by-id'),
+    path('api/admission/results/student/<int:exam_id>/<int:student_id>/', get_student_admission_result, name='get-student-admission-result'),
+    path('api/admission/publish-results/', publish_admission_results, name='publish-admission-results'),
+    path('api/admission/recalculate/<int:exam_id>/<int:student_id>/', recalculate_student_result, name='recalculate-student-result'),
+    
     # Document scraper upload
     path('api/scrape-docx/', upload_docx_scrape_multipart, name='upload-docx-scrape'),
     path('api/scrapped-questions/insert/', insert_scrapped_questions, name='insert-scrapped-questions'),

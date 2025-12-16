@@ -207,6 +207,10 @@ SPECTACULAR_SETTINGS = {
         {
             'name': 'Statistics',
             'description': 'Statistics and analytics endpoints'
+        },
+        {
+            'name': 'Admission Management',
+            'description': 'Dynamic Admission Threshold & result management based on department and exam'
         }
     ],
     'DEFAULT_AUTO_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
@@ -215,14 +219,8 @@ SPECTACULAR_SETTINGS = {
             'BearerAuth': []
         }
     ],
-    'POSTPROCESSING_HOOKS': [
-        'drf_spectacular.hooks.postprocess_schema_enums'
-    ],
-    'ENUM_NAME_OVERRIDES': {
-        'mainapp.models.scrapped_question.ScrappedQuestion.type': 'QuestionTypeEnum',
-        'mainapp.models.exam_question.ExamQuestion.type': 'QuestionTypeEnum',
-        'mainapp.models.blocklist_question.BlocklistQuestion.type': 'QuestionTypeEnum',
-    },
+    'POSTPROCESSING_HOOKS': [],
+    'ENUM_NAME_OVERRIDES': {},
     'ENUM_ADD_NULL_CHOICE': False,
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
