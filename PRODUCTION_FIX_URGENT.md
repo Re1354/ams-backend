@@ -10,8 +10,8 @@
 Your production app is trying to connect to a **BROKEN database**:
 
 ```
-❌ Currently Using: dpg-d3uffsgdl3ps73f46hv0-a.oregon-postgres.render.com
-✅ Should Use: dpg-d4h0586r433s73arberg-a.oregon-postgres.render.com
+❌ Currently Using: old/invalid database host from Render environment variables
+✅ Should Use: dpg-d7b6kvia214c73cmo8kg-a.oregon-postgres.render.com
 ```
 
 **Error:** `SSL connection has been closed unexpectedly`
@@ -25,7 +25,7 @@ Your production app is trying to connect to a **BROKEN database**:
 **Location:** Render Dashboard → Your Service → Environment Variables
 
 **Problem:** 
-The Render dashboard has a `DATABASE_URL` environment variable pointing to the wrong database (`dpg-d3uffsgdl3ps73f46hv0-a`).
+The Render dashboard has a `DATABASE_URL` environment variable pointing to the wrong database.
 
 Environment variables in the Render dashboard **OVERRIDE** the values in render.yaml!
 
@@ -36,7 +36,7 @@ Environment variables in the Render dashboard **OVERRIDE** the values in render.
 4. Find `DATABASE_URL` variable
 5. **DELETE IT** or **UPDATE IT** to:
    ```
-   postgresql://ams_08zb_user:0CevnknjcZWfP4PEe6WuS52rjfqLaiPL@dpg-d4h0586r433s73arberg-a.oregon-postgres.render.com:5432/ams_08zb
+   postgresql://ams_user:XqlVSf7NgjKwnYjAcF3dJ2HrAgq24FVy@dpg-d7b6kvia214c73cmo8kg-a.oregon-postgres.render.com:5432/ams_0p45
    ```
 6. Click "Save Changes"
 7. Render will automatically redeploy
@@ -56,13 +56,11 @@ The file was missing the `services:` header at the top, which could cause Render
 
 ### 🔴 CULPRIT #3: Multiple Database Hosts Confusion
 
-You have **THREE different database hosts** in your setup:
+You should use **one database host everywhere**:
 
 | Database Host | Status | Location |
 |---------------|--------|----------|
-| `dpg-d3uffsgdl3ps73f46hv0-a` | ❌ BROKEN (SSL issues) | Render Dashboard |
-| `dpg-d39sm10dl3ps73agniu0-a` | ❌ BROKEN (Old) | Old docs |
-| `dpg-d4h0586r433s73arberg-a` | ✅ WORKING | render.yaml, settings.py |
+| `dpg-d7b6kvia214c73cmo8kg-a` | ✅ WORKING | render.yaml, settings.py, Render Dashboard |
 
 ---
 
@@ -79,7 +77,7 @@ You have **THREE different database hosts** in your setup:
 7. **Option A (Recommended):** Delete it entirely (render.yaml will be used)
 8. **Option B:** Update it to the correct value:
    ```
-   postgresql://ams_08zb_user:0CevnknjcZWfP4PEe6WuS52rjfqLaiPL@dpg-d4h0586r433s73arberg-a.oregon-postgres.render.com:5432/ams_08zb
+   postgresql://ams_user:XqlVSf7NgjKwnYjAcF3dJ2HrAgq24FVy@dpg-d7b6kvia214c73cmo8kg-a.oregon-postgres.render.com:5432/ams_0p45
    ```
 9. Click **"Save Changes"**
 10. Wait for automatic redeployment (2-5 minutes)
@@ -118,10 +116,10 @@ After deployment completes:
 
 ### Timeline of Database Confusion:
 
-1. **Original Setup:** Used `dpg-d3uffsgdl3ps73f46hv0-a` (broken SSL)
-2. **First Fix Attempt:** Changed to `dpg-d39sm10dl3ps73agniu0-a` (also broken)
-3. **Current Fix:** Changed to `dpg-d4h0586r433s73arberg-a` ✅ (working)
-4. **BUT:** Render dashboard still has old DATABASE_URL from step 1!
+1. **Original Setup:** Used old/broken database host values
+2. **Intermediate Fix Attempts:** Multiple host changes in docs/config
+3. **Current Fix:** Use `dpg-d7b6kvia214c73cmo8kg-a` ✅ (working)
+4. **BUT:** Render dashboard may still have stale `DATABASE_URL`.
 
 **Result:** Code has correct database, but Render dashboard overrides it with broken one!
 
@@ -158,14 +156,14 @@ After applying fixes:
 ```
 ❌ POST /api/auth/login/ → 500 Internal Server Error
 ❌ Error: SSL connection has been closed unexpectedly
-❌ Database: dpg-d3uffsgdl3ps73f46hv0-a (broken)
+❌ Database: stale/incorrect DATABASE_URL (broken)
 ```
 
 ### After (Fixed):
 ```
 ✅ POST /api/auth/login/ → 200 OK (valid) or 401 Unauthorized (invalid)
 ✅ No SSL errors
-✅ Database: dpg-d4h0586r433s73arberg-a (working)
+✅ Database: dpg-d7b6kvia214c73cmo8kg-a (working)
 ```
 
 ---
@@ -190,7 +188,7 @@ If the issue persists after fixing:
 
 1. Check Render logs for exact error
 2. Verify DATABASE_URL in Render dashboard matches working database
-3. Ensure `dpg-d4h0586r433s73arberg-a` database is active in Render
+3. Ensure `dpg-d7b6kvia214c73cmo8kg-a` database is active in Render
 4. Try manual connection test from Render shell
 
 ---

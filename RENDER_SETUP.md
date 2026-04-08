@@ -30,7 +30,7 @@ git push origin main
 ```
 DEBUG=False
 SECRET_KEY=your-generated-secret-key-here
-DATABASE_URL=postgresql://ams_db_yim9_user:MWFsvDM81DcwxDf548eQMLYmsXe3vRmq@dpg-d39sm10dl3ps73agniu0-a.oregon-postgres.render.com:5432/ams_db_yim9
+DATABASE_URL=postgresql://ams_user:XqlVSf7NgjKwnYjAcF3dJ2HrAgq24FVy@dpg-d7b6kvia214c73cmo8kg-a.oregon-postgres.render.com:5432/ams_0p45
 ALLOWED_HOSTS=ams-diu-backend.onrender.com,*.onrender.com,localhost,127.0.0.1
 CORS_ALLOW_ALL_ORIGINS=True
 ```
