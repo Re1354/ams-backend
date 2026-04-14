@@ -576,7 +576,8 @@ def calculate_exam_result_helper(student_id, exam_id):
                 'properties': {
                     'username': {'type': 'string'},
                     'f_id': {'type': 'string'},
-                    'department_shortname': {'type': 'string'}
+                    'department_shortname': {'type': 'string'},
+                    'registration_semester': {'type': 'string'}
                 }
             },
             'scheduled_exams': {
@@ -647,7 +648,8 @@ def get_student_scheduled_exams(request, student_id):
             'student_info': {
                 'username': student.username,
                 'f_id': student.f_id,
-                'department_shortname': student.department_shortname
+                'department_shortname': student.department_shortname,
+                'registration_semester': student.registration_semester
             },
             'scheduled_exams': [],
             'total_assigned_exams': 0
@@ -704,7 +706,8 @@ def get_student_scheduled_exams(request, student_id):
         'student_info': {
             'username': student.username,
             'f_id': student.f_id,
-            'department_shortname': student.department_shortname
+            'department_shortname': student.department_shortname,
+            'registration_semester': student.registration_semester
         },
         'scheduled_exams': scheduled_exams,
         'total_assigned_exams': len(scheduled_exams)

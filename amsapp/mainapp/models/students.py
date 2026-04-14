@@ -8,6 +8,11 @@ class Students(models.Model):
     full_name = models.CharField(max_length=255, blank=True)
     email = models.EmailField(blank=True)
     department_shortname = models.CharField(max_length=50, default='CSE', help_text="Department short name")
+    registration_semester = models.CharField(
+        max_length=50,
+        help_text="Semester or intake when the student registered",
+        db_index=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     ssc = models.FloatField(default=0)
     hsc = models.FloatField(default=0)

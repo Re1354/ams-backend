@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
 from ..models import StudentAssignTeacherExam, Students, User, Exam, ExamSchedule
 from ..serializers.student_assign_teacher_exam import (
@@ -178,6 +178,14 @@ def assign_student_single(request):
     tags=['Student Assignment'],
     summary="Get all student assignments",
     description="Retrieve all student-teacher-exam assignments. Superadmin sees all, others see assignments filtered by department_shortname.",
+    parameters=[
+        OpenApiParameter(
+            name='registration_semester',
+            description='Filter assignments by the student registration semester',
+            required=False,
+            type=str,
+        ),
+    ],
     responses={
         200: OpenApiResponse(
             response=StudentAssignTeacherExamSerializer(many=True),
@@ -192,6 +200,7 @@ def get_all_assignments(request):
     """Get all student assignments with role-based filtering"""
     
     user = request.user
+    registration_semester_filter = request.query_params.get('registration_semester')
     
     # Get the custom user and role information
     if hasattr(user, 'custom_user'):
@@ -224,6 +233,11 @@ def get_all_assignments(request):
     else:
         # If no custom_user, return empty queryset for security
         assignments = StudentAssignTeacherExam.objects.none()
+
+    if registration_semester_filter:
+        assignments = assignments.filter(
+            student__registration_semester__icontains=registration_semester_filter
+        )
     
     serializer = StudentAssignTeacherExamSerializer(assignments, many=True)
     return Response({
@@ -253,6 +267,7 @@ def delete_assignment(request, assignment_id):
         assignment = StudentAssignTeacherExam.objects.get(id=assignment_id)
         assignment_info = {
             'student': assignment.student.username,
+            'student_registration_semester': assignment.student.registration_semester,
             'teacher': assignment.teacher.username,
             'exam_id': assignment.exam.id
         }

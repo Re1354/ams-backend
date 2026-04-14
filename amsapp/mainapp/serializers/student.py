@@ -7,7 +7,11 @@ class StudentsSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Students
-        fields = ['id', 'username', 'password', 'f_id', 'full_name', 'email', 'department_shortname', 'created_at', 'ssc', 'hsc', 'diploma']
+        fields = [
+            'id', 'username', 'password', 'f_id', 'full_name', 'email',
+            'department_shortname', 'registration_semester', 'created_at',
+            'ssc', 'hsc', 'diploma'
+        ]
         read_only_fields = ['id', 'created_at']
         extra_kwargs = {
             'password': {'write_only': True}  # Never return password in API responses
@@ -43,13 +47,23 @@ class StudentsSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Diploma marks cannot be negative")
         return value
 
+    def validate_registration_semester(self, value):
+        """Validate registration semester is provided"""
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Registration semester is required")
+        return value
+
 
 class StudentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating students"""
     
     class Meta:
         model = Students
-        fields = ['username', 'password', 'f_id', 'full_name', 'email', 'department_shortname', 'ssc', 'hsc', 'diploma']
+        fields = [
+            'username', 'password', 'f_id', 'full_name', 'email',
+            'department_shortname', 'registration_semester', 'ssc', 'hsc', 'diploma'
+        ]
         extra_kwargs = {
             'password': {'write_only': True}
         }
@@ -78,13 +92,23 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Diploma marks cannot be negative")
         return value
 
+    def validate_registration_semester(self, value):
+        """Validate registration semester is provided"""
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Registration semester is required")
+        return value
+
 
 class StudentUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating students"""
     
     class Meta:
         model = Students
-        fields = ['username', 'f_id', 'full_name', 'email', 'department_shortname', 'ssc', 'hsc', 'diploma']
+        fields = [
+            'username', 'f_id', 'full_name', 'email',
+            'department_shortname', 'registration_semester', 'ssc', 'hsc', 'diploma'
+        ]
         # Note: Password update should be handled separately for security
     
     def validate_username(self, value):
@@ -109,6 +133,13 @@ class StudentUpdateSerializer(serializers.ModelSerializer):
         """Validate Diploma marks is non-negative"""
         if value < 0:
             raise serializers.ValidationError("Diploma marks cannot be negative")
+        return value
+
+    def validate_registration_semester(self, value):
+        """Validate registration semester is provided"""
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Registration semester is required")
         return value
 
 

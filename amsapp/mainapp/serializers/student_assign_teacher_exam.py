@@ -8,6 +8,7 @@ class StudentAssignTeacherExamSerializer(serializers.ModelSerializer):
     student_username = serializers.CharField(source='student.username', read_only=True)
     student_full_name = serializers.CharField(source='student.full_name', read_only=True)
     student_f_id = serializers.CharField(source='student.f_id', read_only=True)
+    student_registration_semester = serializers.CharField(source='student.registration_semester', read_only=True)
     teacher_username = serializers.CharField(source='teacher.username', read_only=True)
     exam_department = serializers.CharField(source='exam.department', read_only=True)
     exam_semester = serializers.CharField(source='exam.semester', read_only=True)
@@ -18,13 +19,13 @@ class StudentAssignTeacherExamSerializer(serializers.ModelSerializer):
         model = StudentAssignTeacherExam
         fields = [
             'id', 'student', 'teacher', 'exam', 'schedule', 'created_at',
-            'student_username', 'student_full_name', 'student_f_id',
+            'student_username', 'student_full_name', 'student_f_id', 'student_registration_semester',
             'teacher_username', 'exam_department', 'exam_semester',
             'schedule_exam_date', 'schedule_duration'
         ]
         read_only_fields = ['id', 'created_at', 'student_username', 'student_full_name', 
-                           'student_f_id', 'teacher_username', 'exam_department', 'exam_semester',
-                           'schedule_exam_date', 'schedule_duration']
+                           'student_f_id', 'student_registration_semester', 'teacher_username',
+                           'exam_department', 'exam_semester', 'schedule_exam_date', 'schedule_duration']
 
 
 class StudentAssignBulkSerializer(serializers.Serializer):

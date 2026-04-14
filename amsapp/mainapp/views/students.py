@@ -17,6 +17,7 @@ from ..authentication import CustomJWTAuthentication
     description="Retrieve all registered students with SSC, HSC, and Diploma marks",
     parameters=[
         OpenApiParameter(name='department_shortname', description='Filter by department shortname', required=False, type=str),
+        OpenApiParameter(name='registration_semester', description='Filter by student registration semester', required=False, type=str),
         OpenApiParameter(name='username', description='Filter by username', required=False, type=str),
     ],
     responses={
@@ -36,10 +37,14 @@ def get_all_students(request):
     
     # Apply filters
     department_filter = request.query_params.get('department_shortname')
+    registration_semester_filter = request.query_params.get('registration_semester')
     username_filter = request.query_params.get('username')
     
     if department_filter:
         students = students.filter(department_shortname__icontains=department_filter)
+
+    if registration_semester_filter:
+        students = students.filter(registration_semester__icontains=registration_semester_filter)
     
     if username_filter:
         students = students.filter(username__icontains=username_filter)
@@ -213,7 +218,8 @@ def delete_student(request, student_id):
             'username': student.username,
             'full_name': student.full_name,
             'f_id': student.f_id,
-            'department_shortname': student.department_shortname
+            'department_shortname': student.department_shortname,
+            'registration_semester': student.registration_semester
         }
         
         student.delete()
