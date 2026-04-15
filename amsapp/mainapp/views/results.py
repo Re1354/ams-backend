@@ -18,6 +18,7 @@ from ..serializers.results import (
     EnhancedExamResultSerializer, ResultsSummarySerializer
 )
 from ..authentication import CustomJWTAuthentication
+from ..utils import normalize_semester_filter
 
 
 @extend_schema(
@@ -235,7 +236,7 @@ def get_all_results_by_teacher(request, teacher_id):
     """Get all exam results summary for a teacher with pagination and filtering"""
     
     user = request.user
-    semester_filter = request.query_params.get('semester', None)
+    semester_filter = normalize_semester_filter(request.query_params.get('semester', None))
     
     # Check permissions
     if hasattr(user, 'custom_user'):

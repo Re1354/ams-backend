@@ -1,6 +1,7 @@
 from django.db import models
 from .scrapped_question import ScrappedQuestion
 from .user import User
+from ..utils import normalize_semester_value
 
 
 class BlocklistQuestion(models.Model):
@@ -57,6 +58,10 @@ class BlocklistQuestion(models.Model):
 
     class Meta:
         db_table = "blocklist_questions"
+
+    def save(self, *args, **kwargs):
+        self.semester = normalize_semester_value(self.semester)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Blocked: {self.subject} - {self.questions[:50]}..."

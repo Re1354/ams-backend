@@ -11,6 +11,7 @@ from ..serializers.blocklist_question import (
     BlockQuestionSerializer, BlockedQuestionSerializer, RestoreQuestionSerializer
 )
 from ..authentication import CustomJWTAuthentication
+from ..utils import normalize_semester_filter
 
 
 @extend_schema(
@@ -215,7 +216,9 @@ def get_all_blocked_questions(request):
         blocked_questions = blocked_questions.filter(subject__icontains=subject_filter)
     
     if semester_filter:
-        blocked_questions = blocked_questions.filter(semester__icontains=semester_filter)
+        blocked_questions = blocked_questions.filter(
+            semester__icontains=normalize_semester_filter(semester_filter)
+        )
     
     if issue_solved_filter is not None:
         is_solved = issue_solved_filter.lower() in ['true', '1', 'yes']

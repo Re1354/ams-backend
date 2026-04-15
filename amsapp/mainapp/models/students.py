@@ -1,4 +1,5 @@
 from django.db import models
+from ..utils import normalize_semester_value
 
 
 class Students(models.Model):
@@ -20,6 +21,10 @@ class Students(models.Model):
 
     class Meta:
         db_table = 'students'
+
+    def save(self, *args, **kwargs):
+        self.registration_semester = normalize_semester_value(self.registration_semester)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.username} ({self.f_id})"

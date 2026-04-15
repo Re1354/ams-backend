@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from ..utils import normalize_semester_list, normalize_semester_value
 
 
 class Exam(models.Model):
@@ -19,5 +20,11 @@ class Exam(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     faculty = models.CharField(max_length=255, null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        self.semester = normalize_semester_value(self.semester)
+        self.except_semesters = normalize_semester_list(self.except_semesters)
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"Exam {self.id} - {self.department}"

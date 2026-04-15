@@ -155,6 +155,18 @@ class Command(BaseCommand):
                     'component':'AllResults'
                 },
                 {
+                    'label': 'Examinee Result',
+                    'icon': 'FileCheck',
+                    'link': '/examinee-result',
+                    'component': 'ExamineeResult'
+                },
+                {
+                    'label': 'Accepted Students',
+                    'icon': 'FileText',
+                    'link': '/accepted-students',
+                    'component': 'AcceptedStudents'
+                },
+                {
                     'label':'My Schedule',
                     'icon':'FileSearch',
                     'link':'/my-schedule',

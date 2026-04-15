@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from ..models import Students, Submission, ExamQuestion, Exam
+from ..utils import normalize_semester_value
 
 
 class StudentsSerializer(serializers.ModelSerializer):
@@ -49,10 +50,10 @@ class StudentsSerializer(serializers.ModelSerializer):
 
     def validate_registration_semester(self, value):
         """Validate registration semester is provided"""
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError("Registration semester is required")
-        return value
+        try:
+            return normalize_semester_value(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
 
 
 class StudentCreateSerializer(serializers.ModelSerializer):
@@ -94,10 +95,10 @@ class StudentCreateSerializer(serializers.ModelSerializer):
 
     def validate_registration_semester(self, value):
         """Validate registration semester is provided"""
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError("Registration semester is required")
-        return value
+        try:
+            return normalize_semester_value(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
 
 
 class StudentUpdateSerializer(serializers.ModelSerializer):
@@ -137,10 +138,10 @@ class StudentUpdateSerializer(serializers.ModelSerializer):
 
     def validate_registration_semester(self, value):
         """Validate registration semester is provided"""
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError("Registration semester is required")
-        return value
+        try:
+            return normalize_semester_value(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
 
 
 class SubmissionSerializer(serializers.ModelSerializer):

@@ -8,6 +8,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParamet
 from ..models import Students
 from ..serializers.student import StudentsSerializer, StudentCreateSerializer, StudentUpdateSerializer
 from ..authentication import CustomJWTAuthentication
+from ..utils import normalize_semester_filter
 
 
 @extend_schema(
@@ -44,7 +45,11 @@ def get_all_students(request):
         students = students.filter(department_shortname__icontains=department_filter)
 
     if registration_semester_filter:
-        students = students.filter(registration_semester__icontains=registration_semester_filter)
+        students = students.filter(
+            registration_semester__icontains=normalize_semester_filter(
+                registration_semester_filter
+            )
+        )
     
     if username_filter:
         students = students.filter(username__icontains=username_filter)

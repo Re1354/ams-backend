@@ -14,6 +14,7 @@ from ..serializers.student_assign_teacher_exam import (
 )
 from ..serializers.exam import ExamScheduleSerializer
 from ..authentication import CustomJWTAuthentication
+from ..utils import normalize_semester_filter
 
 
 @extend_schema(
@@ -236,7 +237,9 @@ def get_all_assignments(request):
 
     if registration_semester_filter:
         assignments = assignments.filter(
-            student__registration_semester__icontains=registration_semester_filter
+            student__registration_semester__icontains=normalize_semester_filter(
+                registration_semester_filter
+            )
         )
     
     serializer = StudentAssignTeacherExamSerializer(assignments, many=True)

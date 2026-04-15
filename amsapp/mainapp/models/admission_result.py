@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.validators import MinValueValidator
+from .admission_configuration import AdmissionConfiguration
 from .exam import Exam
 from .students import Students
 from .departments import Department
@@ -16,7 +17,20 @@ class AdmissionResult(models.Model):
         ('PUBLISHED', 'Published'),
         ('CANCELLED', 'Cancelled'),
     ]
-    
+
+    RESULT_STATUS_CHOICES = [
+        ('SELECTED', 'Selected'),
+        ('WAITING', 'Waiting'),
+        ('REJECTED', 'Rejected'),
+        ('ABSENT', 'Absent'),
+    ]
+
+    ACADEMIC_SOURCE_CHOICES = [
+        ('HSC', 'HSC'),
+        ('DIPLOMA', 'Diploma'),
+        ('NONE', 'None'),
+    ]
+
     exam = models.ForeignKey(
         Exam, 
         on_delete=models.CASCADE, 
@@ -28,6 +42,14 @@ class AdmissionResult(models.Model):
         on_delete=models.CASCADE, 
         related_name="admission_results",
         help_text="The student this result belongs to"
+    )
+    configuration = models.ForeignKey(
+        AdmissionConfiguration,
+        on_delete=models.SET_NULL,
+        related_name="results",
+        null=True,
+        blank=True,
+        help_text="Semester-level admission configuration used for this result",
     )
     department = models.ForeignKey(
         Department,
@@ -47,10 +69,66 @@ class AdmissionResult(models.Model):
         validators=[MinValueValidator(0.0)],
         help_text="Marks obtained in viva portion"
     )
+    written_viva_total = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0)],
+        help_text="Raw total of written and viva marks"
+    )
     total_marks = models.FloatField(
         default=0.0,
         validators=[MinValueValidator(0.0)],
         help_text="Total marks (MCQ + Viva)"
+    )
+    weighted_total_marks = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0)],
+        help_text="Final weighted total after applying marks distribution"
+    )
+    attended_exam = models.BooleanField(
+        default=False,
+        help_text="Whether the student participated in the exam"
+    )
+    result_status = models.CharField(
+        max_length=20,
+        choices=RESULT_STATUS_CHOICES,
+        default='WAITING',
+        help_text="Final admission board status for this candidate"
+    )
+    ssc_score = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0)],
+        help_text="Raw SSC score stored with the calculated result"
+    )
+    academic_score = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0)],
+        help_text="Raw HSC or Diploma score stored with the calculated result"
+    )
+    academic_source = models.CharField(
+        max_length=20,
+        choices=ACADEMIC_SOURCE_CHOICES,
+        default='NONE',
+        help_text="Which academic score was used in the weighted calculation"
+    )
+    ssc_contribution = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0)],
+        help_text="Weighted SSC contribution"
+    )
+    academic_contribution = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0)],
+        help_text="Weighted HSC/Diploma contribution"
+    )
+    written_contribution = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0)],
+        help_text="Weighted written contribution"
+    )
+    viva_contribution = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0)],
+        help_text="Weighted viva contribution"
     )
     subject_wise_marks = models.JSONField(
         default=dict,
@@ -88,14 +166,19 @@ class AdmissionResult(models.Model):
             models.Index(fields=['exam', 'department']),
             models.Index(fields=['status']),
             models.Index(fields=['is_selected']),
+            models.Index(fields=['result_status']),
+            models.Index(fields=['configuration']),
         ]
-        ordering = ['-total_marks', '-created_at']
+        ordering = ['-weighted_total_marks', '-total_marks', '-created_at']
 
     def __str__(self):
-        selected_status = "Selected" if self.is_selected else "Not Selected"
-        return f"{self.student.username} - Exam {self.exam.id}: {self.total_marks} ({selected_status})"
+        return (
+            f"{self.student.username} - Exam {self.exam.id}: "
+            f"{self.weighted_total_marks} ({self.result_status})"
+        )
 
     def save(self, *args, **kwargs):
         """Override save to ensure total_marks is calculated"""
         self.total_marks = self.mcq_marks + self.viva_marks
+        self.written_viva_total = self.total_marks
         super().save(*args, **kwargs)

@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from ..authentication import CustomJWTAuthentication
 from drf_spectacular.utils import OpenApiResponse
 from django.shortcuts import get_object_or_404
+from ..utils import normalize_semester_filter, normalize_semester_value
 
 
 @extend_schema(
@@ -43,7 +44,7 @@ class AllScrappedQuestionsView(generics.ListAPIView):
         if question_type := params.get('type'):
             queryset = queryset.filter(type=question_type)
         if semester := params.get('semester'):
-            queryset = queryset.filter(semester__icontains=semester)
+            queryset = queryset.filter(semester__icontains=normalize_semester_filter(semester))
         if search := params.get('search'):
             queryset = queryset.filter(Q(questions__icontains=search) | Q(subject__icontains=search))
 
@@ -243,7 +244,7 @@ def insert_scrapped_questions(request):
                     }
                     options_field = item.get('options') or {}
                     answer_field = item.get('answer') or {}
-                    semester = item.get('semester') or ''
+                    semester = normalize_semester_value(item.get('semester') or '')
                     department = item.get('department') or item.get('department_shortname') or 'CSE'
 
                     # Determine type

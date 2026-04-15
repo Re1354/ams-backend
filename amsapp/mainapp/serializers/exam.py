@@ -2,6 +2,7 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from ..models import Exam, ExamQuestion, ExamSchedule, ScrappedQuestion
 from datetime import timedelta
+from ..utils import normalize_semester_list, normalize_semester_value
 
 
 class ExamCreateSerializer(serializers.ModelSerializer):
@@ -18,6 +19,18 @@ class ExamCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exam
         fields = ['department', 'semester', 'total_questions', 'duration_minutes', 'subject_distribution', 'except_semesters']
+
+    def validate_semester(self, value):
+        try:
+            return normalize_semester_value(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+
+    def validate_except_semesters(self, value):
+        try:
+            return normalize_semester_list(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
 
 
 class ExamSerializer(serializers.ModelSerializer):

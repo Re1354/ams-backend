@@ -1,4 +1,5 @@
 from django.db import models
+from ..utils import normalize_semester_value
 
 
 class ScrappedQuestion(models.Model):
@@ -19,6 +20,10 @@ class ScrappedQuestion(models.Model):
 
     class Meta:
         db_table = 'scrapped_questions'
+
+    def save(self, *args, **kwargs):
+        self.semester = normalize_semester_value(self.semester)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.subject} - {self.questions[:50]}..."

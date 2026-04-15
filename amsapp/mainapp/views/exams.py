@@ -12,6 +12,7 @@ from ..serializers import (
     ExamCreateSerializer, ExamQuestionSerializer, ExamSerializer
 )
 from ..authentication import CustomJWTAuthentication
+from ..utils import normalize_semester_value
 
 
 @extend_schema(
@@ -95,7 +96,9 @@ class CreateExamAPIView(APIView):
                     text=q.text,
                     options=q.options,
                     answer=q.answer,
-                    marks=q.marks
+                    marks=q.marks,
+                    semester=normalize_semester_value(q.semester, allow_blank=True),
+                    department_shortname=q.department_shortname,
                 )
                 total_marks += q.marks
 

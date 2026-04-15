@@ -1,360 +1,720 @@
+from django.db import transaction
+from django.db.models import Q
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
-from django.db import transaction
-from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 
-from ..models import AdmissionResult, Exam, Students, Department
+from ..authentication import CustomJWTAuthentication
+from ..models import AdmissionConfiguration, AdmissionResult, Department, Exam
 from ..serializers.admission_result import (
+    AdmissionConfigurationSerializer,
+    AdmissionConfigurationUpsertSerializer,
     AdmissionResultSerializer,
+    BulkAdmissionStatusUpdateSerializer,
     CalculateAdmissionResultsSerializer,
     CalculateResultsResponseSerializer,
-    AdmissionResultFilterSerializer
 )
-from ..services.admission_calculator import calculate_admission_results, recalculate_single_student_result
-from ..authentication import CustomJWTAuthentication
+from ..services.admission_calculator import (
+    calculate_admission_results,
+    get_or_create_admission_configuration,
+    recalculate_single_student_result,
+    resolve_department_for_exam,
+    summarize_status_counts,
+)
+from ..utils import normalize_semester_filter, semester_sort_key
 
 
 class AdmissionResultsPagination(PageNumberPagination):
-    """Custom pagination for admission results"""
     page_size = 20
-    page_size_query_param = 'page_size'
+    page_size_query_param = "page_size"
     max_page_size = 100
 
 
+def get_single_configuration(filters):
+    config_ids = list(
+        filters.exclude(configuration__isnull=True)
+        .values_list("configuration_id", flat=True)
+        .distinct()[:2]
+    )
+    if len(config_ids) == 1:
+        return AdmissionConfiguration.objects.filter(id=config_ids[0]).first()
+    return None
+
+
+def resolve_reverted_status(result):
+    if not result.attended_exam:
+        return "ABSENT"
+    if result.is_selected:
+        return "WAITING"
+    return "REJECTED"
+
+
+def resolve_configuration_from_payload(validated_data):
+    exam = None
+    department = None
+    semester = validated_data.get("semester")
+
+    exam_id = validated_data.get("exam_id")
+    if exam_id:
+        exam = Exam.objects.filter(id=exam_id).first()
+        if not exam:
+            return None, None, "Exam not found"
+        department = resolve_department_for_exam(exam)
+        semester = exam.semester
+    else:
+        department = Department.objects.filter(id=validated_data["department_id"]).first()
+
+    if not department:
+        return None, None, "Department could not be resolved"
+
+    configuration = None
+    if exam:
+        configuration = get_or_create_admission_configuration(exam, department)
+    else:
+        configuration, _ = AdmissionConfiguration.objects.get_or_create(
+            department=department,
+            semester=semester,
+        )
+
+    updates = []
+    if exam and configuration.exam_id != exam.id:
+        configuration.exam = exam
+        updates.append("exam")
+    if "seat_limit" in validated_data:
+        configuration.seat_limit = validated_data["seat_limit"]
+        updates.append("seat_limit")
+    if "threshold" in validated_data:
+        configuration.threshold = validated_data["threshold"]
+        updates.append("threshold")
+    if "notes" in validated_data:
+        configuration.notes = validated_data["notes"]
+        updates.append("notes")
+
+    if updates:
+        configuration.save(update_fields=updates + ["updated_at"])
+
+    return configuration, exam, None
+
+
 @extend_schema(
-    operation_id='calculate_admission_results',
-    tags=['Admission Management'],
-    summary="Calculate admission results for an exam",
-    description="Triggers calculation of admission results for all students who took the specified exam. "
-                "This will compute MCQ + Viva marks and determine selection status based on department thresholds.",
-    request=CalculateAdmissionResultsSerializer,
-    responses={
-        200: OpenApiResponse(
-            response=CalculateResultsResponseSerializer,
-            description="Results calculated successfully"
-        ),
-        400: OpenApiResponse(description="Invalid request data or missing thresholds"),
-        404: OpenApiResponse(description="Exam not found")
-    }
+    operation_id="upsert_admission_configuration",
+    tags=["Admission Management"],
+    summary="Create or update admission configuration",
+    description=(
+        "Stores seat limit and threshold once for a department + semester and "
+        "reuses it later during result calculations."
+    ),
+    request=AdmissionConfigurationUpsertSerializer,
+    responses={200: AdmissionConfigurationSerializer, 201: AdmissionConfigurationSerializer},
 )
-@api_view(['POST'])
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def admission_configurations(request):
+    if request.method == "GET":
+        queryset = AdmissionConfiguration.objects.select_related("department", "exam").all()
+        semester = request.query_params.get("semester")
+        department_id = request.query_params.get("department_id")
+        exam_id = request.query_params.get("exam_id")
+
+        if semester:
+            queryset = queryset.filter(semester__iexact=normalize_semester_filter(semester))
+        if department_id:
+            queryset = queryset.filter(department_id=department_id)
+        if exam_id:
+            queryset = queryset.filter(exam_id=exam_id)
+
+        serializer = AdmissionConfigurationSerializer(queryset.order_by("semester"), many=True)
+        return Response(
+            {
+                "success": True,
+                "count": queryset.count(),
+                "configurations": serializer.data,
+            }
+        )
+
+    serializer = AdmissionConfigurationUpsertSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {"success": False, "message": "Invalid request data", "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    configuration, _, error = resolve_configuration_from_payload(serializer.validated_data)
+    if error:
+        return Response(
+            {"success": False, "message": error},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    response_serializer = AdmissionConfigurationSerializer(configuration)
+    return Response(
+        {
+            "success": True,
+            "message": "Admission configuration saved successfully",
+            "data": response_serializer.data,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@extend_schema(
+    operation_id="get_admission_configuration_by_id",
+    tags=["Admission Management"],
+    summary="Get or update one admission configuration",
+    request=AdmissionConfigurationUpsertSerializer,
+    responses={200: AdmissionConfigurationSerializer},
+)
+@api_view(["GET", "PATCH"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def admission_configuration_detail(request, config_id):
+    try:
+        configuration = AdmissionConfiguration.objects.select_related("department", "exam").get(
+            id=config_id
+        )
+    except AdmissionConfiguration.DoesNotExist:
+        return Response(
+            {"success": False, "message": "Admission configuration not found"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if request.method == "GET":
+        return Response(
+            {
+                "success": True,
+                "data": AdmissionConfigurationSerializer(configuration).data,
+            }
+        )
+
+    serializer = AdmissionConfigurationUpsertSerializer(data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response(
+            {"success": False, "message": "Invalid request data", "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    for field in ("seat_limit", "threshold", "notes"):
+        if field in serializer.validated_data:
+            setattr(configuration, field, serializer.validated_data[field])
+    configuration.save()
+
+    return Response(
+        {
+            "success": True,
+            "message": "Admission configuration updated successfully",
+            "data": AdmissionConfigurationSerializer(configuration).data,
+        }
+    )
+
+
+@extend_schema(
+    operation_id="get_admission_semesters",
+    tags=["Admission Management"],
+    summary="Get semester options for admission pages",
+    responses={200: OpenApiResponse(description="Semester list retrieved successfully")},
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def admission_semester_options(request):
+    configured = list(
+        AdmissionConfiguration.objects.order_by("semester")
+        .values_list("semester", flat=True)
+        .distinct()
+    )
+    exam_semesters = list(
+        Exam.objects.order_by("semester").values_list("semester", flat=True).distinct()
+    )
+    semesters = sorted(set(configured + exam_semesters), key=semester_sort_key)
+    return Response({"success": True, "semesters": semesters})
+
+
+@extend_schema(
+    operation_id="calculate_admission_results",
+    tags=["Admission Management"],
+    summary="Calculate admission results for an exam",
+    description=(
+        "Calculates semester-aware admission results using assigned students, "
+        "weighted totals, and the department + semester configuration."
+    ),
+    request=CalculateAdmissionResultsSerializer,
+    responses={200: CalculateResultsResponseSerializer},
+)
+@api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def calculate_results(request):
-    """
-    Calculate admission results for an exam.
-    
-    Request body:
-    {
-        "exam_id": 1
-    }
-    """
     serializer = CalculateAdmissionResultsSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({
-            'success': False,
-            'message': 'Invalid request data',
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    exam_id = serializer.validated_data['exam_id']
-    
-    # Call the calculation service
+        return Response(
+            {"success": False, "message": "Invalid request data", "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    exam_id = serializer.validated_data["exam_id"]
     result = calculate_admission_results(exam_id)
-    
-    if not result['success']:
-        return Response({
-            'success': False,
-            'message': 'Failed to calculate results',
-            'errors': result.get('errors', [])
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+
+    if not result["success"]:
+        return Response(
+            {
+                "success": False,
+                "message": "Failed to calculate results",
+                "errors": result.get("errors", []),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     response_data = {
-        'success': True,
-        'message': f"Results calculated successfully. Processed {result['processed_count']} students.",
-        'processed_count': result['processed_count'],
-        'selected_count': result['selected_count'],
-        'not_selected_count': result['not_selected_count'],
-        'exam_id': exam_id
+        "success": True,
+        "message": f"Results calculated successfully. Processed {result['processed_count']} students.",
+        "processed_count": result["processed_count"],
+        "selected_count": result["selected_count"],
+        "not_selected_count": result["not_selected_count"],
+        "status_counts": result.get("status_counts", {}),
+        "configuration_id": result.get("configuration_id"),
+        "exam_id": exam_id,
     }
-    
-    # Include warnings if there were any errors
-    if result.get('errors'):
-        response_data['warnings'] = result['errors']
-    
+    if result.get("errors"):
+        response_data["warnings"] = result["errors"]
+
     return Response(response_data)
 
 
 @extend_schema(
-    operation_id='get_admission_results',
-    tags=['Admission Management'],
-    summary="Get admission results",
-    description="Retrieve paginated list of admission results with optional filtering",
+    operation_id="get_admission_results",
+    tags=["Admission Management"],
+    summary="Get admission results with examinee board filters",
     parameters=[
-        OpenApiParameter(name='exam_id', description='Filter by exam ID', required=False, type=int),
-        OpenApiParameter(name='department_id', description='Filter by department ID', required=False, type=int),
-        OpenApiParameter(name='student_id', description='Filter by student ID', required=False, type=int),
-        OpenApiParameter(name='is_selected', description='Filter by selection status (true/false)', required=False, type=bool),
-        OpenApiParameter(name='status', description='Filter by publication status (PENDING/PUBLISHED/CANCELLED)', required=False, type=str),
-        OpenApiParameter(name='page', description='Page number', required=False, type=int),
-        OpenApiParameter(name='page_size', description='Number of results per page (max 100)', required=False, type=int),
+        OpenApiParameter(name="exam_id", required=False, type=int),
+        OpenApiParameter(name="configuration_id", required=False, type=int),
+        OpenApiParameter(name="department_id", required=False, type=int),
+        OpenApiParameter(name="student_id", required=False, type=int),
+        OpenApiParameter(name="semester", required=False, type=str),
+        OpenApiParameter(name="search", required=False, type=str),
+        OpenApiParameter(name="is_selected", required=False, type=bool),
+        OpenApiParameter(name="attended_exam", required=False, type=bool),
+        OpenApiParameter(name="status", required=False, type=str),
+        OpenApiParameter(name="result_status", required=False, type=str),
+        OpenApiParameter(name="sort_by", required=False, type=str),
+        OpenApiParameter(name="order", required=False, type=str),
+        OpenApiParameter(name="page", required=False, type=int),
+        OpenApiParameter(name="page_size", required=False, type=int),
     ],
-    responses={
-        200: OpenApiResponse(
-            response=AdmissionResultSerializer(many=True),
-            description="Admission results retrieved successfully"
-        )
-    }
+    responses={200: AdmissionResultSerializer(many=True)},
 )
-@api_view(['GET'])
+@api_view(["GET"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def get_admission_results(request):
-    """Get admission results with filtering and pagination"""
-    
     results = AdmissionResult.objects.select_related(
-        'exam', 'student', 'department'
+        "exam",
+        "student",
+        "department",
+        "configuration",
+        "configuration__department",
+        "configuration__exam",
     ).all()
-    
-    # Apply filters
-    exam_id = request.query_params.get('exam_id')
-    department_id = request.query_params.get('department_id')
-    student_id = request.query_params.get('student_id')
-    is_selected = request.query_params.get('is_selected')
-    result_status = request.query_params.get('status')
-    
+
+    exam_id = request.query_params.get("exam_id")
+    configuration_id = request.query_params.get("configuration_id")
+    department_id = request.query_params.get("department_id")
+    student_id = request.query_params.get("student_id")
+    semester = request.query_params.get("semester")
+    search = request.query_params.get("search")
+    is_selected = request.query_params.get("is_selected")
+    attended_exam = request.query_params.get("attended_exam")
+    publication_status = request.query_params.get("status")
+    result_status = request.query_params.get("result_status")
+    sort_by = request.query_params.get("sort_by", "score")
+    order = request.query_params.get("order", "desc")
+
     if exam_id:
         results = results.filter(exam_id=exam_id)
-    
+    if configuration_id:
+        results = results.filter(configuration_id=configuration_id)
     if department_id:
         results = results.filter(department_id=department_id)
-    
     if student_id:
         results = results.filter(student_id=student_id)
-    
+    if semester:
+        semester = normalize_semester_filter(semester)
+        results = results.filter(
+            Q(configuration__semester__iexact=semester) | Q(exam__semester__iexact=semester)
+        )
+    if search:
+        results = results.filter(
+            Q(student__username__icontains=search)
+            | Q(student__full_name__icontains=search)
+            | Q(student__f_id__icontains=search)
+        )
     if is_selected is not None:
-        # Convert string to boolean
-        is_selected_bool = is_selected.lower() in ['true', '1', 'yes']
-        results = results.filter(is_selected=is_selected_bool)
-    
+        results = results.filter(is_selected=is_selected.lower() in {"true", "1", "yes"})
+    if attended_exam is not None:
+        results = results.filter(attended_exam=attended_exam.lower() in {"true", "1", "yes"})
+    if publication_status:
+        results = results.filter(status__iexact=publication_status)
     if result_status:
-        results = results.filter(status__iexact=result_status)
-    
-    # Order by total marks (highest first)
-    results = results.order_by('-total_marks', '-created_at')
-    
-    # Apply pagination
+        results = results.filter(result_status__iexact=result_status)
+
+    order_prefix = "" if order == "asc" else "-"
+    sort_mapping = {
+        "name": f"{order_prefix}student__full_name",
+        "score": f"{order_prefix}weighted_total_marks",
+        "form_id": f"{order_prefix}student__f_id",
+        "serial": f"{order_prefix}id",
+    }
+    results = results.order_by(sort_mapping.get(sort_by, "-weighted_total_marks"), "-created_at")
+
+    summary = summarize_status_counts(results)
+    configuration = get_single_configuration(results)
+
     paginator = AdmissionResultsPagination()
     page = paginator.paginate_queryset(results, request)
-    
+    serializer = AdmissionResultSerializer(page if page is not None else results, many=True)
+
     if page is not None:
-        serializer = AdmissionResultSerializer(page, many=True)
         response = paginator.get_paginated_response(serializer.data)
-        
-        # Add custom metadata
-        response.data['success'] = True
-        response.data['filters_applied'] = {
-            'exam_id': exam_id,
-            'department_id': department_id,
-            'student_id': student_id,
-            'is_selected': is_selected,
-            'status': result_status
+        response.data["success"] = True
+        response.data["summary"] = summary
+        response.data["configuration"] = (
+            AdmissionConfigurationSerializer(configuration).data if configuration else None
+        )
+        response.data["filters_applied"] = {
+            "exam_id": exam_id,
+            "configuration_id": configuration_id,
+            "department_id": department_id,
+            "student_id": student_id,
+            "semester": semester,
+            "search": search,
+            "is_selected": is_selected,
+            "attended_exam": attended_exam,
+            "status": publication_status,
+            "result_status": result_status,
+            "sort_by": sort_by,
+            "order": order,
         }
-        
         return response
-    
-    # If pagination is not applied
-    serializer = AdmissionResultSerializer(results, many=True)
-    return Response({
-        'success': True,
-        'count': results.count(),
-        'results': serializer.data
-    })
+
+    return Response(
+        {
+            "success": True,
+            "count": results.count(),
+            "summary": summary,
+            "configuration": (
+                AdmissionConfigurationSerializer(configuration).data if configuration else None
+            ),
+            "results": serializer.data,
+        }
+    )
 
 
 @extend_schema(
-    operation_id='get_admission_result_by_id',
-    tags=['Admission Management'],
-    summary="Get specific admission result by ID",
-    description="Retrieve a specific admission result by its ID",
-    responses={
-        200: OpenApiResponse(
-            response=AdmissionResultSerializer,
-            description="Admission result retrieved successfully"
-        ),
-        404: OpenApiResponse(description="Admission result not found")
-    }
+    operation_id="bulk_update_admission_result_status",
+    tags=["Admission Management"],
+    summary="Bulk update candidate result status",
+    description=(
+        "Used by the examinee board to accept candidates or move them back to "
+        "waiting/rejected without duplicating result rows."
+    ),
+    request=BulkAdmissionStatusUpdateSerializer,
+    responses={200: OpenApiResponse(description="Statuses updated successfully")},
 )
-@api_view(['GET'])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def bulk_update_admission_result_status(request):
+    serializer = BulkAdmissionStatusUpdateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {"success": False, "message": "Invalid request data", "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    validated = serializer.validated_data
+    student_ids = validated["student_ids"]
+    action = validated.get("action", "SET_STATUS")
+    target_status = validated.get("result_status")
+
+    queryset = AdmissionResult.objects.select_related("configuration").filter(student_id__in=student_ids)
+    if validated.get("configuration_id"):
+        queryset = queryset.filter(configuration_id=validated["configuration_id"])
+    if validated.get("exam_id"):
+        queryset = queryset.filter(exam_id=validated["exam_id"])
+
+    results = list(queryset)
+    if not results:
+        return Response(
+            {"success": False, "message": "No admission results matched the requested students."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    configuration = results[0].configuration
+    if not configuration:
+        return Response(
+            {"success": False, "message": "Selected results are missing an admission configuration."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if any(result.configuration_id != configuration.id for result in results):
+        return Response(
+            {
+                "success": False,
+                "message": "All selected candidates must belong to the same admission configuration.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if action == "SET_STATUS":
+        if target_status == "SELECTED":
+            if configuration.seat_limit <= 0:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Set seat_limit before accepting candidates for this semester.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            invalid_candidates = [
+                result.student.username
+                for result in results
+                if result.attended_exam and (not result.is_selected)
+            ]
+            if invalid_candidates:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Only absent candidates or attended candidates above the threshold "
+                            "can be accepted."
+                        ),
+                        "invalid_candidates": invalid_candidates,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            selected_elsewhere = AdmissionResult.objects.filter(
+                configuration=configuration,
+                result_status="SELECTED",
+            ).exclude(id__in=[item.id for item in results]).count()
+
+            if selected_elsewhere + len(results) > configuration.seat_limit:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            f"Accepting these students would exceed the seat limit "
+                            f"({configuration.seat_limit})."
+                        ),
+                        "selected_count": selected_elsewhere,
+                        "requested_count": len(results),
+                        "seat_limit": configuration.seat_limit,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if target_status == "WAITING":
+            invalid_candidates = [
+                result.student.username
+                for result in results
+                if (not result.attended_exam) or (not result.is_selected)
+            ]
+            if invalid_candidates:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Only attended candidates above threshold can be moved to waiting.",
+                        "invalid_candidates": invalid_candidates,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if target_status == "REJECTED":
+            invalid_candidates = [
+                result.student.username for result in results if not result.attended_exam
+            ]
+            if invalid_candidates:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Absent candidates stay absent and cannot be marked rejected manually.",
+                        "invalid_candidates": invalid_candidates,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        with transaction.atomic():
+            queryset.update(result_status=target_status)
+
+        message = f"Updated {len(results)} candidates to {target_status}."
+    else:
+        with transaction.atomic():
+            for result in results:
+                result.result_status = resolve_reverted_status(result)
+                result.save(update_fields=["result_status", "updated_at"])
+
+        message = f"Reverted {len(results)} candidates to their stored result status."
+
+    refreshed = AdmissionResult.objects.filter(configuration=configuration)
+    return Response(
+        {
+            "success": True,
+            "message": message,
+            "summary": summarize_status_counts(refreshed),
+        }
+    )
+
+
+@extend_schema(
+    operation_id="get_admission_result_by_id",
+    tags=["Admission Management"],
+    summary="Get specific admission result by ID",
+    responses={200: AdmissionResultSerializer},
+)
+@api_view(["GET"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def get_admission_result_by_id(request, result_id):
-    """Get specific admission result by ID"""
-    
     try:
         result = AdmissionResult.objects.select_related(
-            'exam', 'student', 'department'
+            "exam",
+            "student",
+            "department",
+            "configuration",
+            "configuration__department",
+            "configuration__exam",
         ).get(id=result_id)
     except AdmissionResult.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': 'Admission result not found'
-        }, status=status.HTTP_404_NOT_FOUND)
-    
+        return Response(
+            {"success": False, "message": "Admission result not found"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
     serializer = AdmissionResultSerializer(result)
-    return Response({
-        'success': True,
-        'data': serializer.data,
-        'message': 'Admission result retrieved successfully'
-    })
+    return Response({"success": True, "data": serializer.data})
 
 
 @extend_schema(
-    operation_id='get_student_admission_result',
-    tags=['Admission Management'],
+    operation_id="get_student_admission_result",
+    tags=["Admission Management"],
     summary="Get admission result for a specific student in an exam",
-    description="Retrieve the admission result for a specific student in a specific exam",
-    responses={
-        200: OpenApiResponse(
-            response=AdmissionResultSerializer,
-            description="Student admission result retrieved successfully"
-        ),
-        404: OpenApiResponse(description="Result not found")
-    }
+    responses={200: AdmissionResultSerializer},
 )
-@api_view(['GET'])
+@api_view(["GET"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def get_student_admission_result(request, exam_id, student_id):
-    """Get admission result for a specific student in an exam"""
-    
     try:
         result = AdmissionResult.objects.select_related(
-            'exam', 'student', 'department'
+            "exam",
+            "student",
+            "department",
+            "configuration",
+            "configuration__department",
+            "configuration__exam",
         ).get(exam_id=exam_id, student_id=student_id)
     except AdmissionResult.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': f'No admission result found for student {student_id} in exam {exam_id}'
-        }, status=status.HTTP_404_NOT_FOUND)
-    
+        return Response(
+            {
+                "success": False,
+                "message": f"No admission result found for student {student_id} in exam {exam_id}",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
     serializer = AdmissionResultSerializer(result)
-    return Response({
-        'success': True,
-        'data': serializer.data,
-        'message': 'Student admission result retrieved successfully'
-    })
+    return Response({"success": True, "data": serializer.data})
 
 
 @extend_schema(
-    operation_id='publish_admission_results',
-    tags=['Admission Management'],
+    operation_id="publish_admission_results",
+    tags=["Admission Management"],
     summary="Publish admission results",
-    description="Change status of admission results to PUBLISHED for a specific exam",
     request=CalculateAdmissionResultsSerializer,
-    responses={
-        200: OpenApiResponse(description="Results published successfully"),
-        404: OpenApiResponse(description="Exam not found or no results to publish")
-    }
 )
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def publish_admission_results(request):
-    """
-    Publish admission results for an exam.
-    Changes status from PENDING to PUBLISHED.
-    
-    Request body:
-    {
-        "exam_id": 1
-    }
-    """
     serializer = CalculateAdmissionResultsSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({
-            'success': False,
-            'message': 'Invalid request data',
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    exam_id = serializer.validated_data['exam_id']
-    
+        return Response(
+            {"success": False, "message": "Invalid request data", "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    exam_id = serializer.validated_data["exam_id"]
     try:
         exam = Exam.objects.get(id=exam_id)
     except Exam.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': f'Exam with ID {exam_id} not found'
-        }, status=status.HTTP_404_NOT_FOUND)
-    
-    # Update all PENDING results to PUBLISHED
+        return Response(
+            {"success": False, "message": f"Exam with ID {exam_id} not found"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
     with transaction.atomic():
-        updated_count = AdmissionResult.objects.filter(
-            exam=exam,
-            status='PENDING'
-        ).update(status='PUBLISHED')
-    
+        updated_count = AdmissionResult.objects.filter(exam=exam, status="PENDING").update(
+            status="PUBLISHED"
+        )
+
     if updated_count == 0:
-        return Response({
-            'success': False,
-            'message': 'No pending results found for this exam'
-        }, status=status.HTTP_404_NOT_FOUND)
-    
-    return Response({
-        'success': True,
-        'message': f'Published {updated_count} admission results for exam {exam_id}',
-        'published_count': updated_count,
-        'exam_id': exam_id
-    })
+        return Response(
+            {"success": False, "message": "No pending results found for this exam"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response(
+        {
+            "success": True,
+            "message": f"Published {updated_count} admission results for exam {exam_id}",
+            "published_count": updated_count,
+            "exam_id": exam_id,
+        }
+    )
 
 
 @extend_schema(
-    operation_id='recalculate_student_result',
-    tags=['Admission Management'],
+    operation_id="recalculate_student_result",
+    tags=["Admission Management"],
     summary="Recalculate result for a single student",
-    description="Recalculate admission result for a specific student in a specific exam",
-    request=None,
-    responses={
-        200: OpenApiResponse(
-            response=AdmissionResultSerializer,
-            description="Student result recalculated successfully"
-        ),
-        400: OpenApiResponse(description="Calculation failed"),
-        404: OpenApiResponse(description="Student or exam not found")
-    }
+    responses={200: AdmissionResultSerializer},
 )
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def recalculate_student_result(request, exam_id, student_id):
-    """Recalculate admission result for a single student"""
-    
     result = recalculate_single_student_result(exam_id, student_id)
-    
-    if not result['success']:
-        return Response({
-            'success': False,
-            'message': result.get('error', 'Failed to recalculate result')
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Fetch the updated result
+
+    if not result["success"]:
+        return Response(
+            {"success": False, "message": result.get("error", "Failed to recalculate result")},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     try:
         admission_result = AdmissionResult.objects.select_related(
-            'exam', 'student', 'department'
+            "exam",
+            "student",
+            "department",
+            "configuration",
+            "configuration__department",
+            "configuration__exam",
         ).get(exam_id=exam_id, student_id=student_id)
-        
-        serializer = AdmissionResultSerializer(admission_result)
-        return Response({
-            'success': True,
-            'message': f"Result {result['action']} successfully for student {result['student']}",
-            'data': serializer.data
-        })
     except AdmissionResult.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': 'Failed to retrieve recalculated result'
-        }, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {"success": False, "message": "Failed to retrieve recalculated result"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    serializer = AdmissionResultSerializer(admission_result)
+    return Response(
+        {
+            "success": True,
+            "message": f"Result updated successfully for student {result['student']}",
+            "data": serializer.data,
+        }
+    )

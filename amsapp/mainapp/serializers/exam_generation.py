@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from ..models import BlocklistQuestion, ScrappedQuestion, Exam, ExamQuestion
-import random
+from ..utils import normalize_semester_list, normalize_semester_value
 
 
 class SubjectMarksSerializer(serializers.Serializer):
@@ -33,6 +33,12 @@ class ExamGenerationRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("At least one subject is required")
         return value
 
+    def validate_semester(self, value):
+        try:
+            return normalize_semester_value(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+
 
 class ExamQuestionSaveSerializer(serializers.Serializer):
     """Serializer for individual question data when saving exam"""
@@ -54,6 +60,12 @@ class ExamQuestionSaveSerializer(serializers.Serializer):
     marks = serializers.IntegerField(min_value=1, default=1)
     semester = serializers.CharField(max_length=100, required=False, help_text="Original semester info")
     department_shortname = serializers.CharField(max_length=50, default='CSE')
+
+    def validate_semester(self, value):
+        try:
+            return normalize_semester_value(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
 
 
 class ExamSaveRequestSerializer(serializers.Serializer):
@@ -81,6 +93,18 @@ class ExamSaveRequestSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("At least one question is required")
         return value
+
+    def validate_semester(self, value):
+        try:
+            return normalize_semester_value(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+
+    def validate_except_semesters(self, value):
+        try:
+            return normalize_semester_list(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
     
     def validate(self, data):
         """Validate that total_questions matches the number of questions provided"""

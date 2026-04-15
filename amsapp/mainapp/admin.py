@@ -21,6 +21,7 @@ from .models import (
     VivaMarks,
     VivaAssignment,
     DepartmentThreshold,
+    AdmissionConfiguration,
     AdmissionResult,
 )
 
@@ -224,30 +225,45 @@ class DepartmentThresholdAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at')
 
 
+@admin.register(AdmissionConfiguration)
+class AdmissionConfigurationAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'department', 'semester', 'exam', 'seat_limit', 'threshold', 'updated_at'
+    )
+    list_filter = ('department', 'semester', 'updated_at')
+    search_fields = ('department__department_name', 'department__department_shortname', 'semester')
+    list_per_page = 25
+    raw_id_fields = ('department', 'exam')
+    readonly_fields = ('created_at', 'updated_at')
+
+
 @admin.register(AdmissionResult)
 class AdmissionResultAdmin(admin.ModelAdmin):
     list_display = (
-        'id', 'student', 'exam', 'department', 'total_marks', 
-        'is_selected', 'status', 'created_at'
+        'id', 'student', 'exam', 'configuration', 'department', 'weighted_total_marks',
+        'result_status', 'is_selected', 'status', 'created_at'
     )
-    list_filter = ('is_selected', 'status', 'department', 'created_at')
+    list_filter = ('result_status', 'is_selected', 'status', 'department', 'created_at')
     search_fields = (
         'student__username', 'student__f_id', 'student__full_name',
         'exam__department', 'department__department_name'
     )
     list_per_page = 25
-    raw_id_fields = ('exam', 'student', 'department')
-    readonly_fields = ('total_marks', 'created_at', 'updated_at')
+    raw_id_fields = ('exam', 'student', 'department', 'configuration')
+    readonly_fields = ('total_marks', 'written_viva_total', 'weighted_total_marks', 'created_at', 'updated_at')
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('exam', 'student', 'department', 'status')
+            'fields': ('exam', 'student', 'configuration', 'department', 'status', 'result_status')
         }),
         ('Marks Details', {
-            'fields': ('mcq_marks', 'viva_marks', 'total_marks', 'subject_wise_marks')
+            'fields': ('mcq_marks', 'viva_marks', 'written_viva_total', 'total_marks', 'weighted_total_marks', 'subject_wise_marks')
+        }),
+        ('Academic Breakdown', {
+            'fields': ('ssc_score', 'academic_source', 'academic_score', 'ssc_contribution', 'academic_contribution', 'written_contribution', 'viva_contribution')
         }),
         ('Selection', {
-            'fields': ('is_selected', 'threshold_applied', 'remarks')
+            'fields': ('attended_exam', 'is_selected', 'threshold_applied', 'remarks')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
