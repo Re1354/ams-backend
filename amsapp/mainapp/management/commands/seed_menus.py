@@ -107,6 +107,12 @@ class Command(BaseCommand):
                     'component': 'BlockedQuestions'
                 },
                 {
+                    'label': 'Delete Questions',
+                    'icon': 'Trash2',
+                    'link': '/deletequestions',
+                    'component': 'DeleteQuestions'
+                },
+                {
                     'label': 'Published Exams',
                     'icon': 'FileCheck',
                     'link': '/published-exams',

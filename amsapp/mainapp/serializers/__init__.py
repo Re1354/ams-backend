@@ -23,7 +23,8 @@ from .menu import (
 # Question Management
 from .question import (
     ScrappedQuestionSerializer,
-    TotalQuestionsSerializer
+    TotalQuestionsSerializer,
+    BulkDeleteScrappedQuestionsSerializer,
 )
 
 # Exam Management
@@ -107,6 +108,7 @@ __all__ = [
     # Question
     'ScrappedQuestionSerializer',
     'TotalQuestionsSerializer',
+    'BulkDeleteScrappedQuestionsSerializer',
     
     # Exam
     'ExamCreateSerializer',

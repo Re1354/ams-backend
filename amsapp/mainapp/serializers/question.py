@@ -81,3 +81,11 @@ class TotalQuestionsSerializer(serializers.Serializer):
     })
     def get_subjects(self, obj):
         return obj.get('subjects', {})
+
+
+class BulkDeleteScrappedQuestionsSerializer(serializers.Serializer):
+    question_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        min_length=1,
+        help_text="List of scrapped question IDs to permanently delete",
+    )

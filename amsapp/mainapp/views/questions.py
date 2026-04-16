@@ -6,7 +6,11 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
 from ..models import ScrappedQuestion
-from ..serializers import ScrappedQuestionSerializer, TotalQuestionsSerializer
+from ..serializers import (
+    BulkDeleteScrappedQuestionsSerializer,
+    ScrappedQuestionSerializer,
+    TotalQuestionsSerializer,
+)
 from django.db import transaction
 from rest_framework.decorators import permission_classes, authentication_classes, api_view
 from rest_framework.permissions import IsAuthenticated
@@ -198,6 +202,77 @@ def total_questions(request):
     }
 
     return Response(result)
+
+
+@extend_schema(
+    summary="Delete a question-bank item",
+    description="Permanently deletes one question from the scrapped question bank.",
+    tags=['Questions'],
+    responses={200: OpenApiResponse(description='Question deleted successfully')}
+)
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def delete_scrapped_question(request, question_id):
+    question = get_object_or_404(ScrappedQuestion, id=question_id)
+    subject = question.subject
+    question.delete()
+
+    return Response({
+        'success': True,
+        'message': 'Question deleted successfully.',
+        'deleted_id': question_id,
+        'subject': subject,
+    })
+
+
+@extend_schema(
+    summary="Bulk delete question-bank items",
+    description="Permanently deletes multiple questions from the scrapped question bank.",
+    tags=['Questions'],
+    request=BulkDeleteScrappedQuestionsSerializer,
+    responses={200: OpenApiResponse(description='Questions deleted successfully')}
+)
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def bulk_delete_scrapped_questions(request):
+    serializer = BulkDeleteScrappedQuestionsSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'message': 'Invalid request data',
+            'errors': serializer.errors,
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    question_ids = serializer.validated_data['question_ids']
+    queryset = ScrappedQuestion.objects.filter(id__in=question_ids)
+    found_ids = list(queryset.values_list('id', flat=True))
+    missing_ids = sorted(set(question_ids) - set(found_ids))
+
+    if not found_ids:
+        return Response({
+            'success': False,
+            'message': 'No matching question-bank items were found.',
+            'missing_ids': missing_ids,
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    with transaction.atomic():
+        deleted_count, _ = queryset.delete()
+
+    message = f"Deleted {len(found_ids)} question-bank item(s) successfully."
+    if missing_ids:
+        message += ' Some requested IDs were not found.'
+
+    return Response({
+        'success': True,
+        'message': message,
+        'deleted_count': len(found_ids),
+        'requested_count': len(question_ids),
+        'missing_ids': missing_ids,
+        'deleted_ids': sorted(found_ids),
+        'raw_deleted_count': deleted_count,
+    }, status=status.HTTP_200_OK)
 
 
 @extend_schema(

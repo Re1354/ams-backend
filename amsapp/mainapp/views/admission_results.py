@@ -482,15 +482,17 @@ def bulk_update_admission_result_status(request):
             invalid_candidates = [
                 result.student.username
                 for result in results
-                if result.attended_exam and (not result.is_selected)
+                if result.attended_exam
+                and (not result.is_selected)
+                and result.result_status != "REJECTED"
             ]
             if invalid_candidates:
                 return Response(
                     {
                         "success": False,
                         "message": (
-                            "Only absent candidates or attended candidates above the threshold "
-                            "can be accepted."
+                            "Only absent or rejected candidates, and attended candidates "
+                            "above the threshold, can be accepted."
                         ),
                         "invalid_candidates": invalid_candidates,
                     },
@@ -528,20 +530,6 @@ def bulk_update_admission_result_status(request):
                     {
                         "success": False,
                         "message": "Only attended candidates above threshold can be moved to waiting.",
-                        "invalid_candidates": invalid_candidates,
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        if target_status == "REJECTED":
-            invalid_candidates = [
-                result.student.username for result in results if not result.attended_exam
-            ]
-            if invalid_candidates:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Absent candidates stay absent and cannot be marked rejected manually.",
                         "invalid_candidates": invalid_candidates,
                     },
                     status=status.HTTP_400_BAD_REQUEST,

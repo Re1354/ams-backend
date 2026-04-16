@@ -1,5 +1,11 @@
 # Import all views to make them available when importing from views
-from .questions import AllScrappedQuestionsView, questions_stats, total_questions
+from .questions import (
+    AllScrappedQuestionsView,
+    questions_stats,
+    total_questions,
+    delete_scrapped_question,
+    bulk_delete_scrapped_questions,
+)
 from .questions import insert_scrapped_questions
 from .exams import (
     CreateExamAPIView, AllExamsView, ExamQuestionListView, AddQuestionToExamView,
@@ -46,6 +52,7 @@ from .scrapper import upload_docx_scrape_multipart
 __all__ = [
     # Questions
     'AllScrappedQuestionsView', 'questions_stats', 'total_questions',
+    'delete_scrapped_question', 'bulk_delete_scrapped_questions',
     
     # Exams
     'CreateExamAPIView', 'AllExamsView', 'ExamQuestionListView', 

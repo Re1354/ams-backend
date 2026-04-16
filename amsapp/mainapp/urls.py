@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import (
-    AllScrappedQuestionsView, questions_stats, total_questions, CreateExamAPIView, 
+    AllScrappedQuestionsView, questions_stats, total_questions, delete_scrapped_question,
+    bulk_delete_scrapped_questions, CreateExamAPIView, 
     ExamQuestionListView, AddQuestionToExamView, ExamQuestionDetailView, AllExamsView, DeleteExamView,
     AllSchedulesView, ScheduleDetailView, create_exam_schedule, get_teacher_schedule,
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
@@ -82,6 +83,8 @@ urlpatterns = [
     path('api/all-scrapped-questions/', AllScrappedQuestionsView.as_view(), name='all-scrapped-questions'),
     path('api/questions-stats/', questions_stats, name='questions-stats'),
     path('api/total-questions/', total_questions, name='total-questions'),
+    path('api/question-bank/<int:question_id>/delete/', delete_scrapped_question, name='delete-scrapped-question'),
+    path('api/question-bank/delete-bulk/', bulk_delete_scrapped_questions, name='bulk-delete-scrapped-questions'),
     
     # Exam API
     path('api/all-exams/', AllExamsView.as_view(), name='all-exams'),
