@@ -18,7 +18,7 @@ from ..serializers.results import (
     EnhancedExamResultSerializer, ResultsSummarySerializer
 )
 from ..authentication import CustomJWTAuthentication
-from ..utils import normalize_semester_filter
+from ..utils import build_subject_result_rows, calculate_submission_summary, normalize_semester_filter
 
 
 @extend_schema(
@@ -130,45 +130,8 @@ def get_student_exam_result_enhanced(request, exam_id, student_id):
                 'message': 'No submissions found for this student and exam'
             }, status=status.HTTP_404_NOT_FOUND)
         
-        # Calculate overall results
-        total_submissions = submissions.count()
-        correct_submissions = submissions.filter(is_correct=True).count()
-        wrong_submissions = total_submissions - correct_submissions
-        score_percentage = (correct_submissions / total_submissions * 100) if total_submissions > 0 else 0
-        
-        # Get all subjects from this exam first
-        exam_subjects = ExamQuestion.objects.filter(exam=exam).values_list('subject', flat=True).distinct()
-        
-        # Initialize subjects_data with all subjects from the exam
-        subjects_data = {}
-        for subject_name in exam_subjects:
-            subjects_data[subject_name] = {
-                'subject_id': subject_name,
-                'subject_name': subject_name,
-                'total_questions': 0,
-                'correct_answers': 0,
-                'wrong_answers': 0,
-            }
-        
-        # Count total questions per subject in the exam
-        for subject_name in exam_subjects:
-            total_questions_in_subject = ExamQuestion.objects.filter(exam=exam, subject=subject_name).count()
-            subjects_data[subject_name]['total_questions'] = total_questions_in_subject
-        
-        # Calculate subject-wise results from submissions
-        for submission in submissions:
-            subject_name = submission.question.subject
-            if submission.is_correct:
-                subjects_data[subject_name]['correct_answers'] += 1
-            else:
-                subjects_data[subject_name]['wrong_answers'] += 1
-        
-        # Calculate percentage for each subject
-        for subject_name in subjects_data:
-            subject_data = subjects_data[subject_name]
-            total = subject_data['total_questions']
-            correct = subject_data['correct_answers']
-            subject_data['score_percentage'] = (correct / total * 100) if total > 0 else 0
+        summary = calculate_submission_summary(exam, submissions)
+        subject_rows = build_subject_result_rows(exam, submissions)
         
         # Prepare response
         response_data = {
@@ -181,11 +144,11 @@ def get_student_exam_result_enhanced(request, exam_id, student_id):
                 'total_questions': exam.total_questions
             },
             'results': {
-                'correct_answers': correct_submissions,
-                'wrong_answers': wrong_submissions,
-                'score_percentage': round(score_percentage, 2)
+                'correct_answers': summary['correct_answers'],
+                'wrong_answers': summary['wrong_answers'],
+                'score_percentage': summary['score_percentage']
             },
-            'subjects': list(subjects_data.values())
+            'subjects': subject_rows
         }
         
         return Response({
@@ -297,45 +260,8 @@ def get_all_results_by_teacher(request, teacher_id):
                 ).select_related('question')
 
                 if submissions.exists():
-                    # Calculate overall results
-                    total_submissions = submissions.count()
-                    correct_submissions = submissions.filter(is_correct=True).count()
-                    wrong_submissions = total_submissions - correct_submissions
-                    score_percentage = (correct_submissions / total_submissions * 100) if total_submissions > 0 else 0
-
-                    # Get all subjects from this exam first
-                    exam_subjects = ExamQuestion.objects.filter(exam=exam).values_list('subject', flat=True).distinct()
-                    
-                    # Initialize subjects_data with all subjects from the exam
-                    subjects_data = {}
-                    for subject_name in exam_subjects:
-                        subjects_data[subject_name] = {
-                            'subject_id': subject_name,
-                            'subject_name': subject_name,
-                            'total_questions': 0,
-                            'correct_answers': 0,
-                            'wrong_answers': 0,
-                        }
-                    
-                    # Count total questions per subject in the exam
-                    for subject_name in exam_subjects:
-                        total_questions_in_subject = ExamQuestion.objects.filter(exam=exam, subject=subject_name).count()
-                        subjects_data[subject_name]['total_questions'] = total_questions_in_subject
-                    
-                    # Calculate subject-wise results from submissions
-                    for submission in submissions:
-                        subject_name = submission.question.subject
-                        if submission.is_correct:
-                            subjects_data[subject_name]['correct_answers'] += 1
-                        else:
-                            subjects_data[subject_name]['wrong_answers'] += 1
-
-                    # Calculate percentage for each subject
-                    for subject_name in subjects_data:
-                        subject_data = subjects_data[subject_name]
-                        total = subject_data['total_questions']
-                        correct = subject_data['correct_answers']
-                        subject_data['score_percentage'] = (correct / total * 100) if total > 0 else 0
+                    summary = calculate_submission_summary(exam, submissions)
+                    subject_rows = build_subject_result_rows(exam, submissions)
 
                     # Get viva marks for this student
                     viva_marks_data = None
@@ -363,11 +289,11 @@ def get_all_results_by_teacher(request, teacher_id):
                             'total_questions': exam.total_questions
                         },
                         'results': {
-                            'correct_answers': correct_submissions,
-                            'wrong_answers': wrong_submissions,
-                            'score_percentage': round(score_percentage, 2)
+                            'correct_answers': summary['correct_answers'],
+                            'wrong_answers': summary['wrong_answers'],
+                            'score_percentage': summary['score_percentage']
                         },
-                        'subjects': list(subjects_data.values()),
+                        'subjects': subject_rows,
                         'viva_marks': viva_marks_data
                     }
                     results_data.append(result_item)

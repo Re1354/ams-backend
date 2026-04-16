@@ -14,6 +14,7 @@ from ..serializers import (
     StudentLoginResponseSerializer, ExamSubmissionResponseSerializer
 )
 from ..authentication import CustomJWTAuthentication
+from ..utils import calculate_submission_summary, is_submission_correct
 
 
 @extend_schema(
@@ -243,14 +244,7 @@ def submit_exam(request, exam_id):
             exam_question = ExamQuestion.objects.get(id=question_id, exam=exam)
             
             # Check if answer is correct
-            is_correct = False
-            if exam_question.type == 'option':
-                # For option type, compare with correct answer
-                correct_answers = exam_question.answer if isinstance(exam_question.answer, list) else [exam_question.answer]
-                is_correct = answer in correct_answers
-            elif exam_question.type == 'text':
-                # For text type, simple string comparison
-                is_correct = answer.lower() == str(exam_question.answer).lower()
+            is_correct = is_submission_correct(exam_question, answer)
             
             # Create or update submission
             submission, created = Submission.objects.update_or_create(
@@ -334,7 +328,7 @@ def get_exam_result(request, student_id, exam_id):
         )
     
     # Get all submissions for this student and exam
-    submissions = Submission.objects.filter(student=student, exam=exam)
+    submissions = Submission.objects.filter(student=student, exam=exam).select_related('question')
     
     if not submissions.exists():
         return Response(
@@ -342,30 +336,7 @@ def get_exam_result(request, student_id, exam_id):
             status=status.HTTP_404_NOT_FOUND
         )
     
-    # Calculate results
-    total_attempted = submissions.count()
-    correct_answers = submissions.filter(is_correct=True).count()
-    wrong_answers = total_attempted - correct_answers
-    
-    # Calculate percentage
-    if total_attempted > 0:
-        score_percentage = round((correct_answers / total_attempted) * 100, 2)
-    else:
-        score_percentage = 0
-    
-    # Determine grade
-    if score_percentage >= 90:
-        grade = 'A+'
-    elif score_percentage >= 80:
-        grade = 'A'
-    elif score_percentage >= 70:
-        grade = 'B'
-    elif score_percentage >= 60:
-        grade = 'C'
-    elif score_percentage >= 50:
-        grade = 'D'
-    else:
-        grade = 'F'
+    summary = calculate_submission_summary(exam, submissions)
     
     response_data = {
         'student_id': student.id,
@@ -377,11 +348,11 @@ def get_exam_result(request, student_id, exam_id):
             'total_questions': exam.total_questions
         },
         'results': {
-            'total_questions_attempted': total_attempted,
-            'correct_answers': correct_answers,
-            'wrong_answers': wrong_answers,
-            'score_percentage': score_percentage,
-            'grade': grade
+            'total_questions_attempted': summary['total_questions_attempted'],
+            'correct_answers': summary['correct_answers'],
+            'wrong_answers': summary['wrong_answers'],
+            'score_percentage': summary['score_percentage'],
+            'grade': summary['grade']
         }
     }
     
@@ -459,43 +430,21 @@ def calculate_exam_result(request, exam_id):
     
     for student in students_with_submissions:
         # Get submissions for this student and exam
-        submissions = Submission.objects.filter(student=student, exam=exam)
+        submissions = Submission.objects.filter(student=student, exam=exam).select_related('question')
+        summary = calculate_submission_summary(exam, submissions)
+        total_attempted = summary['total_questions_attempted']
         
-        total_attempted = submissions.count()
-        correct_answers = submissions.filter(is_correct=True).count()
-        wrong_answers = total_attempted - correct_answers
-        
-        # Calculate percentage
-        if total_attempted > 0:
-            score_percentage = round((correct_answers / total_attempted) * 100, 2)
-        else:
-            score_percentage = 0
-        
-        all_scores.append(score_percentage)
-        
-        # Determine grade
-        if score_percentage >= 90:
-            grade = 'A+'
-        elif score_percentage >= 80:
-            grade = 'A'
-        elif score_percentage >= 70:
-            grade = 'B'
-        elif score_percentage >= 60:
-            grade = 'C'
-        elif score_percentage >= 50:
-            grade = 'D'
-        else:
-            grade = 'F'
+        all_scores.append(summary['score_percentage'])
         
         student_result = {
             'student_id': student.id,
             'student_name': student.username,
             'f_id': student.f_id,
             'total_questions_attempted': total_attempted,
-            'correct_answers': correct_answers,
-            'wrong_answers': wrong_answers,
-            'score_percentage': score_percentage,
-            'grade': grade
+            'correct_answers': summary['correct_answers'],
+            'wrong_answers': summary['wrong_answers'],
+            'score_percentage': summary['score_percentage'],
+            'grade': summary['grade']
         }
         results.append(student_result)
     
@@ -531,7 +480,7 @@ def calculate_exam_result_helper(student_id, exam_id):
         exam = Exam.objects.get(id=exam_id)
         
         # Get all submissions for this student and exam
-        submissions = Submission.objects.filter(student=student, exam=exam)
+        submissions = Submission.objects.filter(student=student, exam=exam).select_related('question')
         
         if not submissions.exists():
             return None
@@ -539,12 +488,7 @@ def calculate_exam_result_helper(student_id, exam_id):
         # Calculate overall stats
         total_questions = ExamQuestion.objects.filter(exam=exam).count()
         answered_questions = submissions.count()
-        correct_answers = submissions.filter(is_correct=True).count()
-        
-        # Calculate marks
-        total_marks = sum(ExamQuestion.objects.filter(exam=exam).values_list('marks', flat=True))
-        obtained_marks = sum(s.question.marks for s in submissions if s.is_correct)
-        percentage = (obtained_marks / total_marks * 100) if total_marks > 0 else 0
+        summary = calculate_submission_summary(exam, submissions)
         
         return {
             'exam_id': exam_id,
@@ -552,10 +496,10 @@ def calculate_exam_result_helper(student_id, exam_id):
             'student_username': student.username,
             'total_questions': total_questions,
             'answered_questions': answered_questions,
-            'correct_answers': correct_answers,
-            'total_marks': total_marks,
-            'obtained_marks': obtained_marks,
-            'percentage': round(percentage, 2)
+            'correct_answers': summary['correct_answers'],
+            'total_marks': summary['total_marks'],
+            'obtained_marks': summary['obtained_marks'],
+            'percentage': summary['score_percentage']
         }
         
     except (Students.DoesNotExist, Exam.DoesNotExist):

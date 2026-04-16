@@ -187,7 +187,6 @@ urlpatterns = [
     # Results Management API
     path('api/result/published/', toggle_exam_publication, name='toggle-exam-publication'),
     path('api/published-exams/', get_published_exams, name='get-published-exams'),
-    path('api/student/exam/<int:exam_id>/result/<int:student_id>/', get_student_exam_result_enhanced, name='get-student-exam-result-enhanced'),
     path('api/get-all-results-by-teacher/<int:teacher_id>/', get_all_results_by_teacher, name='get-all-results-by-teacher'),
     
     # Blocklist Question Management API
