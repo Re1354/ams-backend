@@ -28,7 +28,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-@ty&y^t+k!c5!2r1!j!hx
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver', 'ams-diu-backend.onrender.com',"ams-diu-backend.vercel.app", "ams-diu-backend-omega.vercel.app", "ams-diu-student-omega.vercel.app"]
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver', '.vercel.app', 'ams-diu-backend.onrender.com','ams-diu-backend.vercel.app', 'ams-diu-backend-omega.vercel.app', 'ams-diu-student-omega.vercel.app']
 
 
 
