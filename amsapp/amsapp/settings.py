@@ -245,6 +245,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://ams-diu-frontend.onrender.com",
     "https://ams-diu-frontend.vercel.app",
     "https://ams-diu-frontend-omega.vercel.app",
+    "https://ams-diu-student-omega.vercel.app"
 ]
 
 
