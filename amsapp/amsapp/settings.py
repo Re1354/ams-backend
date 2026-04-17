@@ -26,7 +26,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-@ty&y^t+k!c5!2r1!j!hx-00*udkj3hi#d#xk_@8be!f6!grlj')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver', 'ams-diu-backend.onrender.com',"ams-diu-backend.vercel.app", "ams-diu-backend-omega.vercel.app", "ams-diu-student-omega.vercel.app"]
 
