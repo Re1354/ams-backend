@@ -244,8 +244,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8000",
     "https://ams-diu-frontend.onrender.com",
     "https://ams-diu-frontend.vercel.app",
-
+    "https://ams-diu-frontend-omega.vercel.app",
 ]
+
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
 
