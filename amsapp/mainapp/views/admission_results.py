@@ -20,6 +20,7 @@ from ..serializers.admission_result import (
 from ..services.admission_calculator import (
     calculate_admission_results,
     get_or_create_admission_configuration,
+    get_candidate_students_for_exam,
     recalculate_single_student_result,
     resolve_department_for_exam,
     summarize_status_counts,
@@ -97,6 +98,50 @@ def resolve_configuration_from_payload(validated_data):
         configuration.save(update_fields=updates + ["updated_at"])
 
     return configuration, exam, None
+
+
+def get_exam_queryset_for_department_semester(department=None, semester=None):
+    exams = Exam.objects.all()
+    if semester:
+        exams = exams.filter(semester__iexact=normalize_semester_filter(semester))
+
+    if not department:
+        return exams
+
+    department_name = department.department_name.strip()
+    department_shortname = department.department_shortname.strip()
+    return exams.filter(
+        Q(department__iexact=department_name) | Q(department__iexact=department_shortname)
+    )
+
+
+def ensure_semester_admission_results(department=None, semester=None):
+    """
+    Make sure admission rows exist for exams in the selected department + semester.
+
+    The examinee board is semester-driven in the UI, so this keeps the existing
+    AdmissionResult workflow but backfills missing rows from real exam
+    participation data when a newer semester has not been calculated yet.
+    """
+    if not department or not semester:
+        return
+
+    semester_exams = list(
+        get_exam_queryset_for_department_semester(department=department, semester=semester)
+    )
+
+    for exam in semester_exams:
+        has_results = AdmissionResult.objects.filter(exam=exam).exists()
+        has_candidates = get_candidate_students_for_exam(exam).exists()
+
+        if has_results or not has_candidates:
+            continue
+
+        calculation = calculate_admission_results(exam.id)
+        if not calculation.get("success"):
+            # Keep the board fetch resilient. If a semester lacks threshold/config,
+            # the frontend will still show the setup message from configuration data.
+            continue
 
 
 @extend_schema(
@@ -221,15 +266,24 @@ def admission_configuration_detail(request, config_id):
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def admission_semester_options(request):
-    configured = list(
-        AdmissionConfiguration.objects.order_by("semester")
+    department_id = request.query_params.get("department_id")
+    department = None
+
+    if department_id:
+        department = Department.objects.filter(id=department_id).first()
+        if not department:
+            return Response(
+                {"success": False, "message": "Department not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+    exam_semesters = list(
+        get_exam_queryset_for_department_semester(department=department)
+        .order_by("semester")
         .values_list("semester", flat=True)
         .distinct()
     )
-    exam_semesters = list(
-        Exam.objects.order_by("semester").values_list("semester", flat=True).distinct()
-    )
-    semesters = sorted(set(configured + exam_semesters), key=semester_sort_key)
+    semesters = sorted(set(exam_semesters), key=semester_sort_key)
     return Response({"success": True, "semesters": semesters})
 
 
@@ -342,6 +396,29 @@ def get_admission_results(request):
         results = results.filter(student_id=student_id)
     if semester:
         semester = normalize_semester_filter(semester)
+        resolved_department = (
+            Department.objects.filter(id=department_id).first() if department_id else None
+        )
+        ensure_semester_admission_results(
+            department=resolved_department,
+            semester=semester,
+        )
+        results = AdmissionResult.objects.select_related(
+            "exam",
+            "student",
+            "department",
+            "configuration",
+            "configuration__department",
+            "configuration__exam",
+        ).all()
+        if exam_id:
+            results = results.filter(exam_id=exam_id)
+        if configuration_id:
+            results = results.filter(configuration_id=configuration_id)
+        if department_id:
+            results = results.filter(department_id=department_id)
+        if student_id:
+            results = results.filter(student_id=student_id)
         results = results.filter(
             Q(configuration__semester__iexact=semester) | Q(exam__semester__iexact=semester)
         )

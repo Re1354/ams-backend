@@ -17,7 +17,8 @@ from rest_framework.permissions import IsAuthenticated
 from ..authentication import CustomJWTAuthentication
 from drf_spectacular.utils import OpenApiResponse
 from django.shortcuts import get_object_or_404
-from ..utils import normalize_semester_filter, normalize_semester_value
+from ..utils import normalize_semester_filter
+from ..utils.question_ingestion import ingest_scraped_question_entries
 
 
 @extend_schema(
@@ -299,52 +300,9 @@ def insert_scrapped_questions(request):
     else:
         return Response({'success': False, 'message': 'Invalid payload. Expected {"results": [...] } or an array.'}, status=400)
 
-    created = []
-    skipped = 0
     try:
-        with transaction.atomic():
-            for file_entry in entries:
-                data_list = file_entry.get('data') if isinstance(file_entry, dict) else None
-                if not data_list and isinstance(file_entry, list):
-                    data_list = file_entry
-                if not data_list:
-                    continue
-                for item in data_list:
-                    subject = item.get('subject') or ''
-                    q_english = item.get('question_english') or ''
-                    q_both = item.get('question_both') or ''
-                    questions_field = {
-                        'english': q_english,
-                        'both': q_both
-                    }
-                    options_field = item.get('options') or {}
-                    answer_field = item.get('answer') or {}
-                    semester = normalize_semester_value(item.get('semester') or '')
-                    department = item.get('department') or item.get('department_shortname') or 'CSE'
-
-                    # Determine type
-                    q_type = 'option' if options_field else 'text'
-
-                    # Avoid duplicate by subject + english question if exists
-                    exists = ScrappedQuestion.objects.filter(subject__iexact=subject, questions__english__iexact=q_english).exists()
-                    if exists:
-                        skipped += 1
-                        continue
-
-                    sq = ScrappedQuestion.objects.create(
-                        subject=subject,
-                        questions=questions_field,
-                        type=q_type,
-                        text=None,
-                        options=options_field,
-                        answer=answer_field,
-                        marks=item.get('marks') or 1,
-                        semester=semester,
-                        department_shortname=department
-                    )
-                    created.append({'id': sq.id, 'subject': subject, 'question': q_english})
-
-        return Response({'success': True, 'created_count': len(created), 'skipped_duplicates': skipped, 'created': created}, status=201)
+        summary = ingest_scraped_question_entries(entries)
+        return Response({'success': True, **summary}, status=201)
 
     except Exception as e:
         return Response({'success': False, 'message': str(e)}, status=500)

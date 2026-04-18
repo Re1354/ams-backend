@@ -1,472 +1,532 @@
 #!/usr/bin/env python3
-"""
-Improved Bangla+English admission Q/A scraper.
-
-Fixes:
-- Prevents English text from "leaking" into options by using STRICT option labels.
-- Accepts Bangla labels: (ক) or bare token forms "ক)" / "ক." / "ক:" ONLY at token boundaries.
-- Accepts English text embedded in Bangla stems: returns question_bangla + question_english.
-- Stronger Subject/Session/Department extraction with filename fallback (e.g., ...-CSE.docx).
-- Maps answers from a 2-row table OR vertical "Answer:" list, and normalizes to both (খ) and (B).
-- CLI included for quick manual tests: interactive if no args, or use flags (--summary, --stdout, -o).
-
-JSON schema preserved:
-{
-  "subject": str,
-  "question_bangla": str,
-  "question_english": str,
-  "options": [{"bangla": str, "english": str}, ...],
-  "answer": {"bangla": str, "english": str},
-  "session": str,
-  "department": str,
-  "qno": int
-}
-"""
+"""Structure-aware Bangla+English admission Q/A scraper for `.docx` files."""
 
 from __future__ import annotations
-import re
+
+import argparse
 import json
-from typing import Optional, List, Tuple, Dict
+import re
+from io import BytesIO
 from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import status
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from ..authentication import CustomJWTAuthentication
+
 try:
     from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
     _HAS_PYDOCX = True
 except Exception:
     Document = None  # type: ignore
+    Table = None  # type: ignore
+    Paragraph = None  # type: ignore
     _HAS_PYDOCX = False
-from io import BytesIO
-from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from ..authentication import CustomJWTAuthentication
-from drf_spectacular.utils import extend_schema, OpenApiResponse
 
-# Optional; if unavailable, we no-op
 try:
     from bijoy2unicode import bijoy2unicode  # type: ignore
 except Exception:
-    def bijoy2unicode(t: str) -> str:
-        return t
+    def bijoy2unicode(text: str) -> str:
+        return text
+
 
 BANG2ENG = {"ক": "A", "খ": "B", "গ": "C", "ঘ": "D"}
-ENG2BANG = {v: k for k, v in BANG2ENG.items()}
+ENG2BANG = {value: key for key, value in BANG2ENG.items()}
+QUESTION_START_RE = re.compile(r"^(?P<num>\d+|[০-৯]+)[\.\।\)]\s*(?P<body>.*)$", re.S)
+_BN_LABEL = r"(?:\(([কখগঘ])\)|(?<!\S)([কখগঘ])[\)\.\-:])"
+_ANSWER_SPLIT_RE = re.compile(r"Answer\s*:", flags=re.IGNORECASE)
 
 
-def bengali_digits_to_english(s: str) -> str:
-    return s.translate(str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789"))
+def bengali_digits_to_english(value: str) -> str:
+    return value.translate(str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789"))
 
 
-def _clean(s: str) -> str:
-    return re.sub(r"[ \t]+", " ", (s or "").strip())
+def _clean(value: str) -> str:
+    return re.sub(r"[ \t]+", " ", (value or "").strip())
 
 
-def find_answer_table_map(doc: Document) -> Dict[int, str]:
-    """Find a 2-row (numbers/answers) table and build q -> raw answer mapping."""
-    for table in doc.tables:
-        if len(table.rows) < 2:
+def _is_blankish(value: str) -> bool:
+    normalized = _clean(value)
+    return not normalized or normalized in {",", ".", ":", "-", "--"}
+
+
+def _iter_document_blocks(doc: Any) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for block in doc.iter_inner_content():
+        if isinstance(block, Paragraph):
+            text = _clean(bijoy2unicode(block.text))
+            if text:
+                blocks.append({"type": "paragraph", "text": text})
             continue
-        r1 = " ".join(c.text.strip() for c in table.rows[0].cells if c.text.strip())
-        r2 = " ".join(c.text.strip() for c in table.rows[1].cells if c.text.strip())
 
-        nums = re.findall(r"\d+|[০-৯]+", r1)
-        ans = re.findall(r"[কখগঘA-Da-d]|\([কখগঘ]\)|\([A-Da-d]\)", r2)
+        if isinstance(block, Table):
+            rows: list[list[str]] = []
+            for row in block.rows:
+                cell_texts = [_clean(bijoy2unicode(cell.text)) for cell in row.cells]
+                filtered = [text for text in cell_texts if text]
+                if filtered:
+                    rows.append(filtered)
+            if rows:
+                blocks.append({"type": "table", "rows": rows})
 
-        if len(nums) >= 2 and len(nums) == len(ans):
-            out: Dict[int, str] = {}
-            for n, a in zip(nums, ans):
-                n = bengali_digits_to_english(n)
+    return blocks
+
+
+def _flatten_blocks_to_text(blocks: Iterable[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for block in blocks:
+        if block["type"] == "paragraph":
+            lines.append(block["text"])
+        else:
+            lines.extend(" ".join(row) for row in block["rows"])
+    return "\n".join(lines)
+
+
+def find_answer_table_map(blocks: Iterable[dict[str, Any]]) -> Dict[int, str]:
+    """Find a 2-row (numbers/answers) table and build q -> raw answer mapping."""
+    best_match: Dict[int, str] = {}
+
+    for block in blocks:
+        if block["type"] != "table":
+            continue
+
+        rows = block["rows"]
+        if len(rows) < 2:
+            continue
+
+        header = " ".join(rows[0])
+        answers = " ".join(rows[1])
+        numbers = re.findall(r"\d+|[০-৯]+", header)
+        labels = re.findall(r"[কখগঘA-Da-d]|\([কখগঘ]\)|\([A-Da-d]\)", answers)
+
+        if numbers and len(numbers) == len(labels):
+            parsed: Dict[int, str] = {}
+            for number_text, label in zip(numbers, labels):
                 try:
-                    qnum = int(re.sub(r"\D", "", n))
-                except Exception:
+                    qno = int(re.sub(r"\D", "", bengali_digits_to_english(number_text)))
+                except ValueError:
                     continue
-                out[qnum] = a.strip()
-            if out:
-                return out
-    return {}
+                parsed[qno] = label.strip()
+
+            if len(parsed) > len(best_match):
+                best_match = parsed
+
+    return best_match
 
 
-def fallback_answers_from_text(after_answer_text: str) -> Dict[int, str]:
-    """
-    If no answer table, read vertical lines after 'Answer:' — collect all numbers then all letters.
-    Works with Physics paper style.
-    """
-    lines = [ln.strip() for ln in (after_answer_text or "").splitlines() if ln.strip()]
-    if not lines:
+def fallback_answers_from_text(lines: Iterable[str]) -> Dict[int, str]:
+    """Fallback vertical answer parser from the lines after `Answer:`."""
+    clean_lines = [_clean(line) for line in lines if _clean(line)]
+    if not clean_lines:
         return {}
-    all_nums, all_ans = [], []
-    for ln in lines:
-        all_nums += re.findall(r"\d+|[০-৯]+", ln)
-    for ln in lines:
-        all_ans += re.findall(r"[কখগঘA-Da-d]|\([কখগঘ]\)|\([A-Da-d]\)", ln)
 
-    if all_nums and len(all_nums) == len(all_ans):
-        out: Dict[int, str] = {}
-        for n, a in zip(all_nums, all_ans):
-            n = bengali_digits_to_english(n)
-            try:
-                qnum = int(re.sub(r"\D", "", n))
-            except Exception:
-                continue
-            out[qnum] = a.strip()
-        return out
-    return {}
+    all_numbers: list[str] = []
+    all_answers: list[str] = []
+    for line in clean_lines:
+        all_numbers.extend(re.findall(r"\d+|[০-৯]+", line))
+        all_answers.extend(re.findall(r"[কখগঘA-Da-d]|\([কখগঘ]\)|\([A-Da-d]\)", line))
+
+    if not all_numbers or len(all_numbers) != len(all_answers):
+        return {}
+
+    parsed: Dict[int, str] = {}
+    for number_text, answer_text in zip(all_numbers, all_answers):
+        try:
+            qno = int(re.sub(r"\D", "", bengali_digits_to_english(number_text)))
+        except ValueError:
+            continue
+        parsed[qno] = answer_text.strip()
+    return parsed
 
 
 def normalize_answer_cell(raw: str) -> Tuple[str, str]:
     """Return tuple (bangla '(খ)' or '', english '(B)' or '')."""
     if not raw:
         return ("", "")
+
     raw = raw.strip()
-    m_b = re.search(r"[কখগঘ]", raw)
-    if m_b:
-        b = m_b.group()
-        e = BANG2ENG.get(b, "")
-        return (f"({b})", f"({e})" if e else "")
-    m_e = re.search(r"[A-Da-d]", raw)
-    if m_e:
-        e = m_e.group().upper()
-        b = ENG2BANG.get(e, "")
-        return (f"({b})" if b else "", f"({e})")
-    # loose first-char fallback
-    ch = raw[:1]
-    if ch in BANG2ENG:
-        return (f"({ch})", f"({BANG2ENG[ch]})")
-    chU = ch.upper()
-    if chU in ENG2BANG:
-        return (f"({ENG2BANG[chU]})", f"({chU})")
+    match_bangla = re.search(r"[কখগঘ]", raw)
+    if match_bangla:
+        bangla = match_bangla.group()
+        english = BANG2ENG.get(bangla, "")
+        return (f"({bangla})", f"({english})" if english else "")
+
+    match_english = re.search(r"[A-Da-d]", raw)
+    if match_english:
+        english = match_english.group().upper()
+        bangla = ENG2BANG.get(english, "")
+        return (f"({bangla})" if bangla else "", f"({english})")
+
+    first_char = raw[:1]
+    if first_char in BANG2ENG:
+        return (f"({first_char})", f"({BANG2ENG[first_char]})")
+
+    first_upper = first_char.upper()
+    if first_upper in ENG2BANG:
+        return (f"({ENG2BANG[first_upper]})", f"({first_upper})")
+
     return ("", "")
 
 
-def extract_questions_from_text(before_answer_text: str) -> List[Tuple[Optional[int], str]]:
-    """
-    Split on Bangla or English-numbered questions:
-    - Bangla: '১। ...'
-    - English: '1.' or '1)'
-    """
-    txt = (before_answer_text or "").strip()
-    if not txt:
-        return []
-    # Guard header text: split only when a line starts with number-like prefix
-    blocks = re.split(r"(?m)(?=^(?:\d+|[০-৯]+)[\.\।\)])", txt)
-    result: List[Tuple[Optional[int], str]] = []
-    for block in blocks:
-        block = block.strip()
-        if not block:
-            continue
-        m = re.match(r"^(?P<num>\d+|[০-৯]+)[\.\।\)]\s*(?P<body>.*)$", block, flags=re.S)
-        if not m:
-            # skip header or garbage
-            continue
-        num = m.group("num")
-        try:
-            num_int: Optional[int] = int(bengali_digits_to_english(num))
-        except Exception:
-            num_int = None
-        body = (m.group("body") or "").strip()
-        result.append((num_int, body))
-    return result
+def extract_question_blocks_from_lines(lines: Iterable[str]) -> List[Tuple[Optional[int], str]]:
+    blocks: List[Tuple[Optional[int], str]] = []
+    current_number: Optional[int] = None
+    current_lines: list[str] = []
 
+    def flush() -> None:
+        nonlocal current_number, current_lines
+        if current_number is not None and current_lines:
+            blocks.append((current_number, "\n".join(current_lines).strip()))
+        current_number = None
+        current_lines = []
 
-# STRICT option labels (fixes false matches like the 'ক' in 'কত?'):
-# - Accept "(ক)" or bare token "ক)"/"ক."/"ক:" only at a token boundary.
-_BN_LABEL = r"(?:\(([কখগঘ])\)|(?<!\S)([কখগঘ])[\)\.\-:])"
-_EN_LABEL = r"(?:\(([A-Da-d])\)|(?<!\S)([A-Da-d])[\)\.\-:])"
+    for raw_line in lines:
+        line = _clean(raw_line)
+        if not line:
+            continue
+
+        match = QUESTION_START_RE.match(line)
+        if match:
+            flush()
+            try:
+                current_number = int(bengali_digits_to_english(match.group("num")))
+            except ValueError:
+                current_number = None
+            body = _clean(match.group("body"))
+            if body:
+                current_lines.append(body)
+            continue
+
+        if current_number is not None:
+            current_lines.append(line)
+
+    flush()
+    return blocks
 
 
 def extract_options_from_block(block_text: str) -> Tuple[str, List[Dict[str, str]]]:
-    """
-    Bangla+English option extractor (Bangla labels drive; English text inferred).
-    Works when options are labeled as (ক) or bare token ক)/ক./ক:
-    """
-    text = (block_text or "")
+    """Extract the question-only stem and option pairs from a question block."""
+    text = _clean(block_text.replace("\n", " "))
     first = re.search(_BN_LABEL, text)
     if not first:
-        return _clean(text), []
+        return text, []
 
     question_only = _clean(text[: first.start()])
-    zone = text[first.start():]
-
+    option_zone = text[first.start() :]
     options: List[Dict[str, str]] = []
-    matches = list(re.finditer(_BN_LABEL, zone))
-    for idx, m in enumerate(matches):
-        # label may be in group(1) when "(ক)" form, or group(2) when bare "ক)" form
-        letter = m.group(1) or m.group(2)
-        start = m.end()
-        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(zone)
-        content = _clean(zone[start:end])
+    matches = list(re.finditer(_BN_LABEL, option_zone))
+
+    for index, match in enumerate(matches):
+        letter = match.group(1) or match.group(2)
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(option_zone)
+        content = _clean(option_zone[start:end])
         if not content:
             continue
 
-        eng_label = BANG2ENG.get(letter, chr(ord("A") + idx))
-        # If English text appears inside parentheses within content, pick it as translation; else strip Bangla letters
-        eng_in = re.search(r"\(([^()]*[A-Za-z0-9].*?)\)", content)
-        eng_val = eng_in.group(1).strip() if eng_in else re.sub(r"[\u0980-\u09FF]+", " ", content).strip()
+        english_label = BANG2ENG.get(letter, chr(ord("A") + index))
+        english_inline = re.search(r"\(([^()]*[A-Za-z0-9].*?)\)", content)
+        english_text = (
+            english_inline.group(1).strip()
+            if english_inline
+            else re.sub(r"[\u0980-\u09FF]+", " ", content).strip()
+        )
 
-        options.append({
-            "bangla": f"({letter}) {bijoy2unicode(content)}".strip(),
-            "english": f"({eng_label}) {eng_val}".strip()
-        })
+        options.append(
+            {
+                "bangla": f"({letter}) {bijoy2unicode(content)}".strip(),
+                "english": f"({english_label}) {english_text}".strip(),
+            }
+        )
+
     return question_only, options
 
 
 def split_bangla_english_question(text: str) -> Tuple[str, str]:
-    """
-    For BN+EN combined stems like: '... ? (If ... then ...)'
-    Returns (bangla_part, english_parenthetical_or_empty)
-    """
-    text = (text or "").strip()
-    m = re.search(r"\(([^()]*[A-Za-z0-9].*?)\)", text)
-    if m:
-        eng = m.group(1).strip()
-        bangla = (text[: m.start()] + text[m.end():]).strip()
-        return bijoy2unicode(bangla), eng
+    """Split a combined Bangla+English stem into separate strings."""
+    text = _clean(text)
+    match = re.search(r"\(([^()]*[A-Za-z0-9].*?)\)", text)
+    if match:
+        english = match.group(1).strip()
+        bangla = _clean(text[: match.start()] + text[match.end() :])
+        return bijoy2unicode(bangla), english
     return bijoy2unicode(text), ""
 
 
-def _extract_meta(doc: Document, all_text: str, file_path: str) -> Tuple[str, str, str]:
-    # Subject
-    sub_m = re.search(r"Sub(?:ject)?\s*[:\-]\s*([^\n\[]+)", all_text or "", flags=re.IGNORECASE)
-    subject = re.sub(r"\[.*?\]", "", sub_m.group(1)).strip() if sub_m else "Unknown"
-    # Session
-    ses_m = re.search(r"(Spring|Fall|Summer)\s*[- ]?\s*(\d{4})", all_text or "", flags=re.IGNORECASE)
-    session = f"{ses_m.group(1).capitalize()} {ses_m.group(2)}" if ses_m else ""
-    # Department (paragraphs, then tables, then filename fallback like ...-CSE.docx)
-    dept = None
-    for p in doc.paragraphs[:30]:
-        dm = re.search(r"Department\s*:?(\s*[A-Za-z]+)?", p.text, flags=re.IGNORECASE)
-        if dm:
-            cand = (dm.group(1) or "").strip().strip(":").strip()
-            if cand:
-                dept = cand
+def _extract_meta(doc: Any, blocks: list[dict[str, Any]], file_path: str) -> Tuple[str, str, str]:
+    full_text = _flatten_blocks_to_text(blocks)
+
+    subject_match = re.search(r"Sub(?:ject)?\s*[:\-]\s*([^\n\[]+)", full_text, flags=re.IGNORECASE)
+    subject = (
+        re.sub(r"\[.*?\]", "", subject_match.group(1)).strip()
+        if subject_match
+        else "Unknown"
+    )
+
+    session_match = re.search(r"(Spring|Fall|Summer)\s*[- ]?\s*(\d{4})", full_text, flags=re.IGNORECASE)
+    session = f"{session_match.group(1).capitalize()} {session_match.group(2)}" if session_match else ""
+
+    department = ""
+    for block in blocks[:30]:
+        if block["type"] == "paragraph":
+            match = re.search(r"Department\s*:?\s*([A-Za-z]+)", block["text"], flags=re.IGNORECASE)
+            if match:
+                department = match.group(1)
                 break
-    if not dept:
-        for t in doc.tables:
-            for row in t.rows:
-                for cell in row.cells:
-                    if "Department" in cell.text:
-                        after = cell.text.split("Department", 1)[1]
-                        m = re.search(r":\s*([A-Za-z]+)", after)
-                        if m:
-                            dept = m.group(1)
-                            break
-                if dept:
+        else:
+            for row in block["rows"]:
+                joined = " ".join(row)
+                match = re.search(r"Department\s*:?\s*([A-Za-z]+)", joined, flags=re.IGNORECASE)
+                if match:
+                    department = match.group(1)
                     break
-            if dept:
+            if department:
                 break
-    if not dept:
-        m = re.search(r"-\s*([A-Za-z]{2,4})\.\w+$", file_path or "")
-        if m:
-            dept = m.group(1)
-    if not dept:
-        dept = "CSE"
-    return bijoy2unicode(subject), session, bijoy2unicode(dept)
+
+    if not department:
+        filename_match = re.search(r"-\s*([A-Za-z]{2,4})\.\w+$", file_path or "")
+        department = filename_match.group(1) if filename_match else "CSE"
+
+    return bijoy2unicode(subject), session, bijoy2unicode(department)
+
+
+def _split_question_and_answer_regions(blocks: list[dict[str, Any]]) -> Tuple[list[str], list[str]]:
+    question_lines: list[str] = []
+    answer_lines: list[str] = []
+    in_answer_section = False
+
+    for block in blocks:
+        if block["type"] == "paragraph":
+            text = block["text"]
+            if not in_answer_section and _ANSWER_SPLIT_RE.search(text):
+                parts = _ANSWER_SPLIT_RE.split(text, maxsplit=1)
+                before = parts[0] if parts else ""
+                after = parts[1] if len(parts) > 1 else ""
+                if _clean(before):
+                    question_lines.append(_clean(before))
+                if _clean(after):
+                    answer_lines.append(_clean(after))
+                in_answer_section = True
+                continue
+
+            if in_answer_section:
+                answer_lines.append(text)
+            else:
+                question_lines.append(text)
+            continue
+
+        target = answer_lines if in_answer_section else question_lines
+        target.extend(" ".join(row) for row in block["rows"])
+
+    return question_lines, answer_lines
+
+
+def _structure_options(options: List[Dict[str, str]]) -> Dict[str, Dict[str, str]]:
+    options_bangla: Dict[str, str] = {}
+    options_english: Dict[str, str] = {}
+
+    for option in options:
+        bangla_text = option.get("bangla", "").strip()
+        english_text = option.get("english", "").strip()
+
+        match_bangla = re.match(r"[\(（]?([ক-ঘ])[\)）]?\s*(.*)", bangla_text)
+        match_english = re.match(r"[\(（]?([A-Da-d])[\)）]?\s*(.*)", english_text)
+
+        if match_bangla:
+            options_bangla[match_bangla.group(1)] = match_bangla.group(2).strip()
+        if match_english:
+            options_english[match_english.group(1).upper()] = match_english.group(2).strip()
+
+    return {"both": options_bangla, "english": options_english}
+
+
+def _parse_docx_document(doc: Any, filename: str) -> list[dict[str, Any]]:
+    blocks = _iter_document_blocks(doc)
+    subject, session, department = _extract_meta(doc, blocks, filename)
+    question_lines, answer_lines = _split_question_and_answer_regions(blocks)
+
+    answers_map = find_answer_table_map(blocks)
+    if not answers_map:
+        answers_map = fallback_answers_from_text(answer_lines)
+
+    output = []
+    for question_number, block_text in extract_question_blocks_from_lines(question_lines):
+        question_text, options = extract_options_from_block(block_text)
+        question_bangla, question_english = split_bangla_english_question(question_text)
+
+        answer_raw = answers_map.get(question_number or -1, "")
+        answer_bangla, answer_english = normalize_answer_cell(answer_raw)
+        answer_bangla = re.sub(r"[()]", "", answer_bangla).strip()
+        answer_english = re.sub(r"[()]", "", answer_english).strip()
+
+        question_both = question_bangla
+        if question_english:
+            question_both = f"{question_bangla} ({question_english})".strip()
+
+        output.append(
+            {
+                "subject": subject,
+                "question_bangla": question_bangla,
+                "question_english": question_english,
+                "question_both": question_both,
+                "options": _structure_options(options),
+                "answer": {
+                    "both": [answer_bangla] if answer_bangla else [],
+                    "english": [answer_english] if answer_english else [],
+                },
+                "semester": session,
+                "department": department,
+                "qno": question_number,
+            }
+        )
+
+    return output
 
 
 def parse_docx_file(path: str, output_json: Optional[str] = None):
     if not _HAS_PYDOCX:
         raise RuntimeError("python-docx is not installed; cannot parse .docx files")
 
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(p)
+    docx_path = Path(path)
+    if not docx_path.exists():
+        raise FileNotFoundError(docx_path)
 
-    doc = Document(str(p))
-    paras = [pp.text.rstrip() for pp in doc.paragraphs]
-    all_text = "\n".join(paras)  # real newlines
-
-    subject, session, dept = _extract_meta(doc, all_text, str(p))
-
-    # Answers (table first, then fallback after "Answer:")
-    answers_map = find_answer_table_map(doc)
-    if not answers_map:
-        parts = re.split(r"Answer\s*:", all_text, flags=re.IGNORECASE)
-        after = parts[1] if len(parts) > 1 else ""
-        answers_map = fallback_answers_from_text(after)
-
-    # Questions (everything before "Answer:")
-    before_answer_text = re.split(r"Answer\s*:", all_text, flags=re.IGNORECASE)[0]
-    q_blocks = extract_questions_from_text(before_answer_text)
-
-    output = []
-    for (qnum, block_text) in q_blocks:
-        q_text, options = extract_options_from_block(block_text)
-        q_bangla, q_english = split_bangla_english_question(q_text)
-
-        ans_raw = answers_map.get(qnum, "")
-        ans_b, ans_e = normalize_answer_cell(ans_raw)
-
-        item = {
-            "subject": subject,
-            "question_bangla": q_bangla,
-            "question_english": q_english,
-            "options": options,
-            "answer": {"bangla": ans_b, "english": ans_e},
-            "semester": session,
-            "department": dept,
-            "qno": qnum
-        }
-        output.append(item)
-
+    output = _parse_docx_document(Document(str(docx_path)), str(docx_path))
     if not output_json:
-        output_json = str(p.with_suffix(".json"))
-    with open(output_json, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+        output_json = str(docx_path.with_suffix(".json"))
+
+    with open(output_json, "w", encoding="utf-8") as output_file:
+        json.dump(output, output_file, ensure_ascii=False, indent=2)
+
     return output
 
 
 def parse_docx_fileobj(fileobj, filename: str):
-    """Parse a file-like .docx (UploadedFile) and return the extracted list of items.
-
-    This mirrors parse_docx_file but reads from an in-memory file instead of path.
-    """
-    # python-docx accepts a file-like object, ensure it's BytesIO
     if not _HAS_PYDOCX:
         raise RuntimeError("python-docx is not installed; cannot parse .docx files")
 
     data = fileobj.read()
-    bio = BytesIO(data)
-    doc = Document(bio)
-
-    paras = [pp.text.rstrip() for pp in doc.paragraphs]
-    all_text = "\n".join(paras)
-
-    subject, session, dept = _extract_meta(doc, all_text, filename)
-
-    # Answers (table first, then fallback after "Answer:")
-    answers_map = find_answer_table_map(doc)
-    if not answers_map:
-        parts = re.split(r"Answer\s*:", all_text, flags=re.IGNORECASE)
-        after = parts[1] if len(parts) > 1 else ""
-        answers_map = fallback_answers_from_text(after)
-
-    before_answer_text = re.split(r"Answer\s*:", all_text, flags=re.IGNORECASE)[0]
-    q_blocks = extract_questions_from_text(before_answer_text)
-
-    output = []
-    for (qnum, block_text) in q_blocks:
-        q_text, options = extract_options_from_block(block_text)
-        q_bangla, q_english = split_bangla_english_question(q_text)
-
-        ans_raw = answers_map.get(qnum, "")
-        ans_b, ans_e = normalize_answer_cell(ans_raw)
-        ans_b = re.sub(r"[()]", "", ans_b).strip()
-        ans_e = re.sub(r"[()]", "", ans_e).strip()
-
-        options_bangla = {}
-        options_english = {}
-        for opt in options:
-            b_text = opt.get("bangla", "").strip()
-            e_text = opt.get("english", "").strip()
-
-            match_b = re.match(r"[\(（]?([ক-ঘ])[\)）]?\s*(.*)", b_text)
-            match_e = re.match(r"[\(（]?([A-Da-d])[\)）]?\s*(.*)", e_text)
-
-            if match_b:
-                options_bangla[match_b.group(1)] = match_b.group(2).strip()
-            if match_e:
-                options_english[match_e.group(1).upper()] = match_e.group(2).strip()
-
-        options_structured = {"both": options_bangla, "english": options_english}
-        item = {
-            "subject": subject,
-            "question_bangla": q_bangla,
-            "question_english": q_english,
-            "question_both": f"{q_bangla}({q_english})".strip(),
-            "options": options_structured,
-            "answer": {
-                "both": [ans_b] if ans_b else [],
-                "english": [ans_e] if ans_e else []
-            },
-            "semester": session,
-            "department": dept,
-        }
-        output.append(item)
-
-    return output
+    return _parse_docx_document(Document(BytesIO(data)), filename)
 
 
 @extend_schema(
-    operation_id='upload_docx_scrape',
-    tags=['Document Scraper'],
-    summary='Upload one or many .docx files and extract questions',
+    operation_id="upload_docx_scrape",
+    tags=["Document Scraper"],
+    summary="Upload one or many .docx files and extract questions",
     description='Accepts multipart/form-data with key "files" as one-or-many .docx files; returns extracted JSON per file.',
-    responses={200: OpenApiResponse(description='Extraction results')}
+    responses={200: OpenApiResponse(description="Extraction results")},
 )
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def upload_docx_scrape(request):
-    """Upload one-or-many .docx files and return parsed extraction results."""
-    files = request.FILES.getlist('files')
+    files = request.FILES.getlist("files")
     if not files:
-        return Response({'success': False, 'message': 'No files provided. Use multipart/form-data with key "files".'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"success": False, "message": 'No files provided. Use multipart/form-data with key "files".'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     results = []
-    for f in files:
+    for uploaded_file in files:
         try:
-            if not f.name.lower().endswith('.docx'):
-                results.append({'filename': f.name, 'success': False, 'message': 'Unsupported file type'})
+            if not uploaded_file.name.lower().endswith(".docx"):
+                results.append(
+                    {
+                        "filename": uploaded_file.name,
+                        "success": False,
+                        "message": "Unsupported file type",
+                    }
+                )
                 continue
-            extracted = parse_docx_fileobj(f, f.name)
-            results.append({'filename': f.name, 'success': True, 'count': len(extracted), 'data': extracted})
-        except Exception as e:
-            results.append({'filename': f.name, 'success': False, 'message': str(e)})
 
-    return Response({'success': True, 'results': results})
+            extracted = parse_docx_fileobj(uploaded_file, uploaded_file.name)
+            results.append(
+                {
+                    "filename": uploaded_file.name,
+                    "success": True,
+                    "count": len(extracted),
+                    "data": extracted,
+                }
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "filename": uploaded_file.name,
+                    "success": False,
+                    "message": str(exc),
+                }
+            )
+
+    return Response({"success": True, "results": results})
 
 
-# ---------------- CLI ----------------
-
-def _iter_docx_paths(p):
-    p = Path(p)
-    if p.is_dir():
-        for f in sorted(p.glob("*.docx")):
-            yield f
-    elif p.is_file() and p.suffix.lower() == ".docx":
-        yield p
+def _iter_docx_paths(path_value: str):
+    path = Path(path_value)
+    if path.is_dir():
+        for file_path in sorted(path.glob("*.docx")):
+            yield file_path
+    elif path.is_file() and path.suffix.lower() == ".docx":
+        yield path
     else:
-        raise FileNotFoundError(f"No .docx found at {p}")
+        raise FileNotFoundError(f"No .docx found at {path}")
 
 
 def _cli():
-    import argparse
-    ap = argparse.ArgumentParser(description="Bangla+English Q/A scraper")
-    ap.add_argument("path", nargs="?", help="Input .docx file or directory (interactive prompt if omitted)")
-    ap.add_argument("-o", "--outdir", default=None, help="Output directory for .json (defaults beside input)")
-    ap.add_argument("--summary", action="store_true", help="Print a compact summary per file")
-    ap.add_argument("--stdout", action="store_true", help="Print JSON to stdout (single-file only)")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="Bangla+English Q/A scraper")
+    parser.add_argument("path", nargs="?", help="Input .docx file or directory")
+    parser.add_argument("-o", "--outdir", default=None, help="Output directory for .json")
+    parser.add_argument("--summary", action="store_true", help="Print a compact summary per file")
+    parser.add_argument("--stdout", action="store_true", help="Print JSON to stdout (single-file only)")
+    args = parser.parse_args()
 
     if not args.path:
         try:
             args.path = input("Enter .docx file or directory path: ").strip()
         except EOFError:
-            ap.error("No path provided.")
+            parser.error("No path provided.")
 
-    paths = list(_iter_docx_paths(args.path))
-    if not paths:
-        ap.error("No .docx files found.")
+    docx_paths = list(_iter_docx_paths(args.path))
+    if not docx_paths:
+        parser.error("No .docx files found.")
 
-    multiple = len(paths) > 1
-    for docx in paths:
-        out_json = None
+    multiple = len(docx_paths) > 1
+    for docx_path in docx_paths:
+        output_json = None
         if args.outdir:
             Path(args.outdir).mkdir(parents=True, exist_ok=True)
-            out_json = str(Path(args.outdir) / (docx.stem + ".json"))
-        res = parse_docx_file(str(docx), out_json)
+            output_json = str(Path(args.outdir) / f"{docx_path.stem}.json")
+
+        result = parse_docx_file(str(docx_path), output_json)
 
         if args.summary:
-            q = len(res)
-            miss_ans = sum(1 for x in res if not (x["answer"]["english"] or x["answer"]["bangla"]))
-            zero_opt = sum(1 for x in res if not x["options"])
-            print(f"{docx.name}: {q} questions, {zero_opt} with 0 options, {miss_ans} with empty answer")
+            zero_options = sum(
+                1
+                for item in result
+                if not item["options"].get("both") and not item["options"].get("english")
+            )
+            missing_answers = sum(
+                1
+                for item in result
+                if not (item["answer"]["both"] or item["answer"]["english"])
+            )
+            print(
+                f"{docx_path.name}: {len(result)} questions, "
+                f"{zero_options} with 0 options, {missing_answers} with empty answer"
+            )
+            continue
 
         if args.stdout and not multiple:
-            print(json.dumps(res, ensure_ascii=False, indent=2))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
-            if not args.summary:
-                print(f"✅ Parsed {len(res)} questions → {Path(out_json or Path(docx).with_suffix('.json'))}")
+            print(f"✅ Parsed {len(result)} questions → {Path(output_json or docx_path.with_suffix('.json'))}")
 
 
 if __name__ == "__main__":
