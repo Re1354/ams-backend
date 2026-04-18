@@ -21,3 +21,17 @@ class CustomRefreshToken(RefreshToken):
         token['user_id'] = user_id
         
         return token
+
+
+def get_tokens_for_user(user: User) -> dict[str, str]:
+    """
+    Return refresh/access JWT tokens for the given user.
+
+    Some older tests and auth flows still import this helper directly.
+    Keep it as the stable public token entrypoint.
+    """
+    refresh = CustomRefreshToken.for_user(user)
+    return {
+        "refresh": str(refresh),
+        "access": str(refresh.access_token),
+    }
