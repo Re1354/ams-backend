@@ -97,6 +97,44 @@ def _build_option_lookup(options: Any) -> dict[str, str]:
     return lookup
 
 
+def get_question_options(question: Any) -> dict[str, str]:
+    parsed_options = _parse_serialized_value(getattr(question, "options", None))
+    if not isinstance(parsed_options, dict):
+        return {}
+    return {str(key): str(value) for key, value in parsed_options.items()}
+
+
+def resolve_submitted_option_key(question: Any, submitted_answer: Any) -> str | None:
+    normalized_submitted = _normalize_token(submitted_answer)
+    if getattr(question, "type", "") != "option" or not normalized_submitted:
+        return None
+
+    options = get_question_options(question)
+    normalized_keys = {_normalize_token(key): key for key in options.keys()}
+    normalized_values = {
+        _normalize_token(value): key for key, value in options.items() if _normalize_token(value)
+    }
+
+    return normalized_keys.get(normalized_submitted) or normalized_values.get(normalized_submitted)
+
+
+def get_correct_option_answers_display(question: Any) -> list[dict[str, Any]]:
+    options = get_question_options(question)
+    normalized_keys = {_normalize_token(key): key for key in options.keys()}
+    display_answers: list[dict[str, Any]] = []
+
+    for normalized_answer in extract_correct_option_answers(question):
+        option_key = normalized_keys.get(normalized_answer, normalized_answer)
+        display_answers.append(
+            {
+                "key": option_key,
+                "text": options.get(option_key),
+            }
+        )
+
+    return display_answers
+
+
 def extract_correct_option_answers(question: Any) -> list[str]:
     lookup = _build_option_lookup(getattr(question, "options", None))
     candidates = _collect_scalar_tokens(getattr(question, "answer", None))

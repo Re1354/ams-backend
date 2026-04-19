@@ -22,9 +22,9 @@ from ..models import (
     StudentAssignTeacherExam,
     Students,
     Submission,
-    VivaRubrics,
 )
 from ..models.viva_marks import VivaMarks
+from .viva_assessment import get_viva_assessment_for_student_exam
 
 
 RESULT_STATUSES = ("SELECTED", "WAITING", "REJECTED", "ABSENT")
@@ -160,6 +160,13 @@ def get_viva_marks_for_student(student):
         return 0.0
 
 
+def get_viva_marks_for_student_exam(student, exam):
+    viva_assignment = get_viva_assessment_for_student_exam(student, exam)
+    if viva_assignment:
+        return float(viva_assignment.total_marks or 0)
+    return get_viva_marks_for_student(student)
+
+
 def get_academic_score(student):
     diploma_score = clamp(student.diploma)
     hsc_score = clamp(student.hsc)
@@ -174,15 +181,33 @@ def get_distribution_for_department(department):
     return MarksDistribution.objects.filter(department=department).first()
 
 
-def get_viva_max_for_department(department, distribution):
-    rubric_total = VivaRubrics.objects.filter(department=department).aggregate(
+def get_academic_max_score(academic_source):
+    if academic_source == "DIPLOMA":
+        return 4.0
+    if academic_source == "HSC":
+        return 5.0
+    return 0.0
+
+
+def get_written_total_marks_for_exam(exam):
+    total_marks = ExamQuestion.objects.filter(exam=exam).aggregate(
         total=Sum("marks")
     )["total"] or 0
-    if rubric_total > 0:
-        return float(rubric_total)
-    if distribution and distribution.viva_marks > 0:
-        return float(distribution.viva_marks)
-    return 0.0
+    if total_marks > 0:
+        return float(total_marks)
+    return float(exam.total_marks or 0)
+
+
+def get_viva_total_marks_for_student_exam(student, exam):
+    viva_assignment = get_viva_assessment_for_student_exam(student, exam)
+    if not viva_assignment:
+        return 0.0
+
+    rubric_snapshot = viva_assignment.rubric_snapshot or []
+    rubric_total = 0.0
+    for rubric in rubric_snapshot:
+        rubric_total += float(rubric.get("max_marks") or 0)
+    return rubric_total
 
 
 def calculate_weighted_scores(student, exam, department, mcq_marks, viva_marks):
@@ -192,6 +217,8 @@ def calculate_weighted_scores(student, exam, department, mcq_marks, viva_marks):
     distribution = get_distribution_for_department(department)
     academic_source, academic_score = get_academic_score(student)
     ssc_score = clamp(student.ssc)
+    written_total_marks = get_written_total_marks_for_exam(exam)
+    viva_total_marks = get_viva_total_marks_for_student_exam(student, exam)
 
     if not distribution:
         return {
@@ -203,15 +230,21 @@ def calculate_weighted_scores(student, exam, department, mcq_marks, viva_marks):
             "written_contribution": 0.0,
             "viva_contribution": 0.0,
             "weighted_total_marks": clamp(mcq_marks + viva_marks),
+            "written_total_marks": round(written_total_marks, 2),
+            "viva_total_marks": round(viva_total_marks, 2),
             "distribution_found": False,
         }
 
-    ssc_contribution = normalize_score(ssc_score, 100.0) * distribution.ssc
+    ssc_contribution = normalize_score(ssc_score, 5.0) * distribution.ssc
     academic_weight = distribution.diploma if academic_source == "DIPLOMA" else distribution.hsc
-    academic_contribution = normalize_score(academic_score, 100.0) * academic_weight
-    written_contribution = normalize_score(mcq_marks, float(exam.total_marks or 0)) * distribution.main_marks
-    viva_max = get_viva_max_for_department(department, distribution)
-    viva_contribution = normalize_score(viva_marks, viva_max) * distribution.viva_marks
+    academic_contribution = normalize_score(
+        academic_score,
+        get_academic_max_score(academic_source),
+    ) * academic_weight
+    written_contribution = (
+        normalize_score(mcq_marks, written_total_marks) * distribution.main_marks
+    )
+    viva_contribution = normalize_score(viva_marks, viva_total_marks) * distribution.viva_marks
     weighted_total_marks = (
         ssc_contribution
         + academic_contribution
@@ -228,6 +261,8 @@ def calculate_weighted_scores(student, exam, department, mcq_marks, viva_marks):
         "written_contribution": round(written_contribution, 2),
         "viva_contribution": round(viva_contribution, 2),
         "weighted_total_marks": round(weighted_total_marks, 2),
+        "written_total_marks": round(written_total_marks, 2),
+        "viva_total_marks": round(viva_total_marks, 2),
         "distribution_found": True,
     }
 
@@ -339,7 +374,7 @@ def calculate_admission_results(exam_id):
                     exam,
                     student_submissions=student_submissions,
                 )
-                viva_marks = get_viva_marks_for_student(student) if attended_exam else 0.0
+                viva_marks = get_viva_marks_for_student_exam(student, exam) if attended_exam else 0.0
                 weighted = calculate_weighted_scores(
                     student=student,
                     exam=exam,

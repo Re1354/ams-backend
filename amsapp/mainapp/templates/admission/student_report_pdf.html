@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Student Admission Report</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 14mm 12mm;
+    }
+
+    {% if font_uri %}
+    @font-face {
+      font-family: "HindSiliguri";
+      src: url("{{ font_uri }}") format("truetype");
+      font-weight: 400;
+      font-style: normal;
+    }
+    {% endif %}
+
+    :root {
+      --slate-900: #0f172a;
+      --slate-800: #1e293b;
+      --slate-700: #334155;
+      --slate-600: #475569;
+      --slate-500: #64748b;
+      --slate-300: #cbd5e1;
+      --slate-200: #e2e8f0;
+      --slate-100: #f8fafc;
+      --blue-700: #1d4ed8;
+      --blue-50: #eef2ff;
+      --green-700: #15803d;
+      --green-50: #f0fdf4;
+      --amber-700: #b45309;
+      --amber-50: #fffbeb;
+      --rose-700: #be123c;
+      --rose-50: #fff1f2;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    body {
+      margin: 0;
+      color: var(--slate-900);
+      font-family: "HindSiliguri", "Noto Sans Bengali", "Nirmala UI", "Segoe UI", Arial, sans-serif;
+      font-size: 10.6pt;
+      line-height: 1.4;
+      text-rendering: optimizeLegibility;
+    }
+
+    img {
+      max-width: 100%;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9.2pt;
+    }
+
+    thead {
+      display: table-header-group;
+    }
+
+    tr, td, th {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    th, td {
+      border: 1px solid var(--slate-200);
+      padding: 6px;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    th {
+      background: var(--slate-100);
+      color: var(--slate-700);
+      font-weight: 700;
+      text-align: left;
+    }
+
+    .report {
+      width: 100%;
+    }
+
+    .heading {
+      border-bottom: 1px solid var(--slate-200);
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+    }
+
+    .heading-row {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+
+    .heading-logo,
+    .heading-main,
+    .heading-status {
+      display: table-cell;
+      vertical-align: top;
+    }
+
+    .heading-logo {
+      width: 88px;
+      padding-top: 2px;
+    }
+
+    .heading-logo img {
+      width: 66px;
+      display: block;
+    }
+
+    .heading-main {
+      text-align: center;
+      padding: 0 8px;
+    }
+
+    .heading-status {
+      width: 120px;
+      text-align: right;
+      padding-top: 8px;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 19pt;
+      font-weight: 700;
+      color: var(--slate-900);
+    }
+
+    .subtitle {
+      margin: 4px 0 0;
+      font-size: 12.6pt;
+      font-weight: 700;
+      color: var(--slate-800);
+    }
+
+    .meta-line {
+      margin: 2px 0 0;
+      color: var(--slate-700);
+      font-size: 10pt;
+    }
+
+    .status-badge {
+      display: inline-block;
+      border: 1px solid var(--slate-300);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 9pt;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .status-selected {
+      border-color: #86efac;
+      background: var(--green-50);
+      color: var(--green-700);
+    }
+
+    .status-waiting {
+      border-color: #fcd34d;
+      background: var(--amber-50);
+      color: var(--amber-700);
+    }
+
+    .status-rejected,
+    .status-absent {
+      border-color: #fda4af;
+      background: var(--rose-50);
+      color: var(--rose-700);
+    }
+
+    .section {
+      border: 1px solid var(--slate-200);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .section-title {
+      margin: 0;
+      padding: 8px 10px;
+      background: var(--blue-50);
+      color: var(--blue-700);
+      font-size: 10.8pt;
+      font-weight: 700;
+      border-bottom: 1px solid var(--slate-200);
+    }
+
+    .section-body {
+      padding: 10px;
+    }
+
+    .info-grid {
+      display: table;
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .info-row {
+      display: table-row;
+    }
+
+    .info-cell {
+      display: table-cell;
+      width: 50%;
+      padding: 4px 10px 4px 0;
+      vertical-align: top;
+    }
+
+    .label {
+      font-size: 8.4pt;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: var(--slate-500);
+      margin-bottom: 2px;
+    }
+
+    .value {
+      font-size: 9.8pt;
+      color: var(--slate-900);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .summary-boxes {
+      margin-top: 8px;
+    }
+
+    .summary-row {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+      border-spacing: 0 6px;
+    }
+
+    .summary-item {
+      display: table-cell;
+      padding-right: 8px;
+      vertical-align: top;
+    }
+
+    .summary-card {
+      border: 1px solid var(--slate-200);
+      border-radius: 8px;
+      background: var(--slate-100);
+      padding: 8px;
+    }
+
+    .summary-card .label {
+      margin-bottom: 3px;
+    }
+
+    .equation-block {
+      margin-top: 8px;
+    }
+
+    .equation-card {
+      border: 1px solid var(--slate-200);
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 8px;
+      margin-bottom: 6px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .equation-card:last-child {
+      margin-bottom: 0;
+    }
+
+    .equation-label {
+      font-size: 8.5pt;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: var(--slate-500);
+      margin-bottom: 3px;
+      font-weight: 700;
+    }
+
+    .equation-text {
+      font-size: 9.2pt;
+      color: var(--slate-800);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .note-card {
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      background: var(--amber-50);
+      color: var(--amber-700);
+      padding: 8px;
+      font-size: 9.2pt;
+    }
+
+    .status-summary {
+      margin: 0 0 8px;
+      font-size: 9.2pt;
+      color: var(--slate-700);
+    }
+
+    .status-summary span {
+      margin-right: 10px;
+      font-weight: 700;
+    }
+
+    .question-card {
+      border: 1px solid var(--slate-200);
+      border-radius: 8px;
+      padding: 7px;
+      margin-bottom: 6px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .question-card:last-child {
+      margin-bottom: 0;
+    }
+
+    .question-head {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+      margin-bottom: 4px;
+    }
+
+    .question-head-left,
+    .question-head-right {
+      display: table-cell;
+      vertical-align: top;
+    }
+
+    .question-head-right {
+      width: 120px;
+      text-align: right;
+    }
+
+    .meta-pill {
+      display: inline-block;
+      margin-right: 4px;
+      margin-bottom: 3px;
+      border-radius: 999px;
+      border: 1px solid var(--slate-300);
+      padding: 1px 7px;
+      font-size: 8.2pt;
+      font-weight: 700;
+      background: #ffffff;
+      color: var(--slate-700);
+      white-space: nowrap;
+    }
+
+    .meta-pill-subject {
+      border-color: #c7d2fe;
+      background: #eef2ff;
+      color: #4338ca;
+    }
+
+    .meta-pill-correct {
+      border-color: #86efac;
+      background: var(--green-50);
+      color: var(--green-700);
+    }
+
+    .meta-pill-wrong {
+      border-color: #fda4af;
+      background: var(--rose-50);
+      color: var(--rose-700);
+    }
+
+    .meta-pill-skipped {
+      background: var(--slate-100);
+      color: var(--slate-700);
+    }
+
+    .question-meta-box {
+      border: 1px solid var(--slate-200);
+      border-radius: 8px;
+      background: var(--slate-100);
+      padding: 5px 7px;
+      font-size: 8.2pt;
+      color: var(--slate-700);
+      line-height: 1.25;
+    }
+
+    .question-text {
+      margin: 1px 0 4px;
+      color: var(--slate-900);
+      font-size: 9.4pt;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
+      line-height: 1.3;
+    }
+
+    .options-grid {
+      margin: 0 0 4px;
+      width: 100%;
+      font-size: 0;
+    }
+
+    .option-item {
+      display: inline-block;
+      width: 49.2%;
+      margin-bottom: 4px;
+      margin-right: 0;
+      padding: 4px 6px;
+      border: 1px solid var(--slate-200);
+      border-radius: 6px;
+      background: var(--slate-100);
+      vertical-align: top;
+      font-size: 8.5pt;
+      line-height: 1.2;
+    }
+
+    .option-item:nth-child(odd) {
+      margin-right: 1.6%;
+    }
+
+    .option-key {
+      font-weight: 700;
+      color: var(--slate-700);
+    }
+
+    .option-text {
+      color: var(--slate-900);
+    }
+
+    .answer-grid {
+      width: 100%;
+      font-size: 0;
+    }
+
+    .answer-cell {
+      display: inline-block;
+      width: 49.2%;
+      vertical-align: top;
+      padding-right: 0;
+      font-size: 10.6pt;
+    }
+
+    .answer-cell + .answer-cell {
+      margin-left: 1.6%;
+    }
+
+    .answer-card {
+      border: 1px solid var(--slate-200);
+      border-radius: 8px;
+      background: var(--slate-100);
+      padding: 4px 6px;
+    }
+
+    .answer-card-correct {
+      border-color: #86efac;
+      background: var(--green-50);
+    }
+
+    .answer-value {
+      margin-top: 1px;
+      font-size: 8.8pt;
+      color: var(--slate-900);
+      font-weight: 700;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
+      line-height: 1.2;
+    }
+  </style>
+</head>
+<body>
+  <main class="report">
+    {% with result_status=report.final_result.result_status %}
+    <section class="heading">
+      <div class="heading-row">
+        <div class="heading-logo">
+          {% if logo_uri %}
+          <img src="{{ logo_uri }}" alt="Daffodil International University">
+          {% endif %}
+        </div>
+        <div class="heading-main">
+          <h1 class="title">Daffodil International University</h1>
+          <p class="subtitle">Admission Test Result, {{ report.written_exam.semester }}</p>
+          <p class="meta-line">
+            {% if faculty_name %}
+              Faculty of {{ faculty_name }}
+            {% else %}
+              Faculty information unavailable
+            {% endif %}
+          </p>
+          <p class="meta-line">Department of {{ report.written_exam.department }}</p>
+          <p class="meta-line">Date: {{ generated_on }}</p>
+        </div>
+        <div class="heading-status">
+          <span class="status-badge {% if result_status == 'SELECTED' %}status-selected{% elif result_status == 'WAITING' %}status-waiting{% elif result_status == 'ABSENT' %}status-absent{% else %}status-rejected{% endif %}">
+            {{ result_status_label }}
+          </span>
+        </div>
+      </div>
+    </section>
+    {% endwith %}
+
+    <section class="section">
+      <h2 class="section-title">Candidate Overview</h2>
+      <div class="section-body">
+        <div class="info-grid">
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">Candidate</div>
+              <div class="value">{{ report.student.full_name|default:report.student.username }}</div>
+            </div>
+            <div class="info-cell">
+              <div class="label">Application Serial</div>
+              <div class="value">{{ report.student.application_serial }}</div>
+            </div>
+          </div>
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">Department</div>
+              <div class="value">{{ report.written_exam.department }}</div>
+            </div>
+            <div class="info-cell">
+              <div class="label">Registration Semester</div>
+              <div class="value">{{ report.student.registration_semester }}</div>
+            </div>
+          </div>
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">SSC</div>
+              <div class="value">{{ report.student.ssc|floatformat:2 }}</div>
+            </div>
+            <div class="info-cell">
+              <div class="label">HSC / Diploma</div>
+              <div class="value">
+                {% if report.student.diploma and report.student.diploma > 0 %}
+                  {{ report.student.diploma|floatformat:2 }} (Diploma)
+                {% else %}
+                  {{ report.student.hsc|floatformat:2 }} (HSC)
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Written Exam</h2>
+      <div class="section-body">
+        <div class="info-grid">
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">Exam ID</div>
+              <div class="value">{{ report.written_exam.exam_id }}</div>
+            </div>
+            <div class="info-cell">
+              <div class="label">Faculty</div>
+              <div class="value">{{ faculty_name|default:"Not available" }}</div>
+            </div>
+          </div>
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">Language</div>
+              <div class="value">{{ report.written_exam.language|default:"Not available" }}</div>
+            </div>
+            <div class="info-cell">
+              <div class="label">Duration</div>
+              <div class="value">{{ report.written_exam.duration_display }}</div>
+            </div>
+          </div>
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">Written Teacher</div>
+              <div class="value">{{ report.written_exam.assigned_teacher|default:"Not assigned" }}</div>
+            </div>
+            <div class="info-cell">
+              <div class="label">Exam Start</div>
+              <div class="value">{{ report.written_exam.schedule_start_time|default:"Not available" }}</div>
+            </div>
+          </div>
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">Exam End</div>
+              <div class="value">{{ report.written_exam.schedule_end_time|default:"Not available" }}</div>
+            </div>
+            <div class="info-cell">
+              <div class="label">Exam Date</div>
+              <div class="value">{{ report.written_exam.exam_date|default:"Not available" }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Written Summary</h2>
+      <div class="section-body">
+        <div class="summary-boxes">
+          <div class="summary-row">
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Questions</div>
+                <div class="value">{{ report.written_summary.attempted_questions }} attempted / {{ report.written_summary.total_questions }} total</div>
+              </div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Marks</div>
+                <div class="value">{{ report.written_summary.obtained_marks|floatformat:2 }} / {{ report.written_summary.total_marks|floatformat:2 }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="summary-row">
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Correct / Wrong / Skipped</div>
+                <div class="value">{{ report.written_summary.correct_answers }} / {{ report.written_summary.wrong_answers }} / {{ report.written_summary.skipped_answers }}</div>
+              </div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Percentage / Grade</div>
+                <div class="value">{{ report.written_summary.score_percentage|floatformat:2 }}% / {{ report.written_summary.grade }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Subject Summary</h2>
+      <div class="section-body">
+        {% if report.subject_summary %}
+          <table>
+            <thead>
+              <tr>
+                <th>SL</th>
+                <th>Subject</th>
+                <th>Total</th>
+                <th>Correct</th>
+                <th>Wrong</th>
+                <th>Skipped</th>
+                <th>Obtained</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in report.subject_summary %}
+                <tr>
+                  <td>{{ row.sl }}</td>
+                  <td>{{ row.subject_name }}</td>
+                  <td>{{ row.total_questions }}</td>
+                  <td>{{ row.correct_answers }}</td>
+                  <td>{{ row.wrong_answers }}</td>
+                  <td>{{ row.skipped_answers }}</td>
+                  <td>{{ row.obtained_marks|floatformat:2 }} / {{ row.total_marks|floatformat:2 }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="value">No subject summary available.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Viva Details</h2>
+      <div class="section-body">
+        <div class="info-grid">
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">Viva Teacher</div>
+              <div class="value">{{ report.viva.teacher|default:"Not assigned" }}</div>
+            </div>
+            <div class="info-cell">
+              <div class="label">Viva Room</div>
+              <div class="value">{{ report.viva.room|default:"Not available" }}</div>
+            </div>
+          </div>
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">Scheduled At</div>
+              <div class="value">{{ report.viva.scheduled_at|default:"Not available" }}</div>
+            </div>
+            <div class="info-cell">
+              <div class="label">Total Viva Marks</div>
+              <div class="value">{{ report.viva.total_marks|floatformat:2 }}</div>
+            </div>
+          </div>
+          <div class="info-row">
+            <div class="info-cell">
+              <div class="label">Remarks</div>
+              <div class="value">{{ report.viva.remarks|default:"No viva remarks recorded." }}</div>
+            </div>
+            <div class="info-cell"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Viva Rubric Breakdown</h2>
+      <div class="section-body">
+        {% if report.viva.rubric_rows %}
+          <table>
+            <thead>
+              <tr>
+                <th>SL</th>
+                <th>Criteria</th>
+                <th>Max Marks</th>
+                <th>Awarded Marks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in report.viva.rubric_rows %}
+                <tr>
+                  <td>{{ row.sl }}</td>
+                  <td>{{ row.criteria }}</td>
+                  <td>{{ row.max_marks|floatformat:2 }}</td>
+                  <td>{{ row.awarded_marks|floatformat:2 }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="value">No viva rubric data recorded for this student.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Final Result Calculation</h2>
+      <div class="section-body">
+        <div class="summary-boxes">
+          <div class="summary-row">
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Written</div>
+                <div class="value">{{ report.final_result.written_marks|floatformat:2 }}</div>
+              </div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Viva</div>
+                <div class="value">{{ report.final_result.viva_marks|floatformat:2 }}</div>
+              </div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Written + Viva</div>
+                <div class="value">{{ report.final_result.written_viva_total|floatformat:2 }}</div>
+              </div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Threshold</div>
+                <div class="value">
+                  {% if report.final_result.threshold != None %}
+                    {{ report.final_result.threshold|floatformat:2 }}
+                  {% else %}
+                    Not configured
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="summary-row">
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">SSC Contribution</div>
+                <div class="value">{{ report.final_result.ssc_contribution|floatformat:2 }}</div>
+              </div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Academic Contribution</div>
+                <div class="value">{{ report.final_result.academic_contribution|floatformat:2 }}</div>
+              </div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Written Contribution</div>
+                <div class="value">{{ report.final_result.written_contribution|floatformat:2 }}</div>
+              </div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-card">
+                <div class="label">Viva Contribution</div>
+                <div class="value">{{ report.final_result.viva_contribution|floatformat:2 }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="summary-row">
+            <div class="summary-item" style="width: 100%;">
+              <div class="summary-card" style="background: var(--green-50); border-color: #86efac;">
+                <div class="label" style="color: var(--green-700);">Weighted Final Total</div>
+                <div class="value" style="font-size: 14pt; font-weight: 700; color: var(--green-700);">
+                  {{ report.final_result.weighted_total|floatformat:2 }}
+                </div>
+                <div style="margin-top: 6px;">
+                  <span class="status-badge {% if report.final_result.result_status == 'SELECTED' %}status-selected{% elif report.final_result.result_status == 'WAITING' %}status-waiting{% elif report.final_result.result_status == 'ABSENT' %}status-absent{% else %}status-rejected{% endif %}">
+                    {{ result_status_label }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="equation-block">
+          <div class="label" style="margin-bottom: 6px;">Weighted Total Equation</div>
+          {% if calculation_equations %}
+            {% for line in calculation_equations %}
+              <div class="equation-card">
+                <div class="equation-label">{{ line.label }}</div>
+                <div class="equation-text">{{ line.equation }}</div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="note-card">{{ calculation_note }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Question Review</h2>
+      <div class="section-body">
+        <p class="status-summary">
+          <span>Correct: {{ question_status_counts.CORRECT }}</span>
+          <span>Wrong: {{ question_status_counts.WRONG }}</span>
+          <span>Skipped: {{ question_status_counts.SKIPPED }}</span>
+        </p>
+
+        {% if question_reviews %}
+          {% for question in question_reviews %}
+            <article class="question-card">
+              <div class="question-head">
+                <div class="question-head-left">
+                  <span class="meta-pill">Q{{ forloop.counter }}</span>
+                  <span class="meta-pill meta-pill-subject">{{ question.subject|default:"General" }}</span>
+                  {% if question.status == 'CORRECT' %}
+                    <span class="meta-pill meta-pill-correct">CORRECT</span>
+                  {% elif question.status == 'WRONG' %}
+                    <span class="meta-pill meta-pill-wrong">WRONG</span>
+                  {% else %}
+                    <span class="meta-pill meta-pill-skipped">SKIPPED</span>
+                  {% endif %}
+                </div>
+                <div class="question-head-right">
+                  <div class="question-meta-box">
+                    <div>Type: {{ question.question_type }}</div>
+                    <div>Marks: {{ question.marks|floatformat:2 }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <p class="question-text">{{ question.question_text }}</p>
+
+              {% if question.options_items %}
+                <div class="options-grid">
+                  {% for option in question.options_items %}
+                    <div class="option-item">
+                      <span class="option-key">{{ option.key }}.</span>
+                      <span class="option-text">{{ option.text }}</span>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              <div class="answer-grid">
+                <div class="answer-cell">
+                  <div class="answer-card">
+                    <div class="label">Student Answer</div>
+                    <div class="answer-value">{{ question.student_answer_display }}</div>
+                  </div>
+                </div>
+                <div class="answer-cell">
+                  <div class="answer-card answer-card-correct">
+                    <div class="label" style="color: var(--green-700);">Correct Answer</div>
+                    <div class="answer-value">{{ question.correct_answers_display }}</div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          {% endfor %}
+        {% else %}
+          <p class="value">No question review data available.</p>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>

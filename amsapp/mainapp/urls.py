@@ -68,6 +68,10 @@ from .views.admission_results import (
     calculate_results, get_admission_results, get_admission_result_by_id,
     get_student_admission_result, publish_admission_results, recalculate_student_result
 )
+from .views.admission_report import (
+    get_student_admission_detail_report,
+    download_student_admission_detail_report_pdf,
+)
 from .api_info import api_info, home
 
 app_name = 'mainapp'
@@ -237,6 +241,8 @@ urlpatterns = [
     path('api/admission/results/bulk-status-update/', bulk_update_admission_result_status, name='bulk-update-admission-result-status'),
     path('api/admission/results/<int:result_id>/', get_admission_result_by_id, name='get-admission-result-by-id'),
     path('api/admission/results/student/<int:exam_id>/<int:student_id>/', get_student_admission_result, name='get-student-admission-result'),
+    path('api/admission/reports/student/<int:exam_id>/<int:student_id>/', get_student_admission_detail_report, name='get-student-admission-detail-report'),
+    path('api/admission/reports/student/<int:exam_id>/<int:student_id>/pdf/', download_student_admission_detail_report_pdf, name='download-student-admission-detail-report-pdf'),
     path('api/admission/publish-results/', publish_admission_results, name='publish-admission-results'),
     path('api/admission/recalculate/<int:exam_id>/<int:student_id>/', recalculate_student_result, name='recalculate-student-result'),
     

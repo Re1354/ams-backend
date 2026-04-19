@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from ..models.exam import Exam
 from ..models.viva_marks import VivaMarks
 from ..models.students import Students
 
@@ -31,10 +32,17 @@ class VivaMarksSerializer(serializers.ModelSerializer):
 
 class VivaMarksCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating VivaMarks"""
+    exam_id = serializers.IntegerField(required=False, write_only=True)
     
     class Meta:
         model = VivaMarks
-        fields = ['marks', 'rubrics_marks', 'remarks']
+        fields = ['exam_id', 'marks', 'rubrics_marks', 'remarks']
+
+    def validate_exam_id(self, value):
+        """Validate that the exam exists when provided"""
+        if not Exam.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Exam does not exist")
+        return value
 
     def validate_marks(self, value):
         """Validate that marks is non-negative"""

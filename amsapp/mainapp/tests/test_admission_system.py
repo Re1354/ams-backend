@@ -21,9 +21,17 @@ from ..models import (
     Students,
     Submission,
     User,
+    VivaAssignment,
+    VivaRubrics,
 )
 from ..models.viva_marks import VivaMarks
 from ..tokens import get_tokens_for_user
+from ..services.admission_calculator import calculate_weighted_scores
+from ..views.admission_report import (
+    build_student_admission_pdf_context,
+    render_student_admission_report_pdf_html,
+    resolve_report_faculty_name,
+)
 
 
 class AdmissionSystemTestCase(APITestCase):
@@ -274,6 +282,258 @@ class AdmissionSystemTestCase(APITestCase):
         refreshed = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
         self.assertEqual(refreshed.weighted_total_marks, 70.0)
         self.assertEqual(refreshed.result_status, "WAITING")
+
+    def test_student_detail_report_returns_written_viva_and_snapshot_data(self):
+        self.set_thresholds(cse_threshold=10.0, eee_threshold=10.0)
+
+        Submission.objects.create(
+            student=self.student1,
+            exam=self.exam,
+            question=self.questions[0],
+            answer="A",
+            is_correct=True,
+        )
+        Submission.objects.create(
+            student=self.student1,
+            exam=self.exam,
+            question=self.questions[1],
+            answer="B",
+            is_correct=False,
+        )
+        Submission.objects.create(
+            student=self.student1,
+            exam=self.exam,
+            question=self.questions[2],
+            answer="A",
+            is_correct=True,
+        )
+
+        rubric_one = VivaRubrics.objects.create(
+            department=self.dept_cse,
+            rubrics="Communication",
+            marks=5,
+        )
+        rubric_two = VivaRubrics.objects.create(
+            department=self.dept_cse,
+            rubrics="Subject Knowledge",
+            marks=5,
+        )
+        VivaAssignment.objects.filter(student=self.student1, exam=self.exam).delete()
+        VivaAssignment.objects.create(
+            student=self.student1,
+            teacher=self.admin_user,
+            exam=self.exam,
+            scheduled_at=timezone.now() + timedelta(days=1),
+            time=(timezone.now() + timedelta(days=1)).time(),
+            room="Room 202",
+            total_marks=7.5,
+            rubric_snapshot=[
+                {"source_rubric_id": rubric_one.id, "criteria": "Communication", "max_marks": 5.0},
+                {"source_rubric_id": rubric_two.id, "criteria": "Subject Knowledge", "max_marks": 5.0},
+            ],
+            rubric_scores={str(rubric_one.id): 4, str(rubric_two.id): 3.5},
+            remarks="Strong viva performance",
+        )
+
+        self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+
+        rubric_one.rubrics = "Changed Rubric Text"
+        rubric_one.save(update_fields=["rubrics"])
+
+        response = self.client.get(
+            f"/api/admission/reports/student/{self.exam.id}/{self.student1.id}/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+
+        report = response.data["data"]
+        self.assertEqual(report["student"]["application_serial"], self.student1.f_id)
+        self.assertEqual(report["written_exam"]["assigned_teacher"], self.admin_user.username)
+        self.assertEqual(report["written_summary"]["correct_answers"], 2)
+        self.assertEqual(report["written_summary"]["wrong_answers"], 1)
+        self.assertEqual(report["written_summary"]["skipped_answers"], 7)
+        self.assertEqual(len(report["question_reviews"]), 10)
+        self.assertEqual(report["question_reviews"][0]["status"], "CORRECT")
+        self.assertEqual(report["question_reviews"][1]["status"], "WRONG")
+        self.assertEqual(report["question_reviews"][3]["status"], "SKIPPED")
+        self.assertEqual(report["viva"]["rubric_rows"][0]["criteria"], "Communication")
+        self.assertEqual(report["viva"]["total_marks"], 7.5)
+        self.assertEqual(report["final_result"]["result_status"], "WAITING")
+
+    def test_student_detail_report_pdf_html_includes_rubrics_equations_and_pdf_response(self):
+        self.set_thresholds(cse_threshold=10.0, eee_threshold=10.0)
+
+        Submission.objects.create(
+            student=self.student1,
+            exam=self.exam,
+            question=self.questions[0],
+            answer="A",
+            is_correct=True,
+        )
+        Submission.objects.create(
+            student=self.student1,
+            exam=self.exam,
+            question=self.questions[1],
+            answer="B",
+            is_correct=False,
+        )
+
+        rubric_one = VivaRubrics.objects.create(
+            department=self.dept_cse,
+            rubrics="Communication",
+            marks=5,
+        )
+        rubric_two = VivaRubrics.objects.create(
+            department=self.dept_cse,
+            rubrics="Subject Knowledge",
+            marks=5,
+        )
+        VivaAssignment.objects.filter(student=self.student1, exam=self.exam).delete()
+        VivaAssignment.objects.create(
+            student=self.student1,
+            teacher=self.admin_user,
+            exam=self.exam,
+            scheduled_at=timezone.now() + timedelta(days=1),
+            time=(timezone.now() + timedelta(days=1)).time(),
+            room="Room 101",
+            total_marks=6.5,
+            rubric_snapshot=[
+                {"source_rubric_id": rubric_one.id, "criteria": "Communication", "max_marks": 5.0},
+                {"source_rubric_id": rubric_two.id, "criteria": "Subject Knowledge", "max_marks": 5.0},
+            ],
+            rubric_scores={str(rubric_one.id): 3.5, str(rubric_two.id): 3},
+            remarks="Balanced viva performance",
+        )
+
+        self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+
+        report_response = self.client.get(
+            f"/api/admission/reports/student/{self.exam.id}/{self.student1.id}/"
+        )
+        self.assertEqual(report_response.status_code, status.HTTP_200_OK)
+        report = report_response.data["data"]
+
+        context = build_student_admission_pdf_context(report)
+        self.assertEqual(context["faculty_name"], "Science and Information Technology")
+        self.assertTrue(context["calculation_equations"])
+
+        html = render_student_admission_report_pdf_html(report)
+        self.assertIn("Viva Rubric Breakdown", html)
+        self.assertIn("Communication", html)
+        self.assertIn("Weighted Total Equation", html)
+        self.assertIn("SSC Contribution =", html)
+        self.assertIn("SSC Score / SSC Total", html)
+        self.assertIn("Written Marks / Total Written Marks", html)
+        self.assertIn("Daffodil International University", html)
+
+        pdf_response = self.client.get(
+            f"/api/admission/reports/student/{self.exam.id}/{self.student1.id}/pdf/",
+            HTTP_ACCEPT="application/pdf",
+        )
+        if pdf_response.status_code == status.HTTP_200_OK:
+            self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+            self.assertIn(".pdf", pdf_response["Content-Disposition"])
+            self.assertTrue(bytes(pdf_response.content).startswith(b"%PDF"))
+        else:
+            self.assertEqual(pdf_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+            self.assertEqual(pdf_response["Content-Type"], "application/json")
+            self.assertIn("PDF renderer is unavailable", str(pdf_response.json().get("message")))
+
+    def test_resolve_report_faculty_name_uses_department_mapping(self):
+        faculty_name = resolve_report_faculty_name(
+            {
+                "student": {"department_shortname": "EEE"},
+                "written_exam": {"faculty": "", "department": "EEE"},
+            }
+        )
+
+        self.assertEqual(faculty_name, "Engineering")
+
+    def test_calculate_weighted_scores_uses_gpa_scale_and_actual_written_viva_totals(self):
+        cse_distribution = MarksDistribution.objects.get(department=self.dept_cse)
+        cse_distribution.ssc = 5
+        cse_distribution.hsc = 5
+        cse_distribution.diploma = 5
+        cse_distribution.main_marks = 80
+        cse_distribution.viva_marks = 10
+        cse_distribution.save()
+
+        self.student1.ssc = 5.0
+        self.student1.hsc = 4.5
+        self.student1.save(update_fields=["ssc", "hsc"])
+
+        self.exam.total_marks = 999
+        self.exam.save(update_fields=["total_marks"])
+
+        VivaAssignment.objects.filter(student=self.student1, exam=self.exam).delete()
+        VivaAssignment.objects.create(
+            student=self.student1,
+            teacher=self.admin_user,
+            exam=self.exam,
+            scheduled_at=timezone.now() + timedelta(days=1),
+            time=(timezone.now() + timedelta(days=1)).time(),
+            room="Room 303",
+            total_marks=16.5,
+            rubric_snapshot=[
+                {"source_rubric_id": 1, "criteria": "Communication", "max_marks": 10.0},
+                {"source_rubric_id": 2, "criteria": "Subject Knowledge", "max_marks": 10.0},
+            ],
+            rubric_scores={"1": 8.0, "2": 8.5},
+            remarks="Strong viva",
+        )
+
+        weighted = calculate_weighted_scores(
+            student=self.student1,
+            exam=self.exam,
+            department=self.dept_cse,
+            mcq_marks=32,
+            viva_marks=16.5,
+        )
+
+        self.assertEqual(weighted["written_total_marks"], 100.0)
+        self.assertEqual(weighted["viva_total_marks"], 20.0)
+        self.assertEqual(weighted["ssc_contribution"], 5.0)
+        self.assertEqual(weighted["academic_contribution"], 4.5)
+        self.assertEqual(weighted["written_contribution"], 25.6)
+        self.assertEqual(weighted["viva_contribution"], 8.25)
+        self.assertEqual(weighted["weighted_total_marks"], 43.35)
+
+    def test_calculate_weighted_scores_uses_diploma_out_of_four(self):
+        cse_distribution = MarksDistribution.objects.get(department=self.dept_cse)
+        cse_distribution.ssc = 5
+        cse_distribution.hsc = 5
+        cse_distribution.diploma = 10
+        cse_distribution.main_marks = 80
+        cse_distribution.viva_marks = 0
+        cse_distribution.save()
+
+        self.student1.ssc = 4.5
+        self.student1.hsc = 0
+        self.student1.diploma = 3.2
+        self.student1.save(update_fields=["ssc", "hsc", "diploma"])
+
+        weighted = calculate_weighted_scores(
+            student=self.student1,
+            exam=self.exam,
+            department=self.dept_cse,
+            mcq_marks=50,
+            viva_marks=0,
+        )
+
+        self.assertEqual(weighted["ssc_contribution"], 4.5)
+        self.assertEqual(weighted["academic_contribution"], 8.0)
+        self.assertEqual(weighted["written_contribution"], 40.0)
+        self.assertEqual(weighted["viva_contribution"], 0.0)
+        self.assertEqual(weighted["weighted_total_marks"], 52.5)
 
 
 class TokenHelperCompatibilityTests(TestCase):

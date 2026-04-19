@@ -13,14 +13,15 @@ class VivaAssignmentSerializer(serializers.ModelSerializer):
         model = VivaAssignment
         fields = [
             'id', 'student', 'student_username', 'teacher', 'teacher_username',
-            'exam', 'exam_name', 'time', 'room', 'created_at'
+            'exam', 'exam_name', 'scheduled_at', 'time', 'room', 'total_marks',
+            'rubric_snapshot', 'rubric_scores', 'remarks', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 class VivaAssignmentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = VivaAssignment
-        fields = ['student', 'teacher', 'exam', 'time', 'room']
+        fields = ['student', 'teacher', 'exam', 'scheduled_at', 'time', 'room']
 
     def validate(self, data):
         # Ensure unique together constraint

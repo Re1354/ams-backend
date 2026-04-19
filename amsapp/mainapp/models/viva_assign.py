@@ -22,13 +22,34 @@ class VivaAssignment(models.Model):
         related_name="viva_assignments",  # ✅ unique related_name
         help_text="Related exam for the viva"
     )
+    scheduled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Scheduled date and time for the viva",
+    )
     time = models.TimeField(default="00:30:00", help_text="Time allocated for viva")
     room = models.CharField(max_length=100, default="Room 101", help_text="Room for viva")
+    total_marks = models.FloatField(default=0.0, help_text="Total viva marks for this exam")
+    rubric_snapshot = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Snapshot of the viva rubrics used for this student's exam",
+    )
+    rubric_scores = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Awarded rubric scores keyed by rubric snapshot/source identifiers",
+    )
+    remarks = models.TextField(blank=True, null=True, help_text="Viva remarks for this exam")
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "viva_assignment"
         unique_together = ('student', 'teacher', 'exam')
 
     def __str__(self):
-        return f"Student: {self.student.username} | Teacher: {self.teacher.username} | Exam ID: {self.exam.id} | Time: {self.time} | Room: {self.room}"
+        return (
+            f"Student: {self.student.username} | Teacher: {self.teacher.username} | "
+            f"Exam ID: {self.exam.id} | Time: {self.time} | Room: {self.room}"
+        )

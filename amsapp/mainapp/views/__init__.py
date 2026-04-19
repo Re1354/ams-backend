@@ -46,6 +46,10 @@ from .viva_assign import (
 from .viva_marks import (
     add_viva_marks, delete_viva_marks
 )
+from .admission_report import (
+    get_student_admission_detail_report,
+    download_student_admission_detail_report_pdf,
+)
 from .scrapper import upload_docx_scrape_multipart
 
 # Make all views available when importing from mainapp.views
@@ -101,6 +105,8 @@ __all__ = [
     
     # Viva Marks Management
     'add_viva_marks', 'delete_viva_marks',
+    'get_student_admission_detail_report',
+    'download_student_admission_detail_report_pdf',
     'upload_docx_scrape_multipart',
     'insert_scrapped_questions'
 ]

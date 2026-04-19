@@ -10,6 +10,7 @@ from ..serializers.viva_assign import (
     VivaAssignmentSerializer, VivaAssignmentCreateSerializer, VivaAssignmentBulkCreateSerializer
 )
 from ..authentication import CustomJWTAuthentication
+from ..services.viva_assessment import ensure_viva_assignment_snapshot
 
 @extend_schema(
     operation_id='create_viva_assignment',
@@ -46,7 +47,10 @@ def create_viva_assignment(request):
             if is_bulk:
                 assignments = []
                 for item in serializer.validated_data['assignments']:
+                    if item.get('scheduled_at'):
+                        item['time'] = item['scheduled_at'].time()
                     assignment = VivaAssignment.objects.create(**item)
+                    ensure_viva_assignment_snapshot(assignment)
                     assignments.append(assignment)
                 return Response({
                     'success': True,
@@ -54,7 +58,10 @@ def create_viva_assignment(request):
                     'data': VivaAssignmentSerializer(assignments, many=True).data
                 }, status=status.HTTP_201_CREATED)
             else:
+                if serializer.validated_data.get('scheduled_at'):
+                    serializer.validated_data['time'] = serializer.validated_data['scheduled_at'].time()
                 assignment = serializer.save()
+                ensure_viva_assignment_snapshot(assignment)
                 return Response({
                     'success': True,
                     'message': 'Viva assignment created successfully',

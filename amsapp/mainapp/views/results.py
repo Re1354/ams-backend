@@ -19,6 +19,7 @@ from ..serializers.results import (
 )
 from ..authentication import CustomJWTAuthentication
 from ..utils import build_subject_result_rows, calculate_submission_summary, normalize_semester_filter
+from ..services.viva_assessment import get_viva_assessment_for_student_exam
 
 
 @extend_schema(
@@ -265,19 +266,27 @@ def get_all_results_by_teacher(request, teacher_id):
 
                     # Get viva marks for this student
                     viva_marks_data = None
-                    try:
-                        viva_marks = VivaMarks.objects.get(student=student)
+                    viva_assignment = get_viva_assessment_for_student_exam(student, exam)
+                    if viva_assignment:
                         viva_marks_data = {
-                            'marks': viva_marks.marks,
-                            'rubrics_marks': viva_marks.rubrics_marks,
-                            'remarks': viva_marks.remarks
+                            'marks': viva_assignment.total_marks,
+                            'rubrics_marks': viva_assignment.rubric_scores,
+                            'remarks': viva_assignment.remarks
                         }
-                    except VivaMarks.DoesNotExist:
-                        viva_marks_data = {
-                            'marks': 0,
-                            'rubrics_marks': {},
-                            'remarks': None
-                        }
+                    else:
+                        try:
+                            viva_marks = VivaMarks.objects.get(student=student)
+                            viva_marks_data = {
+                                'marks': viva_marks.marks,
+                                'rubrics_marks': viva_marks.rubrics_marks,
+                                'remarks': viva_marks.remarks
+                            }
+                        except VivaMarks.DoesNotExist:
+                            viva_marks_data = {
+                                'marks': 0,
+                                'rubrics_marks': {},
+                                'remarks': None
+                            }
 
                     result_item = {
                         'student_id': student.id,
