@@ -55,6 +55,13 @@ class AdmissionSystemTestCase(APITestCase):
             role=self.admin_role,
             department=self.dept_cse,
         )
+        self.second_teacher = User.objects.create(
+            username=f"teacher2-{suffix}",
+            email=f"teacher2-{suffix}@test.com",
+            password=make_password("admin123"),
+            role=self.admin_role,
+            department=self.dept_cse,
+        )
 
         tokens = get_tokens_for_user(self.admin_user)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
@@ -534,6 +541,258 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(weighted["written_contribution"], 40.0)
         self.assertEqual(weighted["viva_contribution"], 0.0)
         self.assertEqual(weighted["weighted_total_marks"], 52.5)
+
+    def test_teacher_results_and_viva_updates_use_teacher_specific_assignment(self):
+        StudentAssignTeacherExam.objects.create(
+            student=self.student1,
+            teacher=self.second_teacher,
+            exam=self.exam,
+            schedule=self.schedule,
+        )
+        VivaAssignment.objects.filter(student=self.student1, exam=self.exam).delete()
+        primary_assignment = VivaAssignment.objects.create(
+            student=self.student1,
+            teacher=self.admin_user,
+            exam=self.exam,
+            scheduled_at=timezone.now() + timedelta(days=1),
+            time=(timezone.now() + timedelta(days=1)).time(),
+            room="Room 101",
+            total_marks=0,
+            rubric_snapshot=[
+                {"source_rubric_id": 1, "criteria": "Communication", "max_marks": 5.0},
+                {"source_rubric_id": 2, "criteria": "Knowledge", "max_marks": 5.0},
+            ],
+            rubric_scores={},
+            remarks="",
+        )
+        secondary_assignment = VivaAssignment.objects.create(
+            student=self.student1,
+            teacher=self.second_teacher,
+            exam=self.exam,
+            scheduled_at=timezone.now() + timedelta(days=1),
+            time=(timezone.now() + timedelta(days=1)).time(),
+            room="Room 102",
+            total_marks=2,
+            rubric_snapshot=[
+                {"source_rubric_id": 3, "criteria": "Communication", "max_marks": 5.0},
+                {"source_rubric_id": 4, "criteria": "Knowledge", "max_marks": 5.0},
+            ],
+            rubric_scores={"3": 1, "4": 1},
+            remarks="Older marks",
+        )
+        VivaMarks.objects.create(
+            student=self.student1,
+            marks=0,
+            rubrics_marks={},
+            remarks="",
+        )
+
+        Submission.objects.create(
+            student=self.student1,
+            exam=self.exam,
+            question=self.questions[0],
+            answer="A",
+            is_correct=True,
+        )
+
+        primary_tokens = get_tokens_for_user(self.admin_user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {primary_tokens['access']}")
+        update_response = self.client.post(
+            f"/api/add-viva-marks/{self.student1.id}/",
+            {
+                "exam_id": self.exam.id,
+                "marks": 8,
+                "rubrics_marks": {"1": 4, "2": 4},
+                "remarks": "Updated by primary teacher",
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        primary_assignment.refresh_from_db()
+        secondary_assignment.refresh_from_db()
+        self.assertEqual(primary_assignment.total_marks, 8)
+        self.assertEqual(primary_assignment.rubric_scores, {"1": 4, "2": 4})
+        self.assertEqual(primary_assignment.remarks, "Updated by primary teacher")
+        self.assertEqual(secondary_assignment.total_marks, 2)
+        self.assertEqual(secondary_assignment.rubric_scores, {"3": 1, "4": 1})
+
+        teacher_one_results = self.client.get(
+            f"/api/get-all-results-by-teacher/{self.admin_user.id}/"
+        )
+        self.assertEqual(teacher_one_results.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            teacher_one_results.data["data"]["results"][0]["viva_marks"]["marks"],
+            8,
+        )
+        self.assertEqual(
+            teacher_one_results.data["data"]["results"][0]["viva_marks"]["remarks"],
+            "Updated by primary teacher",
+        )
+
+        second_tokens = get_tokens_for_user(self.second_teacher)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {second_tokens['access']}")
+        teacher_two_results = self.client.get(
+            f"/api/get-all-results-by-teacher/{self.second_teacher.id}/"
+        )
+        self.assertEqual(teacher_two_results.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            teacher_two_results.data["data"]["results"][0]["viva_marks"]["marks"],
+            2,
+        )
+        self.assertEqual(
+            teacher_two_results.data["data"]["results"][0]["viva_marks"]["remarks"],
+            "Older marks",
+        )
+
+    def test_add_viva_marks_recalculates_admission_result_immediately(self):
+        self.set_thresholds(cse_threshold=55.0, eee_threshold=70.0)
+        MarksDistribution.objects.filter(department=self.dept_cse).update(
+            ssc=0,
+            hsc=0,
+            diploma=0,
+            main_marks=80,
+            viva_marks=20,
+        )
+        self.create_submissions_for_student(self.student1, correct_count=6)
+
+        primary_assignment = VivaAssignment.objects.create(
+            student=self.student1,
+            teacher=self.admin_user,
+            exam=self.exam,
+            scheduled_at=timezone.now(),
+            time=timezone.now().time(),
+            room="Room 101",
+            total_marks=0,
+            rubric_snapshot=[
+                {"source_rubric_id": 1, "criteria": "Communication", "max_marks": 10.0},
+                {"source_rubric_id": 2, "criteria": "Knowledge", "max_marks": 10.0},
+            ],
+            rubric_scores={},
+            remarks="",
+        )
+        VivaAssignment.objects.create(
+            student=self.student1,
+            teacher=self.second_teacher,
+            exam=self.exam,
+            scheduled_at=timezone.now() + timedelta(hours=1),
+            time=(timezone.now() + timedelta(hours=1)).time(),
+            room="Room 102",
+            total_marks=0,
+            rubric_snapshot=[
+                {"source_rubric_id": 3, "criteria": "Communication", "max_marks": 10.0},
+                {"source_rubric_id": 4, "criteria": "Knowledge", "max_marks": 10.0},
+            ],
+            rubric_scores={},
+            remarks="",
+        )
+
+        self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+        initial_result = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
+        self.assertEqual(initial_result.weighted_total_marks, 48.0)
+        self.assertEqual(initial_result.viva_marks, 0.0)
+        self.assertEqual(initial_result.result_status, "REJECTED")
+
+        response = self.client.post(
+            f"/api/add-viva-marks/{self.student1.id}/",
+            {
+                "exam_id": self.exam.id,
+                "marks": 10,
+                "rubrics_marks": {"1": 5, "2": 5},
+                "remarks": "Strong viva",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["recalculated_result"]["exam_id"], self.exam.id)
+        self.assertEqual(response.data["recalculated_result"]["student_id"], self.student1.id)
+        self.assertEqual(response.data["recalculated_result"]["viva_marks"], 10.0)
+        self.assertEqual(response.data["recalculated_result"]["weighted_total_marks"], 58.0)
+        self.assertEqual(response.data["recalculated_result"]["result_status"], "WAITING")
+        self.assertTrue(response.data["recalculated_result"]["is_selected"])
+
+        primary_assignment.refresh_from_db()
+        self.assertEqual(primary_assignment.total_marks, 10)
+        self.assertEqual(primary_assignment.rubric_scores, {"1": 5, "2": 5})
+
+        refreshed_result = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
+        self.assertEqual(refreshed_result.viva_marks, 10.0)
+        self.assertEqual(refreshed_result.viva_contribution, 10.0)
+        self.assertEqual(refreshed_result.weighted_total_marks, 58.0)
+        self.assertEqual(refreshed_result.result_status, "WAITING")
+        self.assertTrue(refreshed_result.is_selected)
+
+    def test_delete_viva_marks_recalculates_admission_result_downward(self):
+        self.set_thresholds(cse_threshold=55.0, eee_threshold=70.0)
+        MarksDistribution.objects.filter(department=self.dept_cse).update(
+            ssc=0,
+            hsc=0,
+            diploma=0,
+            main_marks=80,
+            viva_marks=20,
+        )
+        self.create_submissions_for_student(self.student1, correct_count=6)
+
+        viva_assignment = VivaAssignment.objects.create(
+            student=self.student1,
+            teacher=self.admin_user,
+            exam=self.exam,
+            scheduled_at=timezone.now(),
+            time=timezone.now().time(),
+            room="Room 101",
+            total_marks=10,
+            rubric_snapshot=[
+                {"source_rubric_id": 1, "criteria": "Communication", "max_marks": 10.0},
+                {"source_rubric_id": 2, "criteria": "Knowledge", "max_marks": 10.0},
+            ],
+            rubric_scores={"1": 5, "2": 5},
+            remarks="Strong viva",
+        )
+        VivaMarks.objects.create(
+            student=self.student1,
+            marks=10,
+            rubrics_marks={"1": 5, "2": 5},
+            remarks="Strong viva",
+        )
+
+        self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+        initial_result = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
+        self.assertEqual(initial_result.weighted_total_marks, 58.0)
+        self.assertEqual(initial_result.result_status, "WAITING")
+
+        response = self.client.delete(
+            f"/api/delete-viva-marks/{self.student1.id}/?exam_id={self.exam.id}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["recalculated_result"]["viva_marks"], 0.0)
+        self.assertEqual(response.data["recalculated_result"]["weighted_total_marks"], 48.0)
+        self.assertEqual(response.data["recalculated_result"]["result_status"], "REJECTED")
+        self.assertFalse(response.data["recalculated_result"]["is_selected"])
+
+        viva_assignment.refresh_from_db()
+        self.assertEqual(viva_assignment.total_marks, 0.0)
+        self.assertEqual(viva_assignment.rubric_scores, {})
+        self.assertIsNone(viva_assignment.remarks)
+        self.assertFalse(VivaMarks.objects.filter(student=self.student1).exists())
+
+        refreshed_result = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
+        self.assertEqual(refreshed_result.viva_marks, 0.0)
+        self.assertEqual(refreshed_result.viva_contribution, 0.0)
+        self.assertEqual(refreshed_result.weighted_total_marks, 48.0)
+        self.assertEqual(refreshed_result.result_status, "REJECTED")
+        self.assertFalse(refreshed_result.is_selected)
 
 
 class TokenHelperCompatibilityTests(TestCase):

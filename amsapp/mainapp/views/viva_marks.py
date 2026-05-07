@@ -14,6 +14,54 @@ from ..serializers.viva_marks import (
 )
 from ..authentication import CustomJWTAuthentication
 from ..services.viva_assessment import ensure_viva_assignment_snapshot
+from ..services.admission_calculator import recalculate_single_student_result
+
+
+def verify_viva_assignment_state(viva_assignment, marks, rubrics_marks, remarks):
+    viva_assignment.refresh_from_db()
+    if float(viva_assignment.total_marks or 0) != float(marks or 0):
+        raise RuntimeError("Saved viva assignment marks did not persist correctly")
+    if (viva_assignment.rubric_scores or {}) != (rubrics_marks or {}):
+        raise RuntimeError("Saved viva assignment rubric scores did not persist correctly")
+    if (viva_assignment.remarks or None) != (remarks or None):
+        raise RuntimeError("Saved viva assignment remarks did not persist correctly")
+
+
+def verify_legacy_viva_marks_state(viva_marks, marks, rubrics_marks, remarks):
+    viva_marks.refresh_from_db()
+    if float(viva_marks.marks or 0) != float(marks or 0):
+        raise RuntimeError("Saved legacy viva marks did not persist correctly")
+    if (viva_marks.rubrics_marks or {}) != (rubrics_marks or {}):
+        raise RuntimeError("Saved legacy viva rubric scores did not persist correctly")
+    if (viva_marks.remarks or None) != (remarks or None):
+        raise RuntimeError("Saved legacy viva remarks did not persist correctly")
+
+
+def build_recalculation_partial_response(
+    *,
+    message,
+    viva_marks,
+    student,
+    exam_id=None,
+    viva_assignment=None,
+    recalculation=None,
+):
+    response_payload = {
+        'success': False,
+        'viva_saved': True,
+        'message': message,
+        'data': VivaMarksSerializer(viva_marks).data,
+        'student_id': student.id,
+        'exam_id': exam_id,
+        'recalculated_result': recalculation,
+    }
+    if viva_assignment:
+        response_payload['viva_assignment_id'] = viva_assignment.id
+    return Response(response_payload, status=status.HTTP_200_OK)
+
+
+def get_authenticated_teacher(request):
+    return getattr(request.user, "custom_user", None)
 
 
 @extend_schema(
@@ -59,6 +107,7 @@ def add_viva_marks(request, student_id):
     
     validated_data = dict(serializer.validated_data)
     exam_id = validated_data.pop("exam_id", None)
+    authenticated_teacher = get_authenticated_teacher(request)
 
     try:
         with transaction.atomic():
@@ -72,14 +121,22 @@ def add_viva_marks(request, student_id):
                         'message': 'Exam not found'
                     }, status=status.HTTP_404_NOT_FOUND)
 
-                viva_assignment = VivaAssignment.objects.filter(
+                viva_assignment_queryset = VivaAssignment.objects.filter(
                     student=student,
                     exam=exam,
-                ).select_related("teacher", "exam").first()
+                ).select_related("teacher", "exam")
+                if authenticated_teacher is not None:
+                    viva_assignment_queryset = viva_assignment_queryset.filter(
+                        teacher=authenticated_teacher,
+                    )
+                viva_assignment = viva_assignment_queryset.order_by("-created_at").first()
                 if not viva_assignment:
                     return Response({
                         'success': False,
-                        'message': 'Viva assignment not found for this student and exam'
+                        'message': (
+                            'Viva assignment not found for this student, exam, '
+                            'and authenticated teacher'
+                        )
                     }, status=status.HTTP_404_NOT_FOUND)
             else:
                 assignments = list(
@@ -109,6 +166,12 @@ def add_viva_marks(request, student_id):
                         "updated_at",
                     ]
                 )
+                verify_viva_assignment_state(
+                    viva_assignment,
+                    validated_data.get("marks", 0),
+                    validated_data.get("rubrics_marks", {}),
+                    validated_data.get("remarks"),
+                )
 
             viva_marks, created = VivaMarks.objects.get_or_create(
                 student=student,
@@ -119,15 +182,41 @@ def add_viva_marks(request, student_id):
                 for key, value in validated_data.items():
                     setattr(viva_marks, key, value)
                 viva_marks.save()
+            verify_legacy_viva_marks_state(
+                viva_marks,
+                validated_data.get("marks", 0),
+                validated_data.get("rubrics_marks", {}),
+                validated_data.get("remarks"),
+            )
 
             response_payload = {
                 'success': True,
                 'message': 'Viva marks created successfully' if created else 'Viva marks updated successfully',
-                'data': VivaMarksSerializer(viva_marks).data
+                'data': VivaMarksSerializer(viva_marks).data,
+                'student_id': student.id,
             }
             if viva_assignment:
                 response_payload['exam_id'] = viva_assignment.exam_id
                 response_payload['viva_assignment_id'] = viva_assignment.id
+                recalculation = recalculate_single_student_result(viva_assignment.exam_id, student.id)
+                if not recalculation.get('success'):
+                    return build_recalculation_partial_response(
+                        message=(
+                            'Viva marks saved, but admission totals could not be refreshed: '
+                            f"{recalculation.get('error', 'Unknown recalculation error')}"
+                        ),
+                        viva_marks=viva_marks,
+                        student=student,
+                        exam_id=viva_assignment.exam_id,
+                        viva_assignment=viva_assignment,
+                        recalculation=recalculation,
+                    )
+                response_payload['recalculated_result'] = recalculation
+                response_payload['message'] = (
+                    'Viva marks created and admission totals updated successfully'
+                    if created
+                    else 'Viva marks updated and admission totals refreshed successfully'
+                )
 
             return Response(
                 response_payload,
@@ -165,24 +254,34 @@ def delete_viva_marks(request, student_id):
         }, status=status.HTTP_404_NOT_FOUND)
     
     exam_id = request.query_params.get("exam_id")
+    authenticated_teacher = get_authenticated_teacher(request)
 
     try:
         deleted_assignment = None
         if exam_id:
-            viva_assignment = VivaAssignment.objects.filter(
+            viva_assignment_queryset = VivaAssignment.objects.filter(
                 student=student,
                 exam_id=exam_id,
-            ).first()
+            )
+            if authenticated_teacher is not None:
+                viva_assignment_queryset = viva_assignment_queryset.filter(
+                    teacher=authenticated_teacher,
+                )
+            viva_assignment = viva_assignment_queryset.order_by("-created_at").first()
             if not viva_assignment:
                 return Response({
                     'success': False,
-                    'message': 'Viva assignment not found for this student and exam'
+                    'message': (
+                        'Viva assignment not found for this student, exam, '
+                        'and authenticated teacher'
+                    )
                 }, status=status.HTTP_404_NOT_FOUND)
 
             viva_assignment.total_marks = 0
             viva_assignment.rubric_scores = {}
             viva_assignment.remarks = None
             viva_assignment.save(update_fields=['total_marks', 'rubric_scores', 'remarks', 'updated_at'])
+            verify_viva_assignment_state(viva_assignment, 0, {}, None)
             deleted_assignment = {
                 'viva_assignment_id': viva_assignment.id,
                 'exam_id': viva_assignment.exam_id,
@@ -209,11 +308,29 @@ def delete_viva_marks(request, student_id):
         response_data = {
             'success': True,
             'message': 'Viva marks deleted successfully',
+            'student_id': student.id,
         }
         if marks_info:
             response_data['deleted_marks'] = marks_info
         if deleted_assignment:
             response_data['deleted_assignment'] = deleted_assignment
+            recalculation = recalculate_single_student_result(
+                deleted_assignment['exam_id'],
+                student.id,
+            )
+            if not recalculation.get('success'):
+                return build_recalculation_partial_response(
+                    message=(
+                        'Viva marks deleted, but admission totals could not be refreshed: '
+                        f"{recalculation.get('error', 'Unknown recalculation error')}"
+                    ),
+                    viva_marks=VivaMarks(student=student, marks=0, rubrics_marks={}, remarks=None),
+                    student=student,
+                    exam_id=deleted_assignment['exam_id'],
+                    recalculation=recalculation,
+                )
+            response_data['recalculated_result'] = recalculation
+            response_data['message'] = 'Viva marks deleted and admission totals refreshed successfully'
 
         return Response(response_data)
 

@@ -299,6 +299,115 @@ def summarize_status_counts(results_queryset):
     return counts
 
 
+def is_student_linked_to_exam(student, exam):
+    return StudentAssignTeacherExam.objects.filter(
+        exam=exam,
+        student=student,
+    ).exists() or Submission.objects.filter(
+        exam=exam,
+        student=student,
+    ).exists()
+
+
+def recalculate_admission_result_record(
+    *,
+    exam,
+    student,
+    exam_department=None,
+    configuration=None,
+    existing_result=None,
+    student_submissions=None,
+):
+    exam_department = exam_department or resolve_department_for_exam(exam)
+    if not exam_department:
+        return {
+            "success": False,
+            "error": f"Department '{exam.department}' could not be resolved for exam {exam.id}",
+        }
+
+    configuration = configuration or get_or_create_admission_configuration(exam, exam_department)
+    if configuration.threshold <= 0:
+        return {
+            "success": False,
+            "error": (
+                f"No semester threshold set for {exam_department.department_name} "
+                f"({exam.semester}). Please configure threshold first."
+            ),
+        }
+
+    submissions = list(student_submissions or [])
+    if not submissions:
+        submissions = list(
+            Submission.objects.filter(student=student, exam=exam).select_related("question")
+        )
+
+    attended_exam = len(submissions) > 0
+    student_department = get_student_department(student) or exam_department
+    mcq_marks, subject_wise_marks = calculate_mcq_marks_for_student(
+        student,
+        exam,
+        student_submissions=submissions,
+    )
+    viva_marks = get_viva_marks_for_student_exam(student, exam) if attended_exam else 0.0
+    weighted = calculate_weighted_scores(
+        student=student,
+        exam=exam,
+        department=student_department,
+        mcq_marks=mcq_marks,
+        viva_marks=viva_marks,
+    )
+
+    is_above_threshold = attended_exam and (
+        weighted["weighted_total_marks"] >= configuration.threshold
+    )
+    result_status = determine_result_status(
+        attended_exam=attended_exam,
+        is_above_threshold=is_above_threshold,
+        existing_result=existing_result,
+    )
+    preserved_status = existing_result.status if existing_result else "PENDING"
+
+    admission_result, _ = AdmissionResult.objects.update_or_create(
+        exam=exam,
+        student=student,
+        defaults={
+            "configuration": configuration,
+            "department": student_department,
+            "mcq_marks": round(mcq_marks, 2),
+            "viva_marks": round(viva_marks, 2),
+            "written_viva_total": round(mcq_marks + viva_marks, 2),
+            "total_marks": round(mcq_marks + viva_marks, 2),
+            "weighted_total_marks": weighted["weighted_total_marks"],
+            "attended_exam": attended_exam,
+            "subject_wise_marks": subject_wise_marks,
+            "is_selected": is_above_threshold,
+            "result_status": result_status,
+            "threshold_applied": configuration.threshold,
+            "status": preserved_status,
+            "ssc_score": weighted["ssc_score"],
+            "academic_score": weighted["academic_score"],
+            "academic_source": weighted["academic_source"],
+            "ssc_contribution": weighted["ssc_contribution"],
+            "academic_contribution": weighted["academic_contribution"],
+            "written_contribution": weighted["written_contribution"],
+            "viva_contribution": weighted["viva_contribution"],
+        },
+    )
+
+    return {
+        "success": True,
+        "result": admission_result,
+        "distribution_found": weighted["distribution_found"],
+        "warning": (
+            f"Marks distribution not found for department "
+            f"'{student_department.department_name}'. Weighted total fell back "
+            f"to raw written + viva for student {student.username}."
+            if not weighted["distribution_found"]
+            else None
+        ),
+    }
+
+
 def calculate_admission_results(exam_id):
     """
     Calculate or refresh all admission results for an exam.
@@ -365,69 +474,20 @@ def calculate_admission_results(exam_id):
     with transaction.atomic():
         for student in candidates:
             try:
-                student_department = get_student_department(student) or exam_department
                 student_submissions = submissions_by_student.get(student.id, [])
-                attended_exam = len(student_submissions) > 0
-
-                mcq_marks, subject_wise_marks = calculate_mcq_marks_for_student(
-                    student,
-                    exam,
+                existing_result = existing_results.get(student.id)
+                recalculated = recalculate_admission_result_record(
+                    exam=exam,
+                    student=student,
+                    exam_department=exam_department,
+                    configuration=configuration,
+                    existing_result=existing_result,
                     student_submissions=student_submissions,
                 )
-                viva_marks = get_viva_marks_for_student_exam(student, exam) if attended_exam else 0.0
-                weighted = calculate_weighted_scores(
-                    student=student,
-                    exam=exam,
-                    department=student_department,
-                    mcq_marks=mcq_marks,
-                    viva_marks=viva_marks,
-                )
-
-                is_above_threshold = attended_exam and (
-                    weighted["weighted_total_marks"] >= configuration.threshold
-                )
-                existing_result = existing_results.get(student.id)
-                result_status = determine_result_status(
-                    attended_exam=attended_exam,
-                    is_above_threshold=is_above_threshold,
-                    existing_result=existing_result,
-                )
-
-                AdmissionResult.objects.update_or_create(
-                    exam=exam,
-                    student=student,
-                    defaults={
-                        "configuration": configuration,
-                        "department": student_department,
-                        "mcq_marks": round(mcq_marks, 2),
-                        "viva_marks": round(viva_marks, 2),
-                        "written_viva_total": round(mcq_marks + viva_marks, 2),
-                        "total_marks": round(mcq_marks + viva_marks, 2),
-                        "weighted_total_marks": weighted["weighted_total_marks"],
-                        "attended_exam": attended_exam,
-                        "subject_wise_marks": subject_wise_marks,
-                        "is_selected": is_above_threshold,
-                        "result_status": result_status,
-                        "threshold_applied": configuration.threshold,
-                        "status": "PENDING",
-                        "ssc_score": weighted["ssc_score"],
-                        "academic_score": weighted["academic_score"],
-                        "academic_source": weighted["academic_source"],
-                        "ssc_contribution": weighted["ssc_contribution"],
-                        "academic_contribution": weighted["academic_contribution"],
-                        "written_contribution": weighted["written_contribution"],
-                        "viva_contribution": weighted["viva_contribution"],
-                    },
-                )
-
-                if not weighted["distribution_found"]:
-                    errors.append(
-                        (
-                            f"Marks distribution not found for department "
-                            f"'{student_department.department_name}'. Weighted total fell back "
-                            f"to raw written + viva for student {student.username}."
-                        )
-                    )
+                if not recalculated["success"]:
+                    raise ValueError(recalculated["error"])
+                if recalculated.get("warning"):
+                    errors.append(recalculated["warning"])
 
                 processed_count += 1
             except Exception as exc:
@@ -461,33 +521,34 @@ def recalculate_single_student_result(exam_id, student_id):
             "error": str(exc),
         }
 
-    if not StudentAssignTeacherExam.objects.filter(exam=exam, student=student).exists() and not Submission.objects.filter(
-        exam=exam,
-        student=student,
-    ).exists():
+    if not is_student_linked_to_exam(student, exam):
         return {
             "success": False,
             "error": f"Student {student.username} is not linked to exam {exam_id}",
         }
 
-    result = calculate_admission_results(exam_id)
+    existing_result = AdmissionResult.objects.filter(exam_id=exam_id, student_id=student_id).first()
+    result = recalculate_admission_result_record(
+        exam=exam,
+        student=student,
+        existing_result=existing_result,
+    )
     if not result["success"]:
         return result
 
-    try:
-        admission_result = AdmissionResult.objects.get(exam_id=exam_id, student_id=student_id)
-    except AdmissionResult.DoesNotExist:
-        return {
-            "success": False,
-            "error": "Failed to fetch recalculated result",
-        }
+    admission_result = result["result"]
 
     return {
         "success": True,
         "student": student.username,
+        "student_id": student.id,
+        "exam_id": exam.id,
+        "viva_marks": admission_result.viva_marks,
         "total_marks": admission_result.total_marks,
         "weighted_total_marks": admission_result.weighted_total_marks,
         "is_selected": admission_result.is_selected,
         "result_status": admission_result.result_status,
+        "viva_contribution": admission_result.viva_contribution,
         "action": "updated",
+        "warning": result.get("warning"),
     }

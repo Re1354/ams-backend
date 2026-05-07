@@ -30,13 +30,15 @@ def build_rubric_snapshot_for_department(department: Department | None) -> list[
     return snapshot
 
 
-def get_viva_assignment_for_student_exam(student, exam) -> VivaAssignment | None:
-    return (
-        VivaAssignment.objects.select_related("teacher", "student", "exam")
-        .filter(student=student, exam=exam)
-        .order_by("-created_at")
-        .first()
+def get_viva_assignment_for_student_exam(student, exam, teacher=None) -> VivaAssignment | None:
+    assignments = VivaAssignment.objects.select_related("teacher", "student", "exam").filter(
+        student=student,
+        exam=exam,
     )
+    if teacher is not None:
+        assignments = assignments.filter(teacher=teacher)
+
+    return assignments.order_by("-updated_at", "-created_at", "-id").first()
 
 
 def ensure_viva_assignment_snapshot(viva_assignment: VivaAssignment, save: bool = True) -> VivaAssignment:
@@ -81,8 +83,8 @@ def sync_legacy_viva_marks_to_assignment(
     return viva_assignment
 
 
-def get_viva_assessment_for_student_exam(student, exam) -> VivaAssignment | None:
-    viva_assignment = get_viva_assignment_for_student_exam(student, exam)
+def get_viva_assessment_for_student_exam(student, exam, teacher=None) -> VivaAssignment | None:
+    viva_assignment = get_viva_assignment_for_student_exam(student, exam, teacher=teacher)
     if not viva_assignment:
         return None
     return sync_legacy_viva_marks_to_assignment(viva_assignment)
@@ -113,4 +115,3 @@ def build_viva_rubric_rows(viva_assignment: VivaAssignment | None) -> list[dict[
         )
 
     return rows
-

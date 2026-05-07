@@ -1,16 +1,15 @@
+from collections import defaultdict
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from django.shortcuts import get_object_or_404
-from django.db.models import Q, Count, Case, When, IntegerField
-from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
 from ..models import (
-    PublishedExam, Exam, Students, Submission, Subject, 
-    StudentAssignTeacherExam, User, ExamQuestion
+    PublishedExam, Exam, Students, Submission,
+    StudentAssignTeacherExam, User, ExamQuestion, VivaAssignment
 )
 from ..models.viva_marks import VivaMarks
 from ..serializers.results import (
@@ -19,7 +18,6 @@ from ..serializers.results import (
 )
 from ..authentication import CustomJWTAuthentication
 from ..utils import build_subject_result_rows, calculate_submission_summary, normalize_semester_filter
-from ..services.viva_assessment import get_viva_assessment_for_student_exam
 
 
 @extend_schema(
@@ -175,6 +173,69 @@ class ResultsPagination(PageNumberPagination):
     max_page_size = 100
 
 
+def _calculate_submission_summary_cached(total_marks, submissions):
+    total_attempted = len(submissions)
+    correct_answers = sum(1 for submission in submissions if submission.is_correct)
+    wrong_answers = total_attempted - correct_answers
+    obtained_marks = sum(
+        getattr(submission.question, "marks", 0)
+        for submission in submissions
+        if submission.is_correct
+    )
+    score_percentage = round((obtained_marks / total_marks) * 100, 2) if total_marks > 0 else 0
+
+    return {
+        'correct_answers': correct_answers,
+        'wrong_answers': wrong_answers,
+        'score_percentage': score_percentage,
+    }
+
+
+def _build_subject_result_rows_cached(question_rows, submissions):
+    submissions_by_question = {submission.question_id: submission for submission in submissions}
+    subject_data = defaultdict(
+        lambda: {
+            'subject_id': '',
+            'subject_name': '',
+            'total_questions': 0,
+            'correct_answers': 0,
+            'wrong_answers': 0,
+            '_total_marks': 0,
+            '_obtained_marks': 0,
+        }
+    )
+
+    for question in question_rows:
+        subject_name = question['subject']
+        row = subject_data[subject_name]
+        row['subject_id'] = subject_name
+        row['subject_name'] = subject_name
+        row['total_questions'] += 1
+        row['_total_marks'] += question['marks'] or 0
+
+        submission = submissions_by_question.get(question['id'])
+        if not submission:
+            continue
+
+        if submission.is_correct:
+            row['correct_answers'] += 1
+            row['_obtained_marks'] += question['marks'] or 0
+        else:
+            row['wrong_answers'] += 1
+
+    rows = []
+    for row in subject_data.values():
+        total_marks = row.pop('_total_marks')
+        obtained_marks = row.pop('_obtained_marks')
+        row['score_percentage'] = (
+            round((obtained_marks / total_marks) * 100, 2) if total_marks > 0 else 0
+        )
+        rows.append(row)
+
+    rows.sort(key=lambda item: item['subject_name'])
+    return rows
+
+
 @extend_schema(
     operation_id='get_all_results_by_teacher',
     tags=['Exam Results'],
@@ -229,83 +290,133 @@ def get_all_results_by_teacher(request, teacher_id):
     
     try:
         teacher = User.objects.get(id=teacher_id)
-
-        # Find all exam_ids assigned by this teacher
-        exam_ids = StudentAssignTeacherExam.objects.filter(
+        assignments = StudentAssignTeacherExam.objects.filter(
             teacher=teacher
-        ).values_list('exam_id', flat=True).distinct()
-
-        # Apply semester filter if provided
+        ).select_related('student', 'exam')
         if semester_filter:
-            exams = Exam.objects.filter(id__in=exam_ids, semester__icontains=semester_filter)
-        else:
-            exams = Exam.objects.filter(id__in=exam_ids)
+            assignments = assignments.filter(exam__semester__icontains=semester_filter)
 
-        # Get all results data
+        assignment_rows = list(assignments.order_by('-created_at', '-id'))
+        pair_order = []
+        pair_map = {}
+        exam_map = {}
+        student_map = {}
+
+        for assignment in assignment_rows:
+            pair_key = (assignment.exam_id, assignment.student_id)
+            if pair_key in pair_map:
+                continue
+            pair_map[pair_key] = assignment
+            pair_order.append(pair_key)
+            exam_map[assignment.exam_id] = assignment.exam
+            student_map[assignment.student_id] = assignment.student
+
+        if not pair_order:
+            paginator = ResultsPagination()
+            empty_page = paginator.paginate_queryset([], request)
+            response_data = {
+                'pagination': {
+                    'count': 0,
+                    'current_page': 1,
+                    'total_pages': 1,
+                    'page_size': paginator.get_page_size(request),
+                    'has_next': False,
+                    'has_previous': False
+                },
+                'results': empty_page if empty_page is not None else [],
+                'filters': {
+                    'semester': semester_filter,
+                    'teacher_id': teacher_id,
+                    'teacher_name': teacher.username
+                }
+            }
+            return Response({
+                'success': True,
+                'data': response_data,
+                'message': f'Found 0 results for teacher {teacher.username}'
+            })
+
+        exam_ids = list(exam_map.keys())
+        student_ids = list(student_map.keys())
+
+        exam_question_rows = defaultdict(list)
+        exam_total_marks = defaultdict(float)
+        for question in ExamQuestion.objects.filter(exam_id__in=exam_ids).values(
+            'exam_id', 'id', 'subject', 'marks'
+        ):
+            exam_question_rows[question['exam_id']].append(question)
+            exam_total_marks[question['exam_id']] += float(question['marks'] or 0)
+
+        submissions_by_pair = defaultdict(list)
+        submissions = Submission.objects.filter(
+            exam_id__in=exam_ids,
+            student_id__in=student_ids,
+        ).select_related('question')
+        for submission in submissions:
+            submissions_by_pair[(submission.exam_id, submission.student_id)].append(submission)
+
+        viva_assignments_by_pair = {}
+        viva_assignments = VivaAssignment.objects.filter(
+            exam_id__in=exam_ids,
+            student_id__in=student_ids,
+            teacher=teacher,
+        ).order_by('-updated_at', '-created_at', '-id')
+        for viva_assignment in viva_assignments:
+            pair_key = (viva_assignment.exam_id, viva_assignment.student_id)
+            viva_assignments_by_pair.setdefault(pair_key, viva_assignment)
+
+        legacy_viva_by_student = {
+            viva.student_id: viva
+            for viva in VivaMarks.objects.filter(student_id__in=student_ids)
+        }
+
         results_data = []
+        for pair_key in pair_order:
+            exam_id, student_id = pair_key
+            exam = exam_map[exam_id]
+            student = student_map[student_id]
+            submission_list = submissions_by_pair.get(pair_key, [])
 
-        for exam in exams:
-            # For each exam, find all students assigned by this teacher
-            student_ids = StudentAssignTeacherExam.objects.filter(
-                teacher=teacher, exam=exam
-            ).values_list('student_id', flat=True).distinct()
+            if not submission_list:
+                continue
 
-            for student in Students.objects.filter(id__in=student_ids):
-                # Teachers can see results regardless of publication status
-                # No publication check needed for teachers
+            summary = _calculate_submission_summary_cached(
+                exam_total_marks.get(exam_id, 0),
+                submission_list,
+            )
+            subject_rows = _build_subject_result_rows_cached(
+                exam_question_rows.get(exam_id, []),
+                submission_list,
+            )
 
-                # Get student's submissions for this exam
-                submissions = Submission.objects.filter(
-                    student=student,
-                    exam=exam
-                ).select_related('question')
+            viva_assignment = viva_assignments_by_pair.get(pair_key)
+            if viva_assignment:
+                viva_marks_data = {
+                    'marks': viva_assignment.total_marks,
+                    'rubrics_marks': viva_assignment.rubric_scores,
+                    'remarks': viva_assignment.remarks
+                }
+            else:
+                legacy_viva = legacy_viva_by_student.get(student_id)
+                viva_marks_data = {
+                    'marks': legacy_viva.marks if legacy_viva else 0,
+                    'rubrics_marks': legacy_viva.rubrics_marks if legacy_viva else {},
+                    'remarks': legacy_viva.remarks if legacy_viva else None
+                }
 
-                if submissions.exists():
-                    summary = calculate_submission_summary(exam, submissions)
-                    subject_rows = build_subject_result_rows(exam, submissions)
-
-                    # Get viva marks for this student
-                    viva_marks_data = None
-                    viva_assignment = get_viva_assessment_for_student_exam(student, exam)
-                    if viva_assignment:
-                        viva_marks_data = {
-                            'marks': viva_assignment.total_marks,
-                            'rubrics_marks': viva_assignment.rubric_scores,
-                            'remarks': viva_assignment.remarks
-                        }
-                    else:
-                        try:
-                            viva_marks = VivaMarks.objects.get(student=student)
-                            viva_marks_data = {
-                                'marks': viva_marks.marks,
-                                'rubrics_marks': viva_marks.rubrics_marks,
-                                'remarks': viva_marks.remarks
-                            }
-                        except VivaMarks.DoesNotExist:
-                            viva_marks_data = {
-                                'marks': 0,
-                                'rubrics_marks': {},
-                                'remarks': None
-                            }
-
-                    result_item = {
-                        'student_id': student.id,
-                        'exam_id': exam.id,
-                        'student_name': student.full_name or student.username,
-                        'exam_details': {
-                            'department': exam.department,
-                            'semester': exam.semester,
-                            'total_questions': exam.total_questions
-                        },
-                        'results': {
-                            'correct_answers': summary['correct_answers'],
-                            'wrong_answers': summary['wrong_answers'],
-                            'score_percentage': summary['score_percentage']
-                        },
-                        'subjects': subject_rows,
-                        'viva_marks': viva_marks_data
-                    }
-                    results_data.append(result_item)
+            results_data.append({
+                'student_id': student.id,
+                'exam_id': exam.id,
+                'student_name': student.full_name or student.username,
+                'exam_details': {
+                    'department': exam.department,
+                    'semester': exam.semester,
+                    'total_questions': exam.total_questions
+                },
+                'results': summary,
+                'subjects': subject_rows,
+                'viva_marks': viva_marks_data
+            })
 
         # Apply pagination
         paginator = ResultsPagination()

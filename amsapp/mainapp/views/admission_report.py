@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+import io
 import os
 from pathlib import Path
 import re
 import sys
+import zipfile
 
 from django.contrib.staticfiles import finders
 from django.http import HttpResponse, JsonResponse
@@ -74,6 +76,20 @@ class PDFRenderer(BaseRenderer):
             return data.encode("utf-8")
         return b""
 
+
+class ZIPRenderer(BaseRenderer):
+    media_type = "application/zip"
+    format = "zip"
+    charset = None
+    render_style = "binary"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if isinstance(data, (bytes, bytearray)):
+            return bytes(data)
+        if isinstance(data, str):
+            return data.encode("utf-8")
+        return b""
+
 FACULTY_BY_DEPARTMENT_SHORTNAME = {
     "CSE": "Science and Information Technology",
     "SWE": "Science and Information Technology",
@@ -131,6 +147,10 @@ def format_report_date(value: datetime | None = None) -> str:
 def configure_windows_weasyprint_runtime() -> None:
     if sys.platform != "win32":
         return
+
+    os.environ.setdefault("GLIB_DISABLE_DEPRECATION_WARNINGS", "1")
+    os.environ.setdefault("G_DEBUG", "")
+    os.environ.setdefault("QT_QPA_PLATFORM_PLUGIN_PATH", "")
 
     candidate_directories = [
         Path(r"C:\Program Files\GTK3-Runtime Win64\bin"),
@@ -448,6 +468,79 @@ def render_student_admission_report_pdf_html(serialized_report: dict) -> str:
         "admission/student_report_pdf.html",
         build_student_admission_pdf_context(serialized_report),
     )
+
+
+def _build_student_admission_report_pdf_bytes(request, exam_id: int, student_id: int):
+    report_data, error_payload, error_status = build_student_admission_detail_report_data(exam_id, student_id)
+    if error_payload is not None:
+        return None, None, error_payload, error_status
+
+    serializer = StudentAdmissionDetailReportSerializer(report_data)
+    serialized_report = serializer.data
+    html = render_student_admission_report_pdf_html(serialized_report)
+
+    try:
+        configure_windows_weasyprint_runtime()
+        from weasyprint import HTML
+    except Exception as import_error:
+        return (
+            None,
+            None,
+            {
+                "success": False,
+                "message": "PDF renderer is unavailable. Verify WeasyPrint installation and system libraries.",
+                "detail": str(import_error),
+            },
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    try:
+        pdf_bytes = HTML(string=html, base_url=request.build_absolute_uri("/")).write_pdf()
+    except Exception as render_error:
+        error_msg = str(render_error).lower()
+        if "unsupported_os" in error_msg or "glib" in error_msg or "subsystem" in error_msg:
+            return (
+                None,
+                None,
+                {
+                    "success": False,
+                    "message": "PDF generation temporary subsystem issue. Please retry.",
+                    "detail": "Windows GLib subsystem error. This is often transient.",
+                },
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return (
+            None,
+            None,
+            {
+                "success": False,
+                "message": "Failed to generate PDF report.",
+                "detail": str(render_error),
+            },
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return pdf_bytes, serialized_report, None, None
+
+
+def _ensure_unique_zip_filename(existing_names: set[str], filename: str) -> str:
+    if filename not in existing_names:
+        existing_names.add(filename)
+        return filename
+
+    stem = filename
+    extension = ""
+    if "." in filename:
+        stem, extension = filename.rsplit(".", 1)
+        extension = f".{extension}"
+
+    suffix = 2
+    while True:
+        candidate = f"{stem}-{suffix}{extension}"
+        if candidate not in existing_names:
+            existing_names.add(candidate)
+            return candidate
+        suffix += 1
 
 
 def build_student_admission_detail_report_data(exam_id: int, student_id: int):
@@ -769,40 +862,100 @@ def get_student_admission_detail_report(request, exam_id, student_id):
 @authentication_classes([CustomJWTAuthentication])
 @renderer_classes([PDFRenderer])
 def download_student_admission_detail_report_pdf(request, exam_id, student_id):
-    report_data, error_payload, error_status = build_student_admission_detail_report_data(exam_id, student_id)
+    pdf_bytes, serialized_report, error_payload, error_status = _build_student_admission_report_pdf_bytes(
+        request,
+        int(exam_id),
+        int(student_id),
+    )
     if error_payload is not None:
         return JsonResponse(error_payload, status=error_status)
-
-    serializer = StudentAdmissionDetailReportSerializer(report_data)
-    serialized_report = serializer.data
-
-    html = render_student_admission_report_pdf_html(serialized_report)
-
-    try:
-        configure_windows_weasyprint_runtime()
-        from weasyprint import HTML
-    except Exception:
-        return JsonResponse(
-            {
-                "success": False,
-                "message": "PDF renderer is unavailable. Verify WeasyPrint installation and system libraries.",
-            },
-            status=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
-
-    try:
-        pdf_bytes = HTML(string=html, base_url=request.build_absolute_uri("/")).write_pdf()
-    except Exception as error:
-        return JsonResponse(
-            {
-                "success": False,
-                "message": "Failed to generate PDF report.",
-                "detail": str(error),
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
 
     filename = build_pdf_filename(serialized_report)
     response = HttpResponse(pdf_bytes, content_type="application/pdf")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@extend_schema(
+    operation_id="download_student_admission_detail_report_pdf_batch_zip",
+    tags=["Admission Management"],
+    summary="Download multiple student admission reports as one ZIP",
+    description=(
+        "Accepts a list of exam/student pairs, generates each student's admission report PDF, "
+        "and returns them in a single ZIP file."
+    ),
+    responses={
+        200: OpenApiResponse(response=OpenApiTypes.BINARY, description="ZIP file"),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+@renderer_classes([ZIPRenderer])
+def download_student_admission_reports_pdf_batch_zip(request):
+    reports = request.data.get("reports")
+    if not isinstance(reports, list) or len(reports) == 0:
+        return JsonResponse(
+            {
+                "success": False,
+                "message": "The reports field must be a non-empty list.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    zip_buffer = io.BytesIO()
+    added_count = 0
+    failures: list[str] = []
+    used_filenames: set[str] = set()
+
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+        for row in reports:
+            exam_id = row.get("exam_id") if isinstance(row, dict) else None
+            student_id = row.get("student_id") if isinstance(row, dict) else None
+
+            try:
+                exam_id_int = int(exam_id)
+                student_id_int = int(student_id)
+            except (TypeError, ValueError):
+                failures.append(
+                    f"Skipped one item due to invalid exam_id/student_id: exam_id={exam_id}, student_id={student_id}"
+                )
+                continue
+
+            pdf_bytes, serialized_report, error_payload, _ = _build_student_admission_report_pdf_bytes(
+                request,
+                exam_id_int,
+                student_id_int,
+            )
+
+            if error_payload is not None:
+                failures.append(
+                    f"Failed exam_id={exam_id_int}, student_id={student_id_int}: {error_payload.get('message', 'Unknown error')}"
+                )
+                continue
+
+            filename = build_pdf_filename(serialized_report)
+            safe_filename = _ensure_unique_zip_filename(used_filenames, filename)
+            zip_file.writestr(safe_filename, pdf_bytes)
+            added_count += 1
+
+        if failures:
+            zip_file.writestr("errors.txt", "\n".join(failures))
+
+    if added_count == 0:
+        return JsonResponse(
+            {
+                "success": False,
+                "message": "No PDF files were generated.",
+                "errors": failures,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    zip_buffer.seek(0)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    zip_name = f"student-admission-reports-{timestamp}.zip"
+
+    response = HttpResponse(zip_buffer.getvalue(), content_type="application/zip")
+    response["Content-Disposition"] = f'attachment; filename="{zip_name}"'
     return response
