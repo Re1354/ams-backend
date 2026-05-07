@@ -19,9 +19,9 @@ from ..authentication import CustomJWTAuthentication
 @extend_schema(
     operation_id='set_threshold_mapping',
     tags=['Admission Management'],
-    summary="Set department threshold mappings for an exam",
-    description="Bulk create or update department threshold mappings for a specific exam. "
-                "This sets the minimum marks required for admission to each department.",
+    summary="Set department threshold mappings for a semester",
+    description="Bulk create or update department threshold mappings for a specific semester. "
+                "All exams within this semester will use these thresholds and seat limits.",
     request=BulkThresholdMappingSerializer,
     responses={
         200: OpenApiResponse(
@@ -33,7 +33,6 @@ from ..authentication import CustomJWTAuthentication
             description="Threshold mappings created successfully"
         ),
         400: OpenApiResponse(description="Invalid request data"),
-        404: OpenApiResponse(description="Exam or department not found")
     }
 )
 @api_view(['POST'])
@@ -41,14 +40,14 @@ from ..authentication import CustomJWTAuthentication
 @authentication_classes([CustomJWTAuthentication])
 def set_threshold_mapping(request):
     """
-    Set department threshold mappings for an exam.
+    Set department threshold mappings for a semester.
     
     Request body:
     {
-        "exam_id": 1,
+        "semester": "Fall 2025",
         "mappings": [
-            {"department_id": 2, "threshold": 60.0},
-            {"department_id": 3, "threshold": 75.0}
+            {"department_id": 2, "threshold": 60.0, "seat_limit": 5},
+            {"department_id": 3, "threshold": 75.0, "seat_limit": 8}
         ]
     }
     """
@@ -60,16 +59,8 @@ def set_threshold_mapping(request):
             'errors': serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
     
-    exam_id = serializer.validated_data['exam_id']
+    semester = serializer.validated_data['semester']
     mappings = serializer.validated_data['mappings']
-    
-    try:
-        exam = Exam.objects.get(id=exam_id)
-    except Exam.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': f'Exam with ID {exam_id} not found'
-        }, status=status.HTTP_404_NOT_FOUND)
     
     created_count = 0
     updated_count = 0
@@ -79,6 +70,7 @@ def set_threshold_mapping(request):
         for mapping in mappings:
             department_id = mapping['department_id']
             threshold_value = mapping['threshold']
+            dept_seat_limit = mapping['seat_limit']
             
             try:
                 department = Department.objects.get(id=department_id)
@@ -88,19 +80,14 @@ def set_threshold_mapping(request):
                     'message': f'Department with ID {department_id} not found'
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Validate threshold doesn't exceed exam total marks
-            if threshold_value > exam.total_marks:
-                return Response({
-                    'success': False,
-                    'message': f'Threshold ({threshold_value}) for department {department.department_name} '
-                              f'cannot exceed exam total marks ({exam.total_marks})'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
             # Create or update threshold
             threshold, created = DepartmentThreshold.objects.update_or_create(
-                exam=exam,
+                semester=semester,
                 department=department,
-                defaults={'min_threshold_mark': threshold_value}
+                defaults={
+                    'min_threshold_mark': threshold_value,
+                    'seat_limit': dept_seat_limit
+                }
             )
             
             created_thresholds.append(threshold)
@@ -113,7 +100,7 @@ def set_threshold_mapping(request):
     
     return Response({
         'success': True,
-        'message': f'Threshold mappings processed successfully. '
+        'message': f'Threshold mappings processed successfully for semester "{semester}". '
                   f'Created: {created_count}, Updated: {updated_count}',
         'created_count': created_count,
         'updated_count': updated_count,
@@ -125,13 +112,13 @@ def set_threshold_mapping(request):
     operation_id='get_threshold_mapping',
     tags=['Admission Management'],
     summary="Get department threshold mappings",
-    description="Retrieve department threshold mappings for a specific exam or all exams",
+    description="Retrieve department threshold mappings for a specific semester or all semesters",
     parameters=[
         OpenApiParameter(
-            name='exam_id',
-            description='Filter by exam ID',
+            name='semester',
+            description='Filter by semester (e.g., "Fall 2025")',
             required=False,
-            type=int
+            type=str
         ),
         OpenApiParameter(
             name='department_id',
@@ -151,22 +138,22 @@ def set_threshold_mapping(request):
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def get_threshold_mapping(request):
-    """Get department threshold mappings with optional filtering"""
+    """Get department threshold mappings with optional filtering by semester or department"""
     
-    thresholds = DepartmentThreshold.objects.select_related('exam', 'department').all()
+    thresholds = DepartmentThreshold.objects.select_related('department').all()
     
     # Apply filters
-    exam_id = request.query_params.get('exam_id')
+    semester = request.query_params.get('semester')
     department_id = request.query_params.get('department_id')
     
-    if exam_id:
-        thresholds = thresholds.filter(exam_id=exam_id)
+    if semester:
+        thresholds = thresholds.filter(semester=semester)
     
     if department_id:
         thresholds = thresholds.filter(department_id=department_id)
     
-    # Order by exam and department
-    thresholds = thresholds.order_by('-exam__created_at', 'department__department_name')
+    # Order by semester (newest first) and department name
+    thresholds = thresholds.order_by('-semester', 'department__department_name')
     
     serializer = DepartmentThresholdSerializer(thresholds, many=True)
     
@@ -199,7 +186,7 @@ def get_threshold_by_id(request, threshold_id):
     
     try:
         threshold = DepartmentThreshold.objects.select_related(
-            'exam', 'department'
+            'department'
         ).get(id=threshold_id)
     except DepartmentThreshold.DoesNotExist:
         return Response({
@@ -235,9 +222,10 @@ def delete_threshold_mapping(request, threshold_id):
         threshold = DepartmentThreshold.objects.get(id=threshold_id)
         threshold_info = {
             'id': threshold.id,
-            'exam_id': threshold.exam.id,
+            'semester': threshold.semester,
             'department': threshold.department.department_name,
-            'threshold': threshold.min_threshold_mark
+            'threshold': threshold.min_threshold_mark,
+            'seat_limit': threshold.seat_limit
         }
         threshold.delete()
         

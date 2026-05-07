@@ -95,9 +95,9 @@ class Command(BaseCommand):
                     'component':'StudentAssignTeacherExam'
                 },
                 {
-                    'label': 'Results',
+                    'label': 'Viva Marks Entry',
                     'icon': 'FilePlus',
-                    'link': '/results',
+                    'link': '/viva-marks-entry',
                     'component': 'Results'
                 },
                 {
@@ -119,9 +119,9 @@ class Command(BaseCommand):
                     'component': 'PublishedExams'
                 },
                 {
-                    'label':'Viva Management',
+                    'label':'Viva Rubrics Management',
                     'icon':'Mic',
-                    'link':'/viva-management',
+                    'link':'/viva-rubrics-management',
                     'component':'VivaManagement'
                 },
                 {
@@ -143,9 +143,9 @@ class Command(BaseCommand):
                     'component':'VivaMarks'
                 },
                 {
-                    'label':'Threshold Management',
+                    'label':'Student Acceptance Criteria',
                     'icon':'Sliders',
-                    'link':'/threshold-management',
+                    'link':'/student-acceptance-criteria',
                     'component':'ThresholdManagement'
                 },
                 {
@@ -161,15 +161,15 @@ class Command(BaseCommand):
                     'component':'AllResults'
                 },
                 {
-                    'label': 'Examinee Result',
+                    'label': 'Override Selection',
                     'icon': 'FileCheck',
-                    'link': '/examinee-result',
+                    'link': '/override-selection',
                     'component': 'ExamineeResult'
                 },
                 {
-                    'label': 'Accepted Students',
+                    'label': 'Results',
                     'icon': 'FileText',
-                    'link': '/accepted-students',
+                    'link': '/results',
                     'component': 'AcceptedStudents'
                 },
                 {
@@ -181,31 +181,17 @@ class Command(BaseCommand):
                
             ]
 
-            # Create or get menus
+            # Create or update menus using component as the stable identity
             created_menus = []
             for menu_item in menu_data:
-                menu, created = Menu.objects.get_or_create(
-                    label=menu_item['label'],
+                menu, created = Menu.objects.update_or_create(
+                    component=menu_item['component'],
                     defaults={
+                        'label': menu_item['label'],
                         'icon': menu_item['icon'],
-                        'link': menu_item['link'],
-                        'component': menu_item['component']
+                        'link': menu_item['link']
                     }
                 )
-                # Update existing menu if component, icon, or link changed
-                updated = False
-                if not created:
-                    if menu.icon != menu_item['icon']:
-                        menu.icon = menu_item['icon']
-                        updated = True
-                    if menu.link != menu_item['link']:
-                        menu.link = menu_item['link']
-                        updated = True
-                    if menu.component != menu_item['component']:
-                        menu.component = menu_item['component']
-                        updated = True
-                    if updated:
-                        menu.save()
                 created_menus.append(menu)
                 if created:
                     self.stdout.write(
@@ -213,7 +199,7 @@ class Command(BaseCommand):
                     )
                 else:
                     self.stdout.write(
-                        self.style.WARNING(f'Menu already exists: {menu.label}')
+                        self.style.WARNING(f'Updated menu: {menu.label}')
                     )
 
             # Create or get superadmin role

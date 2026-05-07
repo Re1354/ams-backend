@@ -227,7 +227,7 @@ urlpatterns = [
     path('api/add-viva-marks/<int:student_id>/', add_viva_marks, name='add-viva-marks'),
     path('api/delete-viva-marks/<int:student_id>/', delete_viva_marks, name='delete-viva-marks'),
     
-    # Admission Threshold Management API
+    # Student Acceptance Criteria API
     path('api/admission/threshold-mapping/', set_threshold_mapping, name='set-threshold-mapping'),
     path('api/admission/get-threshold-mapping/', get_threshold_mapping, name='get-threshold-mapping'),
     path('api/admission/threshold/<int:threshold_id>/', get_threshold_by_id, name='get-threshold-by-id'),

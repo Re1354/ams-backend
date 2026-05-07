@@ -4,29 +4,18 @@ from ..models import DepartmentThreshold, Department, Exam
 
 
 class DepartmentThresholdSerializer(serializers.ModelSerializer):
-    """Serializer for DepartmentThreshold model"""
+    """Serializer for DepartmentThreshold model (semester-based approach)"""
     
     department_name = serializers.CharField(source='department.department_name', read_only=True)
     department_shortname = serializers.CharField(source='department.department_shortname', read_only=True)
-    exam_details = serializers.SerializerMethodField()
     
     class Meta:
         model = DepartmentThreshold
         fields = [
-            'id', 'exam', 'department', 'department_name', 'department_shortname',
-            'min_threshold_mark', 'exam_details', 'created_at', 'updated_at'
+            'id', 'department', 'department_name', 'department_shortname',
+            'semester', 'min_threshold_mark', 'seat_limit', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
-    
-    @extend_schema_field(serializers.DictField())
-    def get_exam_details(self, obj):
-        """Get exam details"""
-        return {
-            'id': obj.exam.id,
-            'department': obj.exam.department,
-            'semester': obj.exam.semester,
-            'total_marks': obj.exam.total_marks,
-        }
     
     def validate_min_threshold_mark(self, value):
         """Validate that threshold is positive"""
@@ -34,26 +23,24 @@ class DepartmentThresholdSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Threshold mark must be a positive number")
         return value
     
-    def validate(self, data):
-        """Validate that threshold doesn't exceed exam total marks"""
-        exam = data.get('exam')
-        threshold = data.get('min_threshold_mark')
-        
-        if exam and threshold and threshold > exam.total_marks:
-            raise serializers.ValidationError(
-                f"Threshold ({threshold}) cannot exceed exam total marks ({exam.total_marks})"
-            )
-        
-        return data
+    def validate_seat_limit(self, value):
+        """Validate that seat limit is at least 1"""
+        if value < 1:
+            raise serializers.ValidationError("Seat limit must be at least 1")
+        return value
 
 
 class ThresholdMappingItemSerializer(serializers.Serializer):
-    """Serializer for individual threshold mapping item"""
+    """Serializer for individual threshold mapping item (semester-based)"""
     
     department_id = serializers.IntegerField(help_text="Department ID")
     threshold = serializers.FloatField(
         min_value=0.0,
         help_text="Minimum marks threshold for this department"
+    )
+    seat_limit = serializers.IntegerField(
+        min_value=1,
+        help_text="Maximum number of students to accept in this semester"
     )
     
     def validate_department_id(self, value):
@@ -64,16 +51,16 @@ class ThresholdMappingItemSerializer(serializers.Serializer):
 
 
 class BulkThresholdMappingSerializer(serializers.Serializer):
-    """Serializer for bulk creating/updating threshold mappings"""
+    """Serializer for bulk creating/updating threshold mappings by semester"""
     
-    exam_id = serializers.IntegerField(help_text="Exam ID for which thresholds are being set")
-    mappings = ThresholdMappingItemSerializer(many=True, help_text="List of department-threshold mappings")
-    
-    def validate_exam_id(self, value):
-        """Validate that exam exists"""
-        if not Exam.objects.filter(id=value).exists():
-            raise serializers.ValidationError(f"Exam with ID {value} does not exist")
-        return value
+    semester = serializers.CharField(
+        max_length=20,
+        help_text="Semester in format 'Spring 2025', 'Summer 2025', 'Fall 2025', etc."
+    )
+    mappings = ThresholdMappingItemSerializer(
+        many=True,
+        help_text="List of department-threshold mappings for this semester"
+    )
     
     def validate_mappings(self, value):
         """Validate that mappings list is not empty"""
