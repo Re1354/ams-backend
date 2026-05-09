@@ -17,19 +17,19 @@ class Command(BaseCommand):
                     'component': 'Dashboard'
                 },
                 {
-                    'label':'Insert Questions',
+                    'label':'Upload Questions(DB)',
                     'icon':'FilePlus',
                     'link': '/insert-questions',
                     'component': 'InsertQuestions'
                 },
                 {
-                    'label': 'Create Questions',
+                    'label': 'Create Question Set',
                     'icon': 'Plus',
                     'link': '/create-questions',
                     'component': 'CreateQuestions'
                 },
                 {
-                    'label': 'All Questions',
+                    'label': 'All Question Sets',
                     'icon': 'FileText',
                     'link': '/all-questions',
                     'component': 'AllQuestions'
@@ -89,7 +89,7 @@ class Command(BaseCommand):
                     'component': 'SubjectDepartmentMapping'
                 },
                 {
-                    'label':'Student Assign',
+                    'label':'Student Assign(Written)',
                     'icon':'UserPlus',
                     'link':'/student-assign-teacher-exam',
                     'component':'StudentAssignTeacherExam'
@@ -113,7 +113,7 @@ class Command(BaseCommand):
                     'component': 'DeleteQuestions'
                 },
                 {
-                    'label': 'Published Exams',
+                    'label': 'Publish Exam',
                     'icon': 'FileCheck',
                     'link': '/published-exams',
                     'component': 'PublishedExams'
@@ -125,13 +125,13 @@ class Command(BaseCommand):
                     'component':'VivaManagement'
                 },
                 {
-                    'label':'Viva Assign',
+                    'label':'Student Assign(Viva)',
                     'icon':'Cpu',
                     'link':'/viva-assign',
                     'component':'VivaAssign'
                 },
                 {
-                    'label':'Marks Distribution',
+                    'label':'Marks Distribution Management',
                     'icon':'Percent',
                     'link':'/marks-distribution',
                     'component':'MarksDistribution'

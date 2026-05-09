@@ -406,6 +406,7 @@ def get_all_results_by_teacher(request, teacher_id):
 
             results_data.append({
                 'student_id': student.id,
+                'student_f_id': student.f_id,
                 'exam_id': exam.id,
                 'student_name': student.full_name or student.username,
                 'exam_details': {
