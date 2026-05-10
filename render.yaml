@@ -11,7 +11,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: "postgresql://admin:T8XAOQzU2zua7J5gSRfdzs1aktjNLAZB@dpg-d7fbdr67r5hc7397j9mg-a.oregon-postgres.render.com:5432/amsdiudb"
+        value: "postgresql://admin:s1PrybnHZz2loPWHm2LAvAf3SFdQRkhZ@dpg-d7vqh2jbc2fs73d3guig-a.oregon-postgres.render.com:5432/ams_85ev"
       - key: ALLOWED_HOSTS
         value: "*"
       - key: CORS_ALLOW_ALL_ORIGINS

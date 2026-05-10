@@ -72,7 +72,7 @@
    ```
    DEBUG=False
    SECRET_KEY=[Generate a new secret key]
-  DATABASE_URL=postgresql://ams_user:XqlVSf7NgjKwnYjAcF3dJ2HrAgq24FVy@dpg-d7b6kvia214c73cmo8kg-a.oregon-postgres.render.com:5432/ams_0p45
+  DATABASE_URL=postgresql://admin:s1PrybnHZz2loPWHm2LAvAf3SFdQRkhZ@dpg-d7vqh2jbc2fs73d3guig-a.oregon-postgres.render.com:5432/ams_85ev
    ALLOWED_HOSTS=your-app-name.onrender.com,*.onrender.com
    CORS_ALLOW_ALL_ORIGINS=True
    ```
@@ -91,7 +91,7 @@ The `render.yaml` file is already configured. Just push to GitHub and use "Deplo
 
 ✅ **PostgreSQL Database Ready**
 - **Host**: dpg-d7b6kvia214c73cmo8kg-a.oregon-postgres.render.com
-- **Database**: ams_0p45
+- **Database**: ams_85ev
 - **Questions Loaded**: 25 questions across 5 subjects
 - **Migrations Applied**: All migrations up to date
 

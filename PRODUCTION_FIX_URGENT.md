@@ -36,7 +36,7 @@ Environment variables in the Render dashboard **OVERRIDE** the values in render.
 4. Find `DATABASE_URL` variable
 5. **DELETE IT** or **UPDATE IT** to:
    ```
-   postgresql://ams_user:XqlVSf7NgjKwnYjAcF3dJ2HrAgq24FVy@dpg-d7b6kvia214c73cmo8kg-a.oregon-postgres.render.com:5432/ams_0p45
+   postgresql://admin:s1PrybnHZz2loPWHm2LAvAf3SFdQRkhZ@dpg-d7vqh2jbc2fs73d3guig-a.oregon-postgres.render.com:5432/ams_85ev
    ```
 6. Click "Save Changes"
 7. Render will automatically redeploy
@@ -77,7 +77,7 @@ You should use **one database host everywhere**:
 7. **Option A (Recommended):** Delete it entirely (render.yaml will be used)
 8. **Option B:** Update it to the correct value:
    ```
-   postgresql://ams_user:XqlVSf7NgjKwnYjAcF3dJ2HrAgq24FVy@dpg-d7b6kvia214c73cmo8kg-a.oregon-postgres.render.com:5432/ams_0p45
+   postgresql://admin:s1PrybnHZz2loPWHm2LAvAf3SFdQRkhZ@dpg-d7vqh2jbc2fs73d3guig-a.oregon-postgres.render.com:5432/ams_85ev
    ```
 9. Click **"Save Changes"**
 10. Wait for automatic redeployment (2-5 minutes)
