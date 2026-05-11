@@ -290,13 +290,13 @@ def get_all_results_by_teacher(request, teacher_id):
     
     try:
         teacher = User.objects.get(id=teacher_id)
-        assignments = StudentAssignTeacherExam.objects.filter(
+        viva_assignments = VivaAssignment.objects.filter(
             teacher=teacher
         ).select_related('student', 'exam')
         if semester_filter:
-            assignments = assignments.filter(exam__semester__icontains=semester_filter)
+            viva_assignments = viva_assignments.filter(exam__semester__icontains=semester_filter)
 
-        assignment_rows = list(assignments.order_by('-created_at', '-id'))
+        assignment_rows = list(viva_assignments.order_by('-created_at', '-id'))
         pair_order = []
         pair_map = {}
         exam_map = {}

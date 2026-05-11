@@ -6,17 +6,58 @@ from ..models.exam import Exam
 
 class VivaAssignmentSerializer(serializers.ModelSerializer):
     student_username = serializers.CharField(source='student.username', read_only=True)
+    student_name = serializers.SerializerMethodField()
+    student_f_id = serializers.CharField(source='student.f_id', read_only=True)
     teacher_username = serializers.CharField(source='teacher.username', read_only=True)
-    exam_name = serializers.CharField(source='exam.exam_name', read_only=True)
+    exam_name = serializers.SerializerMethodField()
+    exam_details = serializers.SerializerMethodField()
 
     class Meta:
         model = VivaAssignment
         fields = [
-            'id', 'student', 'student_username', 'teacher', 'teacher_username',
-            'exam', 'exam_name', 'scheduled_at', 'time', 'room', 'total_marks',
-            'rubric_snapshot', 'rubric_scores', 'remarks', 'created_at', 'updated_at'
+            'id', 'student', 'student_username', 'student_name', 'student_f_id',
+            'teacher', 'teacher_username', 'exam', 'exam_name', 'exam_details',
+            'scheduled_at', 'time', 'room', 'total_marks', 'rubric_snapshot',
+            'rubric_scores', 'remarks', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_student_name(self, obj):
+        if obj.student:
+            return obj.student.full_name or obj.student.username
+        return None
+
+    def get_exam_name(self, obj):
+        if obj.exam:
+            return f"{obj.exam.department} - {obj.exam.semester}"
+        return None
+
+    def get_exam_details(self, obj):
+        if not obj.exam:
+            return None
+
+        department_shortnames = []
+        seen_shortnames = set()
+        for question in obj.exam.exam_questions.all():
+            department_shortname = question.department_shortname
+            if department_shortname and department_shortname not in seen_shortnames:
+                seen_shortnames.add(department_shortname)
+                department_shortnames.append(department_shortname)
+
+        return {
+            'id': obj.exam.id,
+            'department': obj.exam.department,
+            'semester': obj.exam.semester,
+            'total_questions': obj.exam.total_questions,
+            'present_question': obj.exam.present_question,
+            'total_marks': obj.exam.total_marks,
+            'duration_minutes': obj.exam.duration_minutes,
+            'language': obj.exam.language,
+            'faculty': obj.exam.faculty,
+            'department_shortnames': department_shortnames,
+            'created_at': obj.exam.created_at,
+            'updated_at': obj.exam.updated_at,
+        }
 
 class VivaAssignmentCreateSerializer(serializers.ModelSerializer):
     class Meta:

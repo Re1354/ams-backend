@@ -5,8 +5,9 @@ from rest_framework.permissions import IsAuthenticated
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import extend_schema, OpenApiExample
 
-from ..models import Exam, ExamSchedule
+from ..models import Exam, ExamSchedule, VivaAssignment
 from ..serializers import ExamScheduleSerializer, CreateExamScheduleSerializer
+from ..serializers.viva_assign import VivaAssignmentSerializer
 from ..authentication import CustomJWTAuthentication
 
 
@@ -291,10 +292,10 @@ class ScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
 @csrf_exempt
 def get_teacher_schedule(request, teacher_id):
     """
-    Get all exam schedules assigned to a specific teacher.
+    Get all exam and viva schedules assigned to a specific teacher.
     
-    This endpoint retrieves all unique schedules where the teacher has been assigned
-    students through the StudentAssignTeacherExam model.
+    This endpoint retrieves unique written exam schedules through StudentAssignTeacherExam
+    and viva assignments directly from VivaAssignment.
     """
     from ..models import User, StudentAssignTeacherExam
     from ..authentication import CustomJWTAuthentication
@@ -324,18 +325,24 @@ def get_teacher_schedule(request, teacher_id):
             'message': 'Teacher not found'
         }, status=status.HTTP_404_NOT_FOUND)
     
-    # Get all unique schedules assigned to this teacher
+    # Get all unique written exam schedules assigned to this teacher
     assignments = StudentAssignTeacherExam.objects.filter(
         teacher_id=teacher_id
     ).select_related('schedule', 'schedule__exam').values_list('schedule_id', flat=True).distinct()
     
-    # Get schedule objects
-    schedules = ExamSchedule.objects.filter(
+    # Get exam schedule objects with related exam questions for department shortname extraction
+    exam_schedules = ExamSchedule.objects.filter(
         id__in=assignments
-    ).select_related('exam').order_by('-start_time')
+    ).select_related('exam').prefetch_related('exam__exam_questions').order_by('-start_time')
+
+    # Get viva assignments for this teacher
+    viva_schedules = VivaAssignment.objects.filter(
+        teacher_id=teacher_id
+    ).select_related('student', 'teacher', 'exam').prefetch_related('exam__exam_questions').order_by('-scheduled_at', '-updated_at', '-id')
     
     # Serialize schedules
-    serializer = ExamScheduleSerializer(schedules, many=True)
+    exam_serializer = ExamScheduleSerializer(exam_schedules, many=True)
+    viva_serializer = VivaAssignmentSerializer(viva_schedules, many=True)
     
     return Response({
         'success': True,
@@ -344,7 +351,10 @@ def get_teacher_schedule(request, teacher_id):
             'username': teacher.username,
             'email': teacher.email
         },
-        'count': schedules.count(),
-        'schedules': serializer.data,
-        'message': f'Found {schedules.count()} schedules for teacher {teacher.username}'
+        'exam_count': exam_schedules.count(),
+        'viva_count': viva_schedules.count(),
+        'count': exam_schedules.count() + viva_schedules.count(),
+        'exam_schedules': exam_serializer.data,
+        'viva_schedules': viva_serializer.data,
+        'message': f'Found {exam_schedules.count()} exam schedules and {viva_schedules.count()} viva schedules for teacher {teacher.username}'
     })

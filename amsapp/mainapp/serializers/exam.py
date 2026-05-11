@@ -97,24 +97,31 @@ class ExamQuestionSerializer(serializers.ModelSerializer):
 
 class ExamScheduleSerializer(serializers.ModelSerializer):
     """Serializer for ExamSchedule model with detailed exam information"""
+    exam_name = serializers.SerializerMethodField()
     exam_details = serializers.SerializerMethodField()
     
     class Meta:
         model = ExamSchedule
-        fields = ['id', 'exam', 'exam_details', 'start_time', 'end_time', 'is_active', 'created_at']
+        fields = ['id', 'exam', 'exam_name', 'exam_details', 'start_time', 'end_time', 'is_active', 'created_at']
         read_only_fields = ['id', 'created_at']
     
+    def get_exam_name(self, obj):
+        if obj.exam:
+            return f"{obj.exam.department} - {obj.exam.semester}"
+        return None
+
     @extend_schema_field(serializers.DictField())
     def get_exam_details(self, obj):
         """Get detailed exam information with department shortnames from questions"""
         if obj.exam:
             # Get unique department shortnames from exam questions
-            from ..models import ExamQuestion
-            department_shortnames = list(
-                ExamQuestion.objects.filter(exam=obj.exam)
-                .values_list('department_shortname', flat=True)
-                .distinct()
-            )
+            department_shortnames = []
+            seen_shortnames = set()
+            for question in obj.exam.exam_questions.all():
+                department_shortname = question.department_shortname
+                if department_shortname and department_shortname not in seen_shortnames:
+                    seen_shortnames.add(department_shortname)
+                    department_shortnames.append(department_shortname)
             
             return {
                 'id': obj.exam.id,

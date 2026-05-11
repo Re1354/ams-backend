@@ -45,4 +45,4 @@ class Command(BaseCommand):
                 defaults={'department_shortname': short_name}
             )
 
-        self.stdout.write(self.style.SUCCESS("✅ Departments seeded successfully!"))
+        self.stdout.write(self.style.SUCCESS("Departments seeded successfully!"))
