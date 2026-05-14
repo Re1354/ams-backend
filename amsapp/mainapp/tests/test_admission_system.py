@@ -166,26 +166,51 @@ class AdmissionSystemTestCase(APITestCase):
                 is_correct=is_correct,
             )
 
-    def set_thresholds(self, cse_threshold=60.0, eee_threshold=70.0):
+    def create_assigned_student(self, index, department_shortname="CSE"):
+        suffix = uuid4().hex[:8]
+        student = Students.objects.create(
+            username=f"candidate-{index}-{suffix}",
+            password="pass123",
+            f_id=f"FC-{index:03d}-{suffix}",
+            full_name=f"Candidate {index}",
+            email=f"candidate-{index}-{suffix}@test.com",
+            department_shortname=department_shortname,
+            registration_semester="Spring 2026",
+            ssc=80,
+            hsc=80,
+        )
+        StudentAssignTeacherExam.objects.create(
+            student=student,
+            teacher=self.admin_user,
+            exam=self.exam,
+            schedule=self.schedule,
+        )
+        return student
+
+    def set_thresholds(self, cse_threshold=60.0, eee_threshold=70.0, cse_seat_limit=10, eee_seat_limit=10):
         DepartmentThreshold.objects.create(
             exam=self.exam,
             department=self.dept_cse,
+            semester=self.exam.semester,
             min_threshold_mark=cse_threshold,
+            seat_limit=cse_seat_limit,
         )
         DepartmentThreshold.objects.create(
             exam=self.exam,
             department=self.dept_eee,
+            semester=self.exam.semester,
             min_threshold_mark=eee_threshold,
+            seat_limit=eee_seat_limit,
         )
 
     def test_set_threshold_mapping_success(self):
         response = self.client.post(
             "/api/admission/threshold-mapping/",
             {
-                "exam_id": self.exam.id,
+                "semester": self.exam.semester,
                 "mappings": [
-                    {"department_id": self.dept_cse.id, "threshold": 60.0},
-                    {"department_id": self.dept_eee.id, "threshold": 75.0},
+                    {"department_id": self.dept_cse.id, "threshold": 60.0, "seat_limit": 5},
+                    {"department_id": self.dept_eee.id, "threshold": 75.0, "seat_limit": 8},
                 ],
             },
             format="json",
@@ -195,7 +220,7 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertTrue(response.data["success"])
         self.assertEqual(response.data["created_count"], 2)
         self.assertEqual(
-            DepartmentThreshold.objects.filter(exam=self.exam).count(),
+            DepartmentThreshold.objects.filter(semester=self.exam.semester).count(),
             2,
         )
 
@@ -214,7 +239,7 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["success"])
         self.assertEqual(response.data["processed_count"], 3)
-        self.assertEqual(response.data["status_counts"]["WAITING"], 1)
+        self.assertEqual(response.data["status_counts"]["SELECTED"], 1)
         self.assertEqual(response.data["status_counts"]["REJECTED"], 1)
         self.assertEqual(response.data["status_counts"]["ABSENT"], 1)
 
@@ -223,7 +248,7 @@ class AdmissionSystemTestCase(APITestCase):
         result3 = AdmissionResult.objects.get(student=self.student3, exam=self.exam)
 
         self.assertEqual(result1.weighted_total_marks, 70.0)
-        self.assertEqual(result1.result_status, "WAITING")
+        self.assertEqual(result1.result_status, "SELECTED")
         self.assertTrue(result1.is_selected)
 
         self.assertEqual(result2.weighted_total_marks, 50.0)
@@ -232,6 +257,179 @@ class AdmissionSystemTestCase(APITestCase):
 
         self.assertEqual(result3.result_status, "ABSENT")
         self.assertFalse(result3.attended_exam)
+        self.assertFalse(result3.is_selected)
+
+    def test_seat_limit_marks_extra_qualifying_students_waiting_not_selected(self):
+        self.set_thresholds(cse_threshold=90.0, eee_threshold=70.0, cse_seat_limit=1)
+        self.create_submissions_for_student(self.student1, correct_count=10)  # 100
+        self.create_submissions_for_student(self.student2, correct_count=9)  # 90
+
+        response = self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status_counts"]["SELECTED"], 1)
+        self.assertEqual(response.data["status_counts"]["WAITING"], 1)
+
+        selected_result = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
+        waiting_result = AdmissionResult.objects.get(student=self.student2, exam=self.exam)
+
+        self.assertEqual(selected_result.result_status, "SELECTED")
+        self.assertTrue(selected_result.is_selected)
+        self.assertFalse(selected_result.is_override_accepted)
+
+        self.assertEqual(waiting_result.result_status, "WAITING")
+        self.assertFalse(waiting_result.is_selected)
+        self.assertFalse(waiting_result.is_override_accepted)
+
+    def test_missing_configuration_does_not_create_admission_results(self):
+        self.create_submissions_for_student(self.student1, correct_count=7)
+
+        response = self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(response.data["configuration_missing"])
+        self.assertFalse(AdmissionResult.objects.filter(exam=self.exam).exists())
+
+    def test_zero_seat_limit_is_treated_as_missing_configuration(self):
+        DepartmentThreshold.objects.create(
+            exam=self.exam,
+            department=self.dept_cse,
+            semester=self.exam.semester,
+            min_threshold_mark=40.0,
+            seat_limit=0,
+        )
+        self.create_submissions_for_student(self.student1, correct_count=7)
+
+        response = self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(response.data["configuration_missing"])
+        self.assertFalse(AdmissionResult.objects.filter(exam=self.exam).exists())
+
+    def test_override_accept_displaces_last_natural_candidate_and_removal_restores(self):
+        self.set_thresholds(cse_threshold=40.0, eee_threshold=40.0, cse_seat_limit=50)
+        candidates = []
+        for index in range(51):
+            candidate = self.create_assigned_student(index)
+            candidates.append(candidate)
+            self.create_submissions_for_student(candidate, correct_count=4)
+
+        response = self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        candidate_ids = [candidate.id for candidate in candidates]
+        self.assertEqual(
+            AdmissionResult.objects.filter(
+                exam=self.exam,
+                student_id__in=candidate_ids,
+                result_status="SELECTED",
+            ).count(),
+            50,
+        )
+
+        displaced_result = AdmissionResult.objects.get(exam=self.exam, student=candidates[-2])
+        override_result = AdmissionResult.objects.get(exam=self.exam, student=candidates[-1])
+        self.assertEqual(displaced_result.result_status, "SELECTED")
+        self.assertEqual(override_result.result_status, "WAITING")
+
+        override_response = self.client.post(
+            "/api/admission/results/bulk-status-update/",
+            {
+                "configuration_id": override_result.configuration_id,
+                "student_ids": [override_result.student_id],
+                "result_status": "SELECTED",
+            },
+            format="json",
+        )
+        self.assertEqual(override_response.status_code, status.HTTP_200_OK)
+
+        displaced_result.refresh_from_db()
+        override_result.refresh_from_db()
+        self.assertEqual(displaced_result.result_status, "WAITING")
+        self.assertFalse(displaced_result.is_selected)
+        self.assertEqual(override_result.result_status, "SELECTED")
+        self.assertTrue(override_result.is_selected)
+        self.assertTrue(override_result.is_override_accepted)
+        self.assertEqual(
+            AdmissionResult.objects.filter(
+                exam=self.exam,
+                student_id__in=candidate_ids,
+                result_status="SELECTED",
+            ).count(),
+            50,
+        )
+
+        revert_response = self.client.post(
+            "/api/admission/results/bulk-status-update/",
+            {
+                "configuration_id": override_result.configuration_id,
+                "student_ids": [override_result.student_id],
+                "action": "REVERT_TO_STORED_STATUS",
+            },
+            format="json",
+        )
+        self.assertEqual(revert_response.status_code, status.HTTP_200_OK)
+
+        displaced_result.refresh_from_db()
+        override_result.refresh_from_db()
+        self.assertEqual(displaced_result.result_status, "SELECTED")
+        self.assertTrue(displaced_result.is_selected)
+        self.assertEqual(override_result.result_status, "WAITING")
+        self.assertFalse(override_result.is_selected)
+        self.assertFalse(override_result.is_override_accepted)
+
+    def test_submit_exam_triggers_admission_recalculation_when_configured(self):
+        self.set_thresholds(cse_threshold=10.0, eee_threshold=10.0)
+
+        response = self.client.post(
+            f"/api/student/exam/{self.exam.id}/submit/",
+            {
+                "student_id": self.student1.id,
+                "submissions": [{"question_id": self.questions[0].id, "answer": "A"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["total_submitted"], 1)
+        self.assertTrue(response.data["admission_recalculation"]["attempted"])
+        self.assertTrue(response.data["admission_recalculation"]["success"])
+        self.assertFalse(response.data["admission_recalculation"]["configuration_missing"])
+
+        result = AdmissionResult.objects.get(exam=self.exam, student=self.student1)
+        self.assertEqual(result.weighted_total_marks, 10.0)
+        self.assertEqual(result.result_status, "SELECTED")
+
+    def test_submit_exam_skips_admission_recalculation_when_configuration_missing(self):
+        response = self.client.post(
+            f"/api/student/exam/{self.exam.id}/submit/",
+            {
+                "student_id": self.student1.id,
+                "submissions": [{"question_id": self.questions[0].id, "answer": "A"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.data["admission_recalculation"]["attempted"])
+        self.assertTrue(response.data["admission_recalculation"]["configuration_missing"])
+        self.assertFalse(AdmissionResult.objects.filter(exam=self.exam).exists())
 
     def test_get_admission_results_filters_by_result_status_and_semester(self):
         self.set_thresholds()
@@ -244,7 +442,7 @@ class AdmissionSystemTestCase(APITestCase):
         )
 
         response = self.client.get(
-            f"/api/admission/results/?department_id={self.dept_cse.id}&semester=Spring 2026&result_status=WAITING"
+            f"/api/admission/results/?department_id={self.dept_cse.id}&semester=Spring 2026&result_status=SELECTED"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -288,7 +486,7 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(recalculate_response.status_code, status.HTTP_200_OK)
         refreshed = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
         self.assertEqual(refreshed.weighted_total_marks, 70.0)
-        self.assertEqual(refreshed.result_status, "WAITING")
+        self.assertEqual(refreshed.result_status, "SELECTED")
 
     def test_student_detail_report_returns_written_viva_and_snapshot_data(self):
         self.set_thresholds(cse_threshold=10.0, eee_threshold=10.0)
@@ -370,7 +568,7 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(report["question_reviews"][3]["status"], "SKIPPED")
         self.assertEqual(report["viva"]["rubric_rows"][0]["criteria"], "Communication")
         self.assertEqual(report["viva"]["total_marks"], 7.5)
-        self.assertEqual(report["final_result"]["result_status"], "WAITING")
+        self.assertEqual(report["final_result"]["result_status"], "SELECTED")
 
     def test_student_detail_report_pdf_html_includes_rubrics_equations_and_pdf_response(self):
         self.set_thresholds(cse_threshold=10.0, eee_threshold=10.0)
@@ -714,7 +912,7 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(response.data["recalculated_result"]["student_id"], self.student1.id)
         self.assertEqual(response.data["recalculated_result"]["viva_marks"], 10.0)
         self.assertEqual(response.data["recalculated_result"]["weighted_total_marks"], 58.0)
-        self.assertEqual(response.data["recalculated_result"]["result_status"], "WAITING")
+        self.assertEqual(response.data["recalculated_result"]["result_status"], "SELECTED")
         self.assertTrue(response.data["recalculated_result"]["is_selected"])
 
         primary_assignment.refresh_from_db()
@@ -725,7 +923,7 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(refreshed_result.viva_marks, 10.0)
         self.assertEqual(refreshed_result.viva_contribution, 10.0)
         self.assertEqual(refreshed_result.weighted_total_marks, 58.0)
-        self.assertEqual(refreshed_result.result_status, "WAITING")
+        self.assertEqual(refreshed_result.result_status, "SELECTED")
         self.assertTrue(refreshed_result.is_selected)
 
     def test_delete_viva_marks_recalculates_admission_result_downward(self):
@@ -768,7 +966,7 @@ class AdmissionSystemTestCase(APITestCase):
         )
         initial_result = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
         self.assertEqual(initial_result.weighted_total_marks, 58.0)
-        self.assertEqual(initial_result.result_status, "WAITING")
+        self.assertEqual(initial_result.result_status, "SELECTED")
 
         response = self.client.delete(
             f"/api/delete-viva-marks/{self.student1.id}/?exam_id={self.exam.id}",

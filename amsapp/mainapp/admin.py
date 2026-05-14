@@ -241,9 +241,9 @@ class AdmissionConfigurationAdmin(admin.ModelAdmin):
 class AdmissionResultAdmin(admin.ModelAdmin):
     list_display = (
         'id', 'student', 'exam', 'configuration', 'department', 'weighted_total_marks',
-        'result_status', 'is_selected', 'status', 'created_at'
+        'result_status', 'is_selected', 'is_override_accepted', 'status', 'created_at'
     )
-    list_filter = ('result_status', 'is_selected', 'status', 'department', 'created_at')
+    list_filter = ('result_status', 'is_selected', 'is_override_accepted', 'status', 'department', 'created_at')
     search_fields = (
         'student__username', 'student__f_id', 'student__full_name',
         'exam__department', 'department__department_name'
@@ -263,7 +263,7 @@ class AdmissionResultAdmin(admin.ModelAdmin):
             'fields': ('ssc_score', 'academic_source', 'academic_score', 'ssc_contribution', 'academic_contribution', 'written_contribution', 'viva_contribution')
         }),
         ('Selection', {
-            'fields': ('attended_exam', 'is_selected', 'threshold_applied', 'remarks')
+            'fields': ('attended_exam', 'is_selected', 'is_override_accepted', 'threshold_applied', 'remarks')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),

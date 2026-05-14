@@ -8,11 +8,12 @@ class DepartmentThresholdSerializer(serializers.ModelSerializer):
     
     department_name = serializers.CharField(source='department.department_name', read_only=True)
     department_shortname = serializers.CharField(source='department.department_shortname', read_only=True)
+    department_id = serializers.IntegerField(read_only=True)
     
     class Meta:
         model = DepartmentThreshold
         fields = [
-            'id', 'department', 'department_name', 'department_shortname',
+            'id', 'department', 'department_id', 'department_name', 'department_shortname',
             'semester', 'min_threshold_mark', 'seat_limit', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']

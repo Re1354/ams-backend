@@ -94,6 +94,10 @@ class AdmissionResult(models.Model):
         default='WAITING',
         help_text="Final admission board status for this candidate"
     )
+    is_override_accepted = models.BooleanField(
+        default=False,
+        help_text="True if candidate is manually accepted and locked as selected"
+    )
     ssc_score = models.FloatField(
         default=0.0,
         validators=[MinValueValidator(0.0)],
@@ -167,6 +171,7 @@ class AdmissionResult(models.Model):
             models.Index(fields=['status']),
             models.Index(fields=['is_selected']),
             models.Index(fields=['result_status']),
+            models.Index(fields=['is_override_accepted']),
             models.Index(fields=['configuration']),
         ]
         ordering = ['-weighted_total_marks', '-total_marks', '-created_at']

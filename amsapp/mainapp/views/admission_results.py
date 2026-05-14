@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 
 from ..authentication import CustomJWTAuthentication
-from ..models import AdmissionConfiguration, AdmissionResult, Department, Exam
+from ..models import AdmissionConfiguration, AdmissionResult, Department, DepartmentThreshold, Exam
 from ..serializers.admission_result import (
     AdmissionConfigurationSerializer,
     AdmissionConfigurationUpsertSerializer,
@@ -18,9 +18,13 @@ from ..serializers.admission_result import (
     CalculateResultsResponseSerializer,
 )
 from ..services.admission_calculator import (
+    apply_semester_result_statuses,
     calculate_admission_results,
+    calculate_semester_admission_results,
+    get_threshold_mapping_for_semester,
     get_or_create_admission_configuration,
     get_candidate_students_for_exam,
+    is_configuration_complete,
     recalculate_single_student_result,
     resolve_department_for_exam,
     summarize_status_counts,
@@ -48,9 +52,25 @@ def get_single_configuration(filters):
 def resolve_reverted_status(result):
     if not result.attended_exam:
         return "ABSENT"
-    if result.is_selected:
+    if is_threshold_qualified(result):
         return "WAITING"
     return "REJECTED"
+
+
+def get_effective_threshold(result):
+    threshold_value = result.threshold_applied
+    if threshold_value is None and result.configuration:
+        threshold_value = result.configuration.threshold
+    return threshold_value
+
+
+def is_threshold_qualified(result):
+    threshold_value = get_effective_threshold(result)
+    return (
+        result.attended_exam
+        and threshold_value is not None
+        and result.weighted_total_marks >= float(threshold_value)
+    )
 
 
 def resolve_configuration_from_payload(validated_data):
@@ -97,6 +117,17 @@ def resolve_configuration_from_payload(validated_data):
     if updates:
         configuration.save(update_fields=updates + ["updated_at"])
 
+    if "seat_limit" in validated_data or "threshold" in validated_data:
+        DepartmentThreshold.objects.update_or_create(
+            semester=configuration.semester,
+            department=configuration.department,
+            defaults={
+                "min_threshold_mark": configuration.threshold,
+                "seat_limit": configuration.seat_limit,
+                "exam": exam or configuration.exam,
+            },
+        )
+
     return configuration, exam, None
 
 
@@ -126,22 +157,21 @@ def ensure_semester_admission_results(department=None, semester=None):
     if not department or not semester:
         return
 
+    threshold_mapping = get_threshold_mapping_for_semester(department, semester)
+    if not is_configuration_complete(threshold_mapping):
+        return
+
     semester_exams = list(
         get_exam_queryset_for_department_semester(department=department, semester=semester)
     )
+    if not semester_exams:
+        return
 
-    for exam in semester_exams:
-        has_results = AdmissionResult.objects.filter(exam=exam).exists()
-        has_candidates = get_candidate_students_for_exam(exam).exists()
+    has_results = AdmissionResult.objects.filter(exam__in=semester_exams).exists()
+    if has_results:
+        return
 
-        if has_results or not has_candidates:
-            continue
-
-        calculation = calculate_admission_results(exam.id)
-        if not calculation.get("success"):
-            # Keep the board fetch resilient. If a semester lacks threshold/config,
-            # the frontend will still show the setup message from configuration data.
-            continue
+    calculate_semester_admission_results(department=department, semester=semester)
 
 
 @extend_schema(
@@ -195,6 +225,12 @@ def admission_configurations(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    if any(field in serializer.validated_data for field in ("seat_limit", "threshold")):
+        calculate_semester_admission_results(
+            department=configuration.department,
+            semester=configuration.semester,
+        )
+
     response_serializer = AdmissionConfigurationSerializer(configuration)
     return Response(
         {
@@ -246,6 +282,21 @@ def admission_configuration_detail(request, config_id):
         if field in serializer.validated_data:
             setattr(configuration, field, serializer.validated_data[field])
     configuration.save()
+
+    if any(field in serializer.validated_data for field in ("seat_limit", "threshold")):
+        DepartmentThreshold.objects.update_or_create(
+            semester=configuration.semester,
+            department=configuration.department,
+            defaults={
+                "min_threshold_mark": configuration.threshold,
+                "seat_limit": configuration.seat_limit,
+                "exam": configuration.exam,
+            },
+        )
+        calculate_semester_admission_results(
+            department=configuration.department,
+            semester=configuration.semester,
+        )
 
     return Response(
         {
@@ -318,6 +369,7 @@ def calculate_results(request):
                 "success": False,
                 "message": "Failed to calculate results",
                 "errors": result.get("errors", []),
+                "configuration_missing": result.get("configuration_missing", False),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -330,6 +382,7 @@ def calculate_results(request):
         "not_selected_count": result["not_selected_count"],
         "status_counts": result.get("status_counts", {}),
         "configuration_id": result.get("configuration_id"),
+        "configuration_missing": result.get("configuration_missing", False),
         "exam_id": exam_id,
     }
     if result.get("errors"):
@@ -385,6 +438,7 @@ def get_admission_results(request):
     result_status = request.query_params.get("result_status")
     sort_by = request.query_params.get("sort_by", "score")
     order = request.query_params.get("order", "desc")
+    configuration_missing = False
 
     if exam_id:
         results = results.filter(exam_id=exam_id)
@@ -403,6 +457,9 @@ def get_admission_results(request):
             department=resolved_department,
             semester=semester,
         )
+        if resolved_department:
+            threshold_mapping = get_threshold_mapping_for_semester(resolved_department, semester)
+            configuration_missing = not is_configuration_complete(threshold_mapping)
         results = AdmissionResult.objects.select_related(
             "exam",
             "student",
@@ -460,6 +517,7 @@ def get_admission_results(request):
         response.data["configuration"] = (
             AdmissionConfigurationSerializer(configuration).data if configuration else None
         )
+        response.data["configuration_missing"] = configuration_missing
         response.data["filters_applied"] = {
             "exam_id": exam_id,
             "configuration_id": configuration_id,
@@ -484,6 +542,7 @@ def get_admission_results(request):
             "configuration": (
                 AdmissionConfigurationSerializer(configuration).data if configuration else None
             ),
+            "configuration_missing": configuration_missing,
             "results": serializer.data,
         }
     )
@@ -545,62 +604,32 @@ def bulk_update_admission_result_status(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    threshold_mapping = get_threshold_mapping_for_semester(
+        configuration.department,
+        configuration.semester,
+    )
+    if not is_configuration_complete(threshold_mapping):
+        return Response(
+            {
+                "success": False,
+                "message": "Threshold or seat limit is not set for this semester.",
+                "configuration_missing": True,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    had_override = any(result.is_override_accepted for result in results)
+    recalc_required = False
+
     if action == "SET_STATUS":
         if target_status == "SELECTED":
-            if configuration.seat_limit <= 0:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Set seat_limit before accepting candidates for this semester.",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            invalid_candidates = [
-                result.student.username
-                for result in results
-                if result.attended_exam
-                and (not result.is_selected)
-                and result.result_status != "REJECTED"
-            ]
-            if invalid_candidates:
-                return Response(
-                    {
-                        "success": False,
-                        "message": (
-                            "Only absent or rejected candidates, and attended candidates "
-                            "above the threshold, can be accepted."
-                        ),
-                        "invalid_candidates": invalid_candidates,
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            selected_elsewhere = AdmissionResult.objects.filter(
-                configuration=configuration,
-                result_status="SELECTED",
-            ).exclude(id__in=[item.id for item in results]).count()
-
-            if selected_elsewhere + len(results) > configuration.seat_limit:
-                return Response(
-                    {
-                        "success": False,
-                        "message": (
-                            f"Accepting these students would exceed the seat limit "
-                            f"({configuration.seat_limit})."
-                        ),
-                        "selected_count": selected_elsewhere,
-                        "requested_count": len(results),
-                        "seat_limit": configuration.seat_limit,
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            recalc_required = True
 
         if target_status == "WAITING":
             invalid_candidates = [
                 result.student.username
                 for result in results
-                if (not result.attended_exam) or (not result.is_selected)
+                if not is_threshold_qualified(result)
             ]
             if invalid_candidates:
                 return Response(
@@ -613,16 +642,57 @@ def bulk_update_admission_result_status(request):
                 )
 
         with transaction.atomic():
-            queryset.update(result_status=target_status)
+            if target_status == "SELECTED":
+                queryset.update(result_status=target_status, is_override_accepted=True)
+            else:
+                queryset.update(
+                    result_status=target_status,
+                    is_override_accepted=False,
+                    is_selected=False,
+                )
+                if had_override:
+                    recalc_required = True
 
         message = f"Updated {len(results)} candidates to {target_status}."
     else:
         with transaction.atomic():
             for result in results:
                 result.result_status = resolve_reverted_status(result)
-                result.save(update_fields=["result_status", "updated_at"])
+                result.is_override_accepted = False
+                result.is_selected = False
+                result.save(
+                    update_fields=[
+                        "result_status",
+                        "is_override_accepted",
+                        "is_selected",
+                        "updated_at",
+                    ]
+                )
+
+        if had_override:
+            recalc_required = True
 
         message = f"Reverted {len(results)} candidates to their stored result status."
+
+    if recalc_required:
+        status_application = apply_semester_result_statuses(
+            department=configuration.department,
+            semester=configuration.semester,
+            threshold_value=threshold_mapping.min_threshold_mark,
+            seat_limit=threshold_mapping.seat_limit,
+        )
+        if not status_application.get("success"):
+            return Response(
+                {
+                    "success": False,
+                    "message": status_application.get(
+                        "error",
+                        "Failed to apply override recalculation",
+                    ),
+                    "configuration_missing": status_application.get("configuration_missing", False),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     refreshed = AdmissionResult.objects.filter(configuration=configuration)
     return Response(
@@ -756,7 +826,11 @@ def recalculate_student_result(request, exam_id, student_id):
 
     if not result["success"]:
         return Response(
-            {"success": False, "message": result.get("error", "Failed to recalculate result")},
+            {
+                "success": False,
+                "message": result.get("error", "Failed to recalculate result"),
+                "configuration_missing": result.get("configuration_missing", False),
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
 

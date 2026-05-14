@@ -131,6 +131,7 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "attended_exam",
             "subject_wise_marks",
             "is_selected",
+            "is_override_accepted",
             "result_status",
             "status",
             "threshold_applied",

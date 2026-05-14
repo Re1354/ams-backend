@@ -15,6 +15,52 @@ from ..serializers import (
 )
 from ..authentication import CustomJWTAuthentication
 from ..utils import calculate_submission_summary, is_submission_correct
+from ..services.admission_calculator import (
+    calculate_semester_admission_results,
+    get_threshold_mapping_for_semester,
+    is_configuration_complete,
+    resolve_department_for_exam,
+)
+
+
+def refresh_admission_results_after_submission(exam):
+    try:
+        department = resolve_department_for_exam(exam)
+        if not department:
+            return {
+                'attempted': False,
+                'success': False,
+                'configuration_missing': False,
+                'errors': [f"Department '{exam.department}' could not be resolved."],
+            }
+
+        threshold_mapping = get_threshold_mapping_for_semester(department, exam.semester)
+        if not is_configuration_complete(threshold_mapping):
+            return {
+                'attempted': False,
+                'success': False,
+                'configuration_missing': True,
+                'errors': ['Threshold or seat limit is not set for this semester.'],
+            }
+
+        recalculation = calculate_semester_admission_results(
+            department=department,
+            semester=exam.semester,
+        )
+        return {
+            'attempted': True,
+            'success': recalculation.get('success', False),
+            'configuration_missing': recalculation.get('configuration_missing', False),
+            'errors': recalculation.get('errors', []),
+            'status_counts': recalculation.get('status_counts', {}),
+        }
+    except Exception as exc:
+        return {
+            'attempted': True,
+            'success': False,
+            'configuration_missing': False,
+            'errors': [str(exc)],
+        }
 
 
 @extend_schema(
@@ -263,9 +309,12 @@ def submit_exam(request, exam_id):
         except ExamQuestion.DoesNotExist:
             continue
     
+    admission_recalculation = refresh_admission_results_after_submission(exam)
+
     return Response({
         'message': f'Exam submitted successfully',
-        'total_submitted': submissions_created
+        'total_submitted': submissions_created,
+        'admission_recalculation': admission_recalculation,
     }, status=status.HTTP_201_CREATED)
 
 

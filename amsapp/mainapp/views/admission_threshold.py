@@ -3,17 +3,43 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from django.db import transaction
+import logging
+import threading
+
+from django.db import close_old_connections, transaction
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
-from ..models import DepartmentThreshold, Exam, Department
+from ..models import AdmissionConfiguration, DepartmentThreshold, Department
 from ..serializers.department_threshold import (
     DepartmentThresholdSerializer, 
     BulkThresholdMappingSerializer,
     ThresholdMappingResponseSerializer
 )
 from ..authentication import CustomJWTAuthentication
+from ..services.admission_calculator import calculate_semester_admission_results
+
+logger = logging.getLogger(__name__)
+
+
+def queue_threshold_recalculation(department_ids, semester):
+    def run_recalculation():
+        close_old_connections()
+        try:
+            departments = Department.objects.filter(id__in=department_ids)
+            for department in departments:
+                calculate_semester_admission_results(department=department, semester=semester)
+        except Exception:
+            logger.exception("Failed to recalculate admission results after threshold update")
+        finally:
+            close_old_connections()
+
+    thread = threading.Thread(
+        target=run_recalculation,
+        name=f"threshold-recalculation-{semester}",
+        daemon=True,
+    )
+    thread.start()
 
 
 @extend_schema(
@@ -65,6 +91,7 @@ def set_threshold_mapping(request):
     created_count = 0
     updated_count = 0
     created_thresholds = []
+    updated_departments = []
     
     with transaction.atomic():
         for mapping in mappings:
@@ -89,14 +116,38 @@ def set_threshold_mapping(request):
                     'seat_limit': dept_seat_limit
                 }
             )
+
+            configuration, _ = AdmissionConfiguration.objects.get_or_create(
+                department=department,
+                semester=semester,
+                defaults={
+                    'seat_limit': dept_seat_limit,
+                    'threshold': threshold_value,
+                }
+            )
+            config_updates = []
+            if configuration.seat_limit != dept_seat_limit:
+                configuration.seat_limit = dept_seat_limit
+                config_updates.append('seat_limit')
+            if configuration.threshold != threshold_value:
+                configuration.threshold = threshold_value
+                config_updates.append('threshold')
+            if config_updates:
+                configuration.save(update_fields=config_updates + ['updated_at'])
             
             created_thresholds.append(threshold)
             if created:
                 created_count += 1
             else:
                 updated_count += 1
+
+            updated_departments.append(department)
     
     response_status = status.HTTP_201_CREATED if created_count > 0 else status.HTTP_200_OK
+
+    recalculation_department_ids = list({dept.id for dept in updated_departments})
+    if recalculation_department_ids:
+        queue_threshold_recalculation(recalculation_department_ids, semester)
     
     return Response({
         'success': True,
@@ -104,6 +155,7 @@ def set_threshold_mapping(request):
                   f'Created: {created_count}, Updated: {updated_count}',
         'created_count': created_count,
         'updated_count': updated_count,
+        'recalculation_queued': bool(recalculation_department_ids),
         'data': DepartmentThresholdSerializer(created_thresholds, many=True).data
     }, status=response_status)
 

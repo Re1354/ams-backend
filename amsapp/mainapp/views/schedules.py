@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import extend_schema, OpenApiExample
+from collections import OrderedDict
 
 from ..models import Exam, ExamSchedule, VivaAssignment
 from ..serializers import ExamScheduleSerializer, CreateExamScheduleSerializer
@@ -274,8 +275,29 @@ class ScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
                         'email': {'type': 'string'}
                     }
                 },
+                'exam_count': {'type': 'integer'},
+                'viva_count': {'type': 'integer'},
+                'viva_group_count': {'type': 'integer'},
                 'count': {'type': 'integer'},
-                'schedules': {'type': 'array', 'items': {'$ref': '#/components/schemas/ExamSchedule'}},
+                'exam_schedules': {'type': 'array', 'items': {'$ref': '#/components/schemas/ExamSchedule'}},
+                'viva_schedules': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'id': {'type': 'string'},
+                            'scheduled_at': {'type': ['string', 'null']},
+                            'time': {'type': ['string', 'null']},
+                            'room': {'type': 'string'},
+                            'total_marks': {'type': 'number'},
+                            'exam': {'type': 'integer'},
+                            'exam_name': {'type': 'string'},
+                            'exam_details': {'type': 'object'},
+                            'count': {'type': 'integer'},
+                            'students': {'type': 'array'}
+                        }
+                    }
+                },
                 'message': {'type': 'string'}
             }
         },
@@ -343,6 +365,27 @@ def get_teacher_schedule(request, teacher_id):
     # Serialize schedules
     exam_serializer = ExamScheduleSerializer(exam_schedules, many=True)
     viva_serializer = VivaAssignmentSerializer(viva_schedules, many=True)
+    viva_groups = OrderedDict()
+
+    for viva_item in viva_serializer.data:
+        group_key = viva_item.get('scheduled_at') or '__unscheduled__'
+        if group_key not in viva_groups:
+            viva_groups[group_key] = {
+                'id': group_key,
+                'scheduled_at': viva_item.get('scheduled_at'),
+                'time': viva_item.get('time'),
+                'room': viva_item.get('room'),
+                'total_marks': viva_item.get('total_marks'),
+                'exam': viva_item.get('exam'),
+                'exam_name': viva_item.get('exam_name'),
+                'exam_details': viva_item.get('exam_details'),
+                'remarks': viva_item.get('remarks'),
+                'students': [],
+                'count': 0,
+            }
+
+        viva_groups[group_key]['students'].append(viva_item)
+        viva_groups[group_key]['count'] += 1
     
     return Response({
         'success': True,
@@ -353,8 +396,9 @@ def get_teacher_schedule(request, teacher_id):
         },
         'exam_count': exam_schedules.count(),
         'viva_count': viva_schedules.count(),
-        'count': exam_schedules.count() + viva_schedules.count(),
+        'viva_group_count': len(viva_groups),
+        'count': exam_schedules.count() + len(viva_groups),
         'exam_schedules': exam_serializer.data,
-        'viva_schedules': viva_serializer.data,
-        'message': f'Found {exam_schedules.count()} exam schedules and {viva_schedules.count()} viva schedules for teacher {teacher.username}'
+        'viva_schedules': list(viva_groups.values()),
+        'message': f'Found {exam_schedules.count()} exam schedules and {viva_schedules.count()} viva assignments for teacher {teacher.username}'
     })
