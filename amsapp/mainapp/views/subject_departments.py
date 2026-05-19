@@ -8,6 +8,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from ..models.subjects_demartments import SubjectDepartment
 from ..models.subjects import Subject
 from ..models.departments import Department
+from ..permissions import require_menu_permission
 from ..serializers.subject import SubjectDepartmentSerializer, SubjectDepartmentCreateSerializer
 
 
@@ -39,7 +40,7 @@ def get_all_subject_departments(request):
 @extend_schema(
     tags=['Subject-Department Mapping'],
     summary="Create department-subject mapping",
-    description="Create a new department with assigned subjects. Only superadmin can perform this action.",
+    description="Create a new department with assigned subjects. Requires subject-department mapping write permission.",
     request={
         'application/json': {
             'type': 'object',
@@ -64,21 +65,22 @@ def get_all_subject_departments(request):
             description="Department-subject mapping created successfully"
         ),
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can create mappings")
+        403: OpenApiResponse(description="Missing subject-department mapping create permission")
     }
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_subject_department(request):
-    """Create department-subject mapping (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can create department-subject mappings'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Create department-subject mapping."""
+
+    denied = require_menu_permission(
+        request,
+        "/subject-department-mapping",
+        "write",
+        "You do not have permission to create department-subject mappings.",
+    )
+    if denied:
+        return denied
     
     serializer = SubjectDepartmentCreateSerializer(data=request.data)
     if serializer.is_valid():
@@ -151,7 +153,7 @@ def get_subjects_by_department(request, department_id):
 @extend_schema(
     tags=['Subject-Department Mapping'],
     summary="Update department-subject mapping",
-    description="Update department or assigned subjects. Only superadmin can perform this action.",
+    description="Update department or assigned subjects. Requires subject-department mapping edit permission.",
     request={
         'application/json': {
             'type': 'object',
@@ -175,22 +177,23 @@ def get_subjects_by_department(request, department_id):
             description="Department-subject mapping updated successfully"
         ),
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can update mappings"),
+        403: OpenApiResponse(description="Missing subject-department mapping edit permission"),
         404: OpenApiResponse(description="Mapping not found")
     }
 )
 @api_view(['PUT', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def update_subject_department(request, mapping_id):
-    """Update department-subject mapping (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can update department-subject mappings'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Update department-subject mapping."""
+
+    denied = require_menu_permission(
+        request,
+        "/subject-department-mapping",
+        "edit",
+        "You do not have permission to edit department-subject mappings.",
+    )
+    if denied:
+        return denied
     
     mapping = get_object_or_404(SubjectDepartment, id=mapping_id)
     
@@ -217,7 +220,7 @@ def update_subject_department(request, mapping_id):
 @extend_schema(
     tags=['Subject-Department Mapping'],
     summary="Add subjects to department",
-    description="Add additional subjects to an existing department. Only superadmin can perform this action.",
+    description="Add additional subjects to an existing department. Requires subject-department mapping edit permission.",
     request={
         'application/json': {
             'type': 'object',
@@ -240,22 +243,23 @@ def update_subject_department(request, mapping_id):
             description="Subjects added to department successfully"
         ),
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can modify mappings"),
+        403: OpenApiResponse(description="Missing subject-department mapping edit permission"),
         404: OpenApiResponse(description="Department not found")
     }
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_subjects_to_department(request, mapping_id):
-    """Add subjects to existing department (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can modify department-subject mappings'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Add subjects to existing department."""
+
+    denied = require_menu_permission(
+        request,
+        "/subject-department-mapping",
+        "edit",
+        "You do not have permission to edit department-subject mappings.",
+    )
+    if denied:
+        return denied
     
     mapping = get_object_or_404(SubjectDepartment, id=mapping_id)
     new_subject_ids = request.data.get('subject_ids', [])
@@ -296,7 +300,7 @@ def add_subjects_to_department(request, mapping_id):
 @extend_schema(
     tags=['Subject-Department Mapping'],
     summary="Remove subjects from department",
-    description="Remove subjects from an existing department. Only superadmin can perform this action.",
+    description="Remove subjects from an existing department. Requires subject-department mapping edit permission.",
     request={
         'application/json': {
             'type': 'object',
@@ -319,22 +323,23 @@ def add_subjects_to_department(request, mapping_id):
             description="Subjects removed from department successfully"
         ),
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can modify mappings"),
+        403: OpenApiResponse(description="Missing subject-department mapping edit permission"),
         404: OpenApiResponse(description="Department not found")
     }
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def remove_subjects_from_department(request, mapping_id):
-    """Remove subjects from existing department (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can modify department-subject mappings'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Remove subjects from existing department."""
+
+    denied = require_menu_permission(
+        request,
+        "/subject-department-mapping",
+        "edit",
+        "You do not have permission to edit department-subject mappings.",
+    )
+    if denied:
+        return denied
     
     mapping = get_object_or_404(SubjectDepartment, id=mapping_id)
     remove_subject_ids = request.data.get('subject_ids', [])
@@ -364,25 +369,26 @@ def remove_subjects_from_department(request, mapping_id):
 @extend_schema(
     tags=['Subject-Department Mapping'],
     summary="Delete department-subject mapping",
-    description="Delete a department-subject mapping. Only superadmin can perform this action.",
+    description="Delete a department-subject mapping. Requires subject-department mapping delete permission.",
     responses={
         200: OpenApiResponse(description="Department-subject mapping deleted successfully"),
-        403: OpenApiResponse(description="Only superadmin can delete mappings"),
+        403: OpenApiResponse(description="Missing subject-department mapping delete permission"),
         404: OpenApiResponse(description="Mapping not found")
     }
 )
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_subject_department(request, mapping_id):
-    """Delete department-subject mapping (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can delete department-subject mappings'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Delete department-subject mapping."""
+
+    denied = require_menu_permission(
+        request,
+        "/subject-department-mapping",
+        "delete",
+        "You do not have permission to delete department-subject mappings.",
+    )
+    if denied:
+        return denied
     
     mapping = get_object_or_404(SubjectDepartment, id=mapping_id)
     department_name = mapping.department.department_name

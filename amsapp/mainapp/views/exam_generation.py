@@ -11,9 +11,58 @@ from ..models import ScrappedQuestion, Exam, ExamQuestion, BlocklistQuestion, De
 from ..authentication import CustomJWTAuthentication
 from ..serializers.exam_generation import (
     ExamGenerationRequestSerializer, ExamSaveRequestSerializer,
-    GeneratedExamResponseSerializer, GeneratedQuestionSerializer
+    GeneratedExamResponseSerializer, GeneratedQuestionSerializer,
+    RegenerateQuestionRequestSerializer,
 )
 import json
+
+
+def normalize_question_text(value):
+    if isinstance(value, dict):
+        candidates = [
+            value.get('english'),
+            value.get('both'),
+            *[item for item in value.values() if isinstance(item, str)],
+        ]
+        value = next((item for item in candidates if item), value)
+    elif isinstance(value, list):
+        value = ' '.join(str(item) for item in value)
+
+    if not isinstance(value, str):
+        value = json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+    return ' '.join(value.lower().split())
+
+
+def transform_generated_question(question_data, department, language):
+    item = dict(question_data)
+    item['department_shortname'] = getattr(
+        department,
+        'department_shortname',
+        item.get('department_shortname', ''),
+    )
+
+    lang = (language or '').lower()
+    qfield = item.get('questions')
+    ofield = item.get('options')
+    afield = item.get('answer')
+
+    if lang == 'english':
+        if isinstance(qfield, dict):
+            item['questions'] = qfield.get('english', qfield)
+        if isinstance(ofield, dict):
+            item['options'] = ofield.get('english', ofield)
+        if isinstance(afield, dict):
+            item['answer'] = afield.get('english', afield)
+    elif lang == 'both':
+        if isinstance(qfield, dict):
+            item['questions'] = qfield.get('both', qfield)
+        if isinstance(ofield, dict):
+            item['options'] = ofield.get('both', ofield)
+        if isinstance(afield, dict):
+            item['answer'] = afield.get('both', afield)
+
+    return item
 
 
 @extend_schema(
@@ -114,52 +163,12 @@ def generate_exam(request):
     # Serialize the questions properly
     questions_serializer = GeneratedQuestionSerializer(generated_questions, many=True)
 
-    # Transform serialized questions according to requested language and attach department_shortname
     raw_questions = questions_serializer.data
-    transformed_questions = []
     req_language = data.get('language', 'english')
-    for q in raw_questions:
-        # Work on a copy to avoid mutating serializer output
-        item = dict(q)
-
-        # Ensure department_shortname is set from Department lookup
-        try:
-            item['department_shortname'] = department.department_shortname
-        except Exception:
-            # fallback to existing value or empty
-            item['department_shortname'] = item.get('department_shortname', '')
-
-        # Normalize questions/options/answer based on language
-        # If language == 'english' => return english-only values
-        # If language == 'both' => return only the 'both' sub-values (not the full dict)
-        lang = (req_language or '').lower()
-        qfield = item.get('questions')
-        ofield = item.get('options')
-        afield = item.get('answer')
-
-        if lang == 'english':
-            # questions field might be a dict with 'english'/'both'
-            if isinstance(qfield, dict):
-                item['questions'] = qfield.get('english', qfield)
-
-            if isinstance(ofield, dict):
-                # options may be {'both': {...}, 'english': {...}}
-                item['options'] = ofield.get('english', ofield)
-
-            if isinstance(afield, dict):
-                item['answer'] = afield.get('english', afield)
-
-        elif lang == 'both':
-            # For 'both' requests, return only the 'both' subfields
-            if isinstance(qfield, dict):
-                item['questions'] = qfield.get('both', qfield)
-
-            if isinstance(ofield, dict):
-                item['options'] = ofield.get('both', ofield)
-
-            if isinstance(afield, dict):
-                item['answer'] = afield.get('both', afield)
-        transformed_questions.append(item)
+    transformed_questions = [
+        transform_generated_question(q, department, req_language)
+        for q in raw_questions
+    ]
 
     # Prepare response data
     response_data = {
@@ -179,6 +188,94 @@ def generate_exam(request):
         'message': 'Exam questions generated successfully',
         'data': response_data
     })
+
+
+@extend_schema(
+    operation_id='regenerate_exam_question',
+    tags=['Exam Generation'],
+    summary="Regenerate one draft exam question",
+    description=(
+        "Return one unsaved replacement question from the same subject and marks, "
+        "excluding the current draft's question IDs and question texts."
+    ),
+    request=RegenerateQuestionRequestSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=GeneratedQuestionSerializer,
+            description="Replacement question generated successfully",
+        ),
+        400: OpenApiResponse(description="Invalid request data"),
+        404: OpenApiResponse(description="No replacement question available"),
+    },
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def regenerate_question(request):
+    """Return one replacement question for an unsaved generated exam draft."""
+
+    serializer = RegenerateQuestionRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'message': 'Invalid request data',
+            'errors': serializer.errors,
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    data = serializer.validated_data
+
+    try:
+        department = Department.objects.get(id=data['department_id'])
+    except Department.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Department not found',
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    blocked_question_ids = BlocklistQuestion.objects.filter(
+        subject=data['subject'],
+        issue_solved=False,
+    ).values_list('original_question_id', flat=True)
+
+    excluded_ids = set(data.get('exclude_question_ids', []))
+    excluded_ids.update(blocked_question_ids)
+    excluded_texts = {
+        normalize_question_text(text)
+        for text in data.get('exclude_question_texts', [])
+        if normalize_question_text(text)
+    }
+
+    candidates = list(
+        ScrappedQuestion.objects.filter(
+            subject=data['subject'],
+            marks=data['marks'],
+        ).exclude(id__in=excluded_ids)
+    )
+    random.shuffle(candidates)
+
+    for candidate in candidates:
+        serialized = GeneratedQuestionSerializer(candidate).data
+        transformed = transform_generated_question(
+            serialized,
+            department,
+            data.get('language', 'english'),
+        )
+        question_text = normalize_question_text(transformed.get('questions'))
+        if question_text in excluded_texts:
+            continue
+
+        return Response({
+            'success': True,
+            'message': 'Replacement question generated successfully',
+            'data': {
+                'question': transformed,
+            },
+        })
+
+    return Response({
+        'success': False,
+        'message': 'No replacement question available for this subject and marks.',
+    }, status=status.HTTP_404_NOT_FOUND)
 
 
 @extend_schema(

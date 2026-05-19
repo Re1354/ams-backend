@@ -31,7 +31,7 @@ from .views.subject_departments import (
     get_subjects_by_department, update_subject_department, add_subjects_to_department,
     remove_subjects_from_department, delete_subject_department
 )
-from .views.exam_generation import generate_exam, save_generated_exam
+from .views.exam_generation import generate_exam, regenerate_question, save_generated_exam
 from .views.student_assign_teacher_exam import (
     assign_students_bulk, assign_student_single, get_all_assignments, 
     delete_assignment, delete_assignments_bulk, get_available_schedules,
@@ -178,6 +178,7 @@ urlpatterns = [
     
     # Exam Generation API
     path('api/exams/generate/', generate_exam, name='generate-exam'),
+    path('api/exams/regenerate-question/', regenerate_question, name='regenerate-exam-question'),
     path('api/exams/save-generated/', save_generated_exam, name='save-generated-exam'),
     
     # Student Assignment API

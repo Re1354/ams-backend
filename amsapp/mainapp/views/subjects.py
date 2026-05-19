@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from ..models import Subject
+from ..permissions import require_menu_permission
 from ..serializers import SubjectSerializer
 
 
@@ -37,7 +38,7 @@ def get_all_subjects(request):
 @extend_schema(
     tags=['Subjects'],
     summary="Create a new subject",
-    description="Create a new subject. Only superadmin can perform this action.",
+    description="Create a new subject. Requires subject management write permission.",
     request=SubjectSerializer,
     responses={
         201: OpenApiResponse(
@@ -45,21 +46,22 @@ def get_all_subjects(request):
             description="Subject created successfully"
         ),
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can create subjects")
+        403: OpenApiResponse(description="Missing subject create permission")
     }
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_subject(request):
-    """Create a new subject (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can create subjects'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Create a new subject."""
+
+    denied = require_menu_permission(
+        request,
+        "/subject-management",
+        "write",
+        "You do not have permission to create subjects.",
+    )
+    if denied:
+        return denied
     
     serializer = SubjectSerializer(data=request.data)
     if serializer.is_valid():
@@ -106,7 +108,7 @@ def get_subject_by_id(request, subject_id):
 @extend_schema(
     tags=['Subjects'],
     summary="Update subject",
-    description="Update subject details. Only superadmin can perform this action.",
+    description="Update subject details. Requires subject management edit permission.",
     request=SubjectSerializer,
     responses={
         200: OpenApiResponse(
@@ -114,22 +116,23 @@ def get_subject_by_id(request, subject_id):
             description="Subject updated successfully"
         ),
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can update subjects"),
+        403: OpenApiResponse(description="Missing subject edit permission"),
         404: OpenApiResponse(description="Subject not found")
     }
 )
 @api_view(['PUT', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def update_subject(request, subject_id):
-    """Update subject (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can update subjects'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Update subject."""
+
+    denied = require_menu_permission(
+        request,
+        "/subject-management",
+        "edit",
+        "You do not have permission to edit subjects.",
+    )
+    if denied:
+        return denied
     
     subject = get_object_or_404(Subject, id=subject_id)
     
@@ -155,25 +158,26 @@ def update_subject(request, subject_id):
 @extend_schema(
     tags=['Subjects'],
     summary="Delete subject",
-    description="Delete a subject. Only superadmin can perform this action. Warning: This may affect department-subject mappings.",
+    description="Delete a subject. Requires subject management delete permission. Warning: This may affect department-subject mappings.",
     responses={
         200: OpenApiResponse(description="Subject deleted successfully"),
-        403: OpenApiResponse(description="Only superadmin can delete subjects"),
+        403: OpenApiResponse(description="Missing subject delete permission"),
         404: OpenApiResponse(description="Subject not found")
     }
 )
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_subject(request, subject_id):
-    """Delete subject (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can delete subjects'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Delete subject."""
+
+    denied = require_menu_permission(
+        request,
+        "/subject-management",
+        "delete",
+        "You do not have permission to delete subjects.",
+    )
+    if denied:
+        return denied
     
     subject = get_object_or_404(Subject, id=subject_id)
     subject_name = subject.subject_name

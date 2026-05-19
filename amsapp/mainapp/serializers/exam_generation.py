@@ -40,6 +40,24 @@ class ExamGenerationRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(str(exc))
 
 
+class RegenerateQuestionRequestSerializer(serializers.Serializer):
+    """Serializer for replacing one generated draft question."""
+    department_id = serializers.IntegerField()
+    subject = serializers.CharField(max_length=255)
+    marks = serializers.IntegerField(min_value=1)
+    language = serializers.CharField(max_length=50, default='english')
+    exclude_question_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+    )
+    exclude_question_texts = serializers.ListField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        default=list,
+    )
+
+
 class ExamQuestionSaveSerializer(serializers.Serializer):
     """Serializer for individual question data when saving exam"""
     id = serializers.IntegerField(required=False, help_text="Optional original question ID")

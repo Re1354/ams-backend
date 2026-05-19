@@ -7,6 +7,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiRespon
 from drf_spectacular.types import OpenApiTypes
 
 from ..models import Menu, RoleMenu, Role
+from ..permissions import require_menu_permission
 from ..serializers import MenuSerializer, RoleMenuSerializer
 from ..authentication import CustomJWTAuthentication
 
@@ -74,7 +75,7 @@ def role_menus(request, role_id):
 @extend_schema(
     tags=['Role-Menu Management'],
     summary="Assign menus to role",
-    description="Assign multiple menus to a role with specific permissions. Only superadmin can perform this action.",
+    description="Assign multiple menus to a role with specific permissions. Requires menu access management write permission.",
     request={
         'application/json': {
             'type': 'object',
@@ -127,22 +128,23 @@ def role_menus(request, role_id):
     responses={
         200: OpenApiResponse(description="Menus assigned successfully"),
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can assign menus"),
+        403: OpenApiResponse(description="Missing menu access assignment permission"),
         404: OpenApiResponse(description="Role or Menu not found")
     }
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def assign_menus_to_role(request):
-    """Assign menus to a role with permissions (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can assign menus to roles'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Assign menus to a role with permissions."""
+
+    denied = require_menu_permission(
+        request,
+        "/menu-access-management",
+        "write",
+        "You do not have permission to assign menu access.",
+    )
+    if denied:
+        return denied
     
     role_id = request.data.get('role_id')
     menus_data = request.data.get('menus', [])
@@ -191,7 +193,7 @@ def assign_menus_to_role(request):
 @extend_schema(
     tags=['Role-Menu Management'],
     summary="Remove menu from role",
-    description="Remove a menu assignment from a role. Only superadmin can perform this action.",
+    description="Remove a menu assignment from a role. Requires menu access management delete permission.",
     parameters=[
         OpenApiParameter(
             name='role_id',
@@ -206,22 +208,23 @@ def assign_menus_to_role(request):
     ],
     responses={
         200: OpenApiResponse(description="Menu removed from role successfully"),
-        403: OpenApiResponse(description="Only superadmin can remove menus"),
+        403: OpenApiResponse(description="Missing menu access removal permission"),
         404: OpenApiResponse(description="Role-Menu assignment not found")
     }
 )
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def remove_menu_from_role(request, role_id, menu_id):
-    """Remove menu from role (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can remove menus from roles'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Remove menu from role."""
+
+    denied = require_menu_permission(
+        request,
+        "/menu-access-management",
+        "delete",
+        "You do not have permission to remove menu access.",
+    )
+    if denied:
+        return denied
     
     role_menu = get_object_or_404(
         RoleMenu, 

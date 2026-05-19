@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from ..models import Department
+from ..permissions import require_menu_permission
 from ..serializers.departments import DepartmentSerializer, DepartmentCreateSerializer, DepartmentDetailSerializer
 
 
@@ -57,7 +58,7 @@ def get_all_departments(request):
     operation_id='create_department',
     tags=['Departments'],
     summary="Create a new department",
-    description="Create a new department with name and shortname. Only superadmin can perform this action.",
+    description="Create a new department with name and shortname. Requires department management write permission.",
     request={
         'application/json': {
             'type': 'object',
@@ -94,21 +95,22 @@ def get_all_departments(request):
             }
         },
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can create departments")
+        403: OpenApiResponse(description="Missing department create permission")
     }
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_department(request):
-    """Create a new department (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can create departments'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Create a new department."""
+
+    denied = require_menu_permission(
+        request,
+        "/department-management",
+        "write",
+        "You do not have permission to create departments.",
+    )
+    if denied:
+        return denied
     
     serializer = DepartmentCreateSerializer(data=request.data)
     if serializer.is_valid():
@@ -169,7 +171,7 @@ def get_department_by_id(request, department_id):
     operation_id='update_department_full',
     tags=['Departments'],
     summary="Update department (PUT)",
-    description="Update department name and shortname. Only superadmin can perform this action. Requires all fields.",
+    description="Update department name and shortname. Requires department management edit permission. Requires all fields.",
     request={
         'application/json': {
             'type': 'object',
@@ -206,22 +208,23 @@ def get_department_by_id(request, department_id):
             }
         },
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can update departments"),
+        403: OpenApiResponse(description="Missing department edit permission"),
         404: OpenApiResponse(description="Department not found")
     }
 )
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
 def update_department_full(request, department_id):
-    """Update department completely (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can update departments'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Update department completely."""
+
+    denied = require_menu_permission(
+        request,
+        "/department-management",
+        "edit",
+        "You do not have permission to edit departments.",
+    )
+    if denied:
+        return denied
     
     department = get_object_or_404(Department, id=department_id)
     
@@ -247,7 +250,7 @@ def update_department_full(request, department_id):
     operation_id='update_department_partial',
     tags=['Departments'],
     summary="Update department (PATCH)",
-    description="Partially update department name and/or shortname. Only superadmin can perform this action. Only provided fields will be updated.",
+    description="Partially update department name and/or shortname. Requires department management edit permission. Only provided fields will be updated.",
     request={
         'application/json': {
             'type': 'object',
@@ -283,22 +286,23 @@ def update_department_full(request, department_id):
             }
         },
         400: OpenApiResponse(description="Invalid data"),
-        403: OpenApiResponse(description="Only superadmin can update departments"),
+        403: OpenApiResponse(description="Missing department edit permission"),
         404: OpenApiResponse(description="Department not found")
     }
 )
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def update_department_partial(request, department_id):
-    """Update department partially (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can update departments'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Update department partially."""
+
+    denied = require_menu_permission(
+        request,
+        "/department-management",
+        "edit",
+        "You do not have permission to edit departments.",
+    )
+    if denied:
+        return denied
     
     department = get_object_or_404(Department, id=department_id)
     
@@ -324,25 +328,26 @@ def update_department_partial(request, department_id):
     operation_id='delete_department',
     tags=['Departments'],
     summary="Delete department",
-    description="Delete a department. Only superadmin can perform this action. Warning: This will affect all users assigned to this department.",
+    description="Delete a department. Requires department management delete permission. Warning: This will affect all users assigned to this department.",
     responses={
         200: OpenApiResponse(description="Department deleted successfully"),
-        403: OpenApiResponse(description="Only superadmin can delete departments"),
+        403: OpenApiResponse(description="Missing department delete permission"),
         404: OpenApiResponse(description="Department not found")
     }
 )
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_department(request, department_id):
-    """Delete department (only superadmin)"""
-    
-    # Check if user is superadmin
-    user = request.user
-    if not user.role or user.role.role_name != 'superadmin':
-        return Response({
-            'success': False,
-            'message': 'Only superadmin can delete departments'
-        }, status=status.HTTP_403_FORBIDDEN)
+    """Delete department."""
+
+    denied = require_menu_permission(
+        request,
+        "/department-management",
+        "delete",
+        "You do not have permission to delete departments.",
+    )
+    if denied:
+        return denied
     
     department = get_object_or_404(Department, id=department_id)
     department_name = department.department_name
