@@ -3,7 +3,7 @@ name: Deploy Django Backend
 on:
   push:
     branches:
-      - experiment
+      - main
 
 jobs:
   deploy:
@@ -22,9 +22,9 @@ jobs:
           script: |
             cd /home/ubuntu/ams-diu-backend
 
-            git fetch origin experiment
-            git checkout experiment
-            git pull origin experiment
+            git fetch origin main
+            git checkout main
+            git pull origin main
 
             source venv/bin/activate
 

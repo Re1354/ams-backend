@@ -87,29 +87,25 @@ WSGI_APPLICATION = 'amsapp.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='ams_85ev'),
+        'NAME': config('DB_NAME', default='amsdiudb'),
         'USER': config('DB_USER', default='admin'),
-        'PASSWORD': config('DB_PASSWORD', default='s1PrybnHZz2loPWHm2LAvAf3SFdQRkhZ'),
-        'HOST': config('DB_HOST', default='dpg-d7vqh2jbc2fs73d3guig-a.oregon-postgres.render.com'),
+        'PASSWORD': config('DB_PASSWORD', default='NewStrongPassword123!'),
+        'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
-        'OPTIONS': {
-            'sslmode': 'require',  # Render requires SSL
-        },
     }
 }
 
-# Override with DATABASE_URL if provided (for production environments like Render)
+# Override with DATABASE_URL if provided.
 DATABASE_URL = config(
     'DATABASE_URL',
-    default='postgresql://admin:s1PrybnHZz2loPWHm2LAvAf3SFdQRkhZ@dpg-d7vqh2jbc2fs73d3guig-a.oregon-postgres.render.com:5432/ams_85ev'
+    default='postgresql://admin:NewStrongPassword123!@localhost:5432/amsdiudb'
 )
 if DATABASE_URL:
     DATABASES['default'] = dj_database_url.parse(DATABASE_URL, conn_max_age=600)
-    # Configure SSL for Render PostgreSQL
-    if 'OPTIONS' not in DATABASES['default']:
-        DATABASES['default']['OPTIONS'] = {}
-    # Use require mode for SSL
-    DATABASES['default']['OPTIONS']['sslmode'] = 'require'
+
+DB_SSLMODE = config('DB_SSLMODE', default='')
+if DB_SSLMODE:
+    DATABASES['default'].setdefault('OPTIONS', {})['sslmode'] = DB_SSLMODE
 
 
 # Password validation
@@ -248,7 +244,9 @@ CORS_ALLOWED_ORIGINS = [
     "https://ams-diu-frontend.vercel.app",
     "https://ams-diu-frontend-omega.vercel.app",
     "https://ams-diu-student-16bv.vercel.app",
-    "https://ams-diu-student-omega.vercel.app"
+    "https://ams-diu-student-omega.vercel.app",
+    "https://admin.tatomal.me",
+    "http://student.tatomal.me"
 ]
 
 

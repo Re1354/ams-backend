@@ -3,7 +3,7 @@ services:
     name: ams-diu-backend
     env: python
     buildCommand: "pip install -r requirements.txt && cd amsapp && python manage.py collectstatic --no-input && python manage.py migrate"
-    startCommand: "cd amsapp && gunicorn --bind 0.0.0.0:$PORT amsapp.wsgi:application"
+    startCommand: "cd amsapp && gunicorn --bind 0.0.0.0:${PORT:-8000} amsapp.wsgi:application"
     rootDir: "."
     envVars:
       - key: DEBUG
@@ -11,7 +11,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: "postgresql://admin:s1PrybnHZz2loPWHm2LAvAf3SFdQRkhZ@dpg-d7vqh2jbc2fs73d3guig-a.oregon-postgres.render.com:5432/ams_85ev"
+        value: "postgresql://admin:NewStrongPassword123!@localhost:5432/amsdiudb"
       - key: ALLOWED_HOSTS
         value: "*"
       - key: CORS_ALLOW_ALL_ORIGINS
