@@ -47,6 +47,13 @@ class VivaAssignment(models.Model):
     class Meta:
         db_table = "viva_assignment"
         unique_together = ('student', 'teacher', 'exam')
+        indexes = [
+            models.Index(fields=['teacher', 'exam'], name='viva_teacher_exam_idx'),
+            models.Index(fields=['exam', 'created_at'], name='viva_exam_created_idx'),
+            models.Index(fields=['teacher', 'created_at'], name='viva_teacher_created_idx'),
+            models.Index(fields=['created_at'], name='viva_created_idx'),
+            models.Index(fields=['scheduled_at'], name='viva_scheduled_idx'),
+        ]
 
     def __str__(self):
         return (

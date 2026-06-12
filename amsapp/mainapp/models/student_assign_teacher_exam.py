@@ -19,6 +19,9 @@ class StudentAssignTeacherExam(models.Model):
             models.Index(fields=['student', 'exam']),
             models.Index(fields=['teacher', 'exam']),
             models.Index(fields=['student', 'schedule']),
+            models.Index(fields=['teacher', 'schedule'], name='sta_teacher_schedule_idx'),
+            models.Index(fields=['exam', 'created_at'], name='sta_exam_created_idx'),
+            models.Index(fields=['schedule', 'created_at'], name='sta_schedule_created_idx'),
             models.Index(fields=['created_at']),
         ]
 

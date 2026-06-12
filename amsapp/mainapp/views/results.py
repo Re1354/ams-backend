@@ -5,6 +5,7 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from django.db.models import Q
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
 from ..models import (
@@ -17,7 +18,12 @@ from ..serializers.results import (
     EnhancedExamResultSerializer, ResultsSummarySerializer
 )
 from ..authentication import CustomJWTAuthentication
-from ..utils import build_subject_result_rows, calculate_submission_summary, normalize_semester_filter
+from ..utils import (
+    build_subject_result_rows,
+    calculate_submission_summary,
+    normalize_semester_filter,
+    paginate_queryset,
+)
 
 
 @extend_schema(
@@ -168,7 +174,7 @@ def get_student_exam_result_enhanced(request, exam_id, student_id):
 
 
 class ResultsPagination(PageNumberPagination):
-    page_size = 20
+    page_size = 25
     page_size_query_param = 'page_size'
     max_page_size = 100
 
@@ -243,6 +249,8 @@ def _build_subject_result_rows_cached(question_rows, submissions):
     description="Get paginated results summary for all students under a teacher. Superadmin sees all results, others see results based on teacher_id.",
     parameters=[
         OpenApiParameter(name='semester', description='Filter by semester', required=False, type=str),
+        OpenApiParameter(name='search', description='Search by student, form ID, department, semester, or exam ID', required=False, type=str),
+        OpenApiParameter(name='department', description='Filter by exam department', required=False, type=str),
         OpenApiParameter(name='page', description='Page number', required=False, type=int),
         OpenApiParameter(name='page_size', description='Number of results per page', required=False, type=int),
     ],
@@ -262,6 +270,8 @@ def get_all_results_by_teacher(request, teacher_id):
     
     user = request.user
     semester_filter = normalize_semester_filter(request.query_params.get('semester', None))
+    search = request.query_params.get('search')
+    department_filter = request.query_params.get('department')
     
     # Check permissions
     if hasattr(user, 'custom_user'):
@@ -295,6 +305,23 @@ def get_all_results_by_teacher(request, teacher_id):
         ).select_related('student', 'exam')
         if semester_filter:
             viva_assignments = viva_assignments.filter(exam__semester__icontains=semester_filter)
+        if department_filter:
+            viva_assignments = viva_assignments.filter(exam__department__icontains=department_filter)
+        if search:
+            normalized_search_semester = normalize_semester_filter(search)
+            search_query = (
+                Q(student__username__icontains=search)
+                | Q(student__full_name__icontains=search)
+                | Q(student__f_id__icontains=search)
+                | Q(student__email__icontains=search)
+                | Q(student__department_shortname__icontains=search)
+                | Q(student__registration_semester__icontains=normalized_search_semester)
+                | Q(exam__department__icontains=search)
+                | Q(exam__semester__icontains=normalized_search_semester)
+            )
+            if str(search).isdigit():
+                search_query |= Q(exam_id=int(search))
+            viva_assignments = viva_assignments.filter(search_query)
 
         assignment_rows = list(viva_assignments.order_by('-created_at', '-id'))
         pair_order = []
@@ -311,21 +338,25 @@ def get_all_results_by_teacher(request, teacher_id):
             exam_map[assignment.exam_id] = assignment.exam
             student_map[assignment.student_id] = assignment.student
 
+        submitted_pairs = set(
+            Submission.objects.filter(
+                exam_id__in=exam_map.keys(),
+                student_id__in=student_map.keys(),
+            )
+            .values_list('exam_id', 'student_id')
+            .distinct()
+        )
+        pair_order = [pair_key for pair_key in pair_order if pair_key in submitted_pairs]
+
         if not pair_order:
-            paginator = ResultsPagination()
-            empty_page = paginator.paginate_queryset([], request)
+            _, pagination_info = paginate_queryset([], request)
             response_data = {
-                'pagination': {
-                    'count': 0,
-                    'current_page': 1,
-                    'total_pages': 1,
-                    'page_size': paginator.get_page_size(request),
-                    'has_next': False,
-                    'has_previous': False
-                },
-                'results': empty_page if empty_page is not None else [],
+                'pagination': pagination_info,
+                'results': [],
                 'filters': {
                     'semester': semester_filter,
+                    'search': search,
+                    'department': department_filter,
                     'teacher_id': teacher_id,
                     'teacher_name': teacher.username
                 }
@@ -336,8 +367,11 @@ def get_all_results_by_teacher(request, teacher_id):
                 'message': f'Found 0 results for teacher {teacher.username}'
             })
 
-        exam_ids = list(exam_map.keys())
-        student_ids = list(student_map.keys())
+        page_pairs, pagination_info = paginate_queryset(pair_order, request)
+        page_pairs = list(page_pairs)
+
+        exam_ids = sorted({exam_id for exam_id, _ in page_pairs})
+        student_ids = sorted({student_id for _, student_id in page_pairs})
 
         exam_question_rows = defaultdict(list)
         exam_total_marks = defaultdict(float)
@@ -371,7 +405,7 @@ def get_all_results_by_teacher(request, teacher_id):
         }
 
         results_data = []
-        for pair_key in pair_order:
+        for pair_key in page_pairs:
             exam_id, student_id = pair_key
             exam = exam_map[exam_id]
             student = student_map[student_id]
@@ -419,23 +453,11 @@ def get_all_results_by_teacher(request, teacher_id):
                 'viva_marks': viva_marks_data
             })
 
-        # Apply pagination
-        paginator = ResultsPagination()
-        page = paginator.paginate_queryset(results_data, request)
-
-        # Prepare pagination info
-        pagination_info = {
-            'count': len(results_data),
-            'current_page': paginator.page.number,
-            'total_pages': paginator.page.paginator.num_pages,
-            'page_size': paginator.page_size,
-            'has_next': paginator.page.has_next(),
-            'has_previous': paginator.page.has_previous()
-        }
-
         # Prepare filters info
         filters_info = {
             'semester': semester_filter,
+            'search': search,
+            'department': department_filter,
             'teacher_id': teacher_id,
             'teacher_name': teacher.username
         }
@@ -449,7 +471,7 @@ def get_all_results_by_teacher(request, teacher_id):
         return Response({
             'success': True,
             'data': response_data,
-            'message': f'Found {len(results_data)} results for teacher {teacher.username}'
+            'message': f'Found {pagination_info["count"]} results for teacher {teacher.username}'
         })
 
     except User.DoesNotExist:
@@ -464,6 +486,13 @@ def get_all_results_by_teacher(request, teacher_id):
     tags=['Exam Results'],
     summary="Get all published exams",
     description="Get list of all exams with their publication status",
+    parameters=[
+        OpenApiParameter(name='search', description='Search by exam ID, department, or semester', required=False, type=str),
+        OpenApiParameter(name='department', description='Filter by exam department', required=False, type=str),
+        OpenApiParameter(name='semester', description='Filter by exam semester', required=False, type=str),
+        OpenApiParameter(name='page', description='Page number', required=False, type=int),
+        OpenApiParameter(name='page_size', description='Rows per page', required=False, type=int),
+    ],
     responses={
         200: OpenApiResponse(
             response=PublishedExamSerializer(many=True),
@@ -509,10 +538,49 @@ def get_published_exams(request):
             published_exams = PublishedExam.objects.none()
     else:
         published_exams = PublishedExam.objects.none()
+
+    search = request.query_params.get('search')
+    department = request.query_params.get('department')
+    semester = request.query_params.get('semester')
+    filter_options = {
+        'departments': list(
+            published_exams.exclude(exam__department__isnull=True)
+            .exclude(exam__department='')
+            .order_by('exam__department')
+            .values_list('exam__department', flat=True)
+            .distinct()
+        ),
+        'semesters': list(
+            published_exams.exclude(exam__semester__isnull=True)
+            .exclude(exam__semester='')
+            .order_by('exam__semester')
+            .values_list('exam__semester', flat=True)
+            .distinct()
+        ),
+    }
+
+    if search:
+        normalized_search_semester = normalize_semester_filter(search)
+        search_query = (
+            Q(exam__department__icontains=search)
+            | Q(exam__semester__icontains=normalized_search_semester)
+        )
+        if str(search).isdigit():
+            search_query |= Q(exam_id=int(search))
+        published_exams = published_exams.filter(search_query)
+    if department:
+        published_exams = published_exams.filter(exam__department__icontains=department)
+    if semester:
+        published_exams = published_exams.filter(exam__semester__icontains=normalize_semester_filter(semester))
     
-    serializer = PublishedExamSerializer(published_exams, many=True)
+    published_exams = published_exams.order_by('-updated_at', '-id')
+    page_published_exams, pagination = paginate_queryset(published_exams, request)
+    serializer = PublishedExamSerializer(page_published_exams, many=True)
     return Response({
         'success': True,
+        'count': pagination['count'],
+        'pagination': pagination,
+        'filter_options': filter_options,
         'data': serializer.data,
         'message': 'Published exams retrieved successfully'
     })

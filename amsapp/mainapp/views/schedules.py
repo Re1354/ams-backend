@@ -3,19 +3,30 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.views.decorators.csrf import csrf_exempt
-from drf_spectacular.utils import extend_schema, OpenApiExample
+from django.db.models import Q
+from django.utils import timezone
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
 from collections import OrderedDict
 
 from ..models import Exam, ExamSchedule, VivaAssignment
 from ..serializers import ExamScheduleSerializer, CreateExamScheduleSerializer
 from ..serializers.viva_assign import VivaAssignmentSerializer
 from ..authentication import CustomJWTAuthentication
+from ..utils import normalize_semester_filter
 
 
 @extend_schema(
     summary="Get all exam schedules with exam details",
     description="Retrieve exam schedules with detailed exam information. Role-based filtering: superadmin sees all schedules, other users only see schedules for exams matching their department_shortname.",
     tags=['Schedule'],
+    parameters=[
+        OpenApiParameter(name='search', description='Search by schedule ID, exam ID, department, or semester', required=False, type=str),
+        OpenApiParameter(name='department', description='Filter by exam department', required=False, type=str),
+        OpenApiParameter(name='semester', description='Filter by exam semester', required=False, type=str),
+        OpenApiParameter(name='date_filter', description='Use today to show schedules starting today', required=False, type=str),
+        OpenApiParameter(name='page', description='Page number', required=False, type=int),
+        OpenApiParameter(name='page_size', description='Rows per page', required=False, type=int),
+    ],
     responses={200: ExamScheduleSerializer(many=True)}
 )
 class AllSchedulesView(generics.ListCreateAPIView):
@@ -33,6 +44,9 @@ class AllSchedulesView(generics.ListCreateAPIView):
         user = self.request.user
         
         # Get the custom user and role information
+        queryset = ExamSchedule.objects.none()
+        scoped_queryset_set = False
+
         if hasattr(user, 'custom_user'):
             custom_user = user.custom_user
             
@@ -42,10 +56,11 @@ class AllSchedulesView(generics.ListCreateAPIView):
                 
                 # Check if superadmin - return all schedules
                 if role_name == 'superadmin':
-                    return ExamSchedule.objects.all().select_related('exam').prefetch_related('exam__exam_questions').order_by('start_time')
+                    queryset = ExamSchedule.objects.all()
+                    scoped_queryset_set = True
             
             # For non-superadmin users, filter by department_shortname
-            if custom_user.department:
+            if not scoped_queryset_set and custom_user.department:
                 from ..models import ExamQuestion
                 user_dept_shortname = custom_user.department.department_shortname
                 
@@ -54,15 +69,34 @@ class AllSchedulesView(generics.ListCreateAPIView):
                     department_shortname=user_dept_shortname
                 ).values_list('exam_id', flat=True).distinct()
                 
-                return ExamSchedule.objects.filter(
+                queryset = ExamSchedule.objects.filter(
                     exam_id__in=exam_ids_with_matching_questions
-                ).select_related('exam').prefetch_related('exam__exam_questions').order_by('start_time')
-            
-            # If user has no department assigned, return empty queryset
-            return ExamSchedule.objects.none()
-        
-        # If no custom_user, return empty queryset for security
-        return ExamSchedule.objects.none()
+                )
+                scoped_queryset_set = True
+
+        params = self.request.query_params
+        search = params.get('search')
+        department = params.get('department')
+        semester = params.get('semester')
+        date_filter = params.get('date_filter')
+
+        if search:
+            normalized_search_semester = normalize_semester_filter(search)
+            search_query = (
+                Q(exam__department__icontains=search)
+                | Q(exam__semester__icontains=normalized_search_semester)
+            )
+            if str(search).isdigit():
+                search_query |= Q(id=int(search)) | Q(exam_id=int(search))
+            queryset = queryset.filter(search_query)
+        if department:
+            queryset = queryset.filter(exam__department__icontains=department)
+        if semester:
+            queryset = queryset.filter(exam__semester__icontains=normalize_semester_filter(semester))
+        if date_filter == 'today':
+            queryset = queryset.filter(start_time__date=timezone.localdate())
+
+        return queryset.select_related('exam').prefetch_related('exam__exam_questions').order_by('start_time')
 
 
 @extend_schema(

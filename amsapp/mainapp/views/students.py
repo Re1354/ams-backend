@@ -2,13 +2,15 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.db.models import Q
 from django.db import transaction
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
 from ..models import Students
 from ..serializers.student import StudentsSerializer, StudentCreateSerializer, StudentUpdateSerializer
 from ..authentication import CustomJWTAuthentication
-from ..utils import normalize_semester_filter
+from ..utils import normalize_semester_filter, paginate_queryset
 
 
 @extend_schema(
@@ -20,6 +22,10 @@ from ..utils import normalize_semester_filter
         OpenApiParameter(name='department_shortname', description='Filter by department shortname', required=False, type=str),
         OpenApiParameter(name='registration_semester', description='Filter by student registration semester', required=False, type=str),
         OpenApiParameter(name='username', description='Filter by username', required=False, type=str),
+        OpenApiParameter(name='search', description='Search name, username, form ID, email, department, or registration semester', required=False, type=str),
+        OpenApiParameter(name='date_filter', description='Use today to show students created today', required=False, type=str),
+        OpenApiParameter(name='page', description='Page number', required=False, type=int),
+        OpenApiParameter(name='page_size', description='Rows per page', required=False, type=int),
     ],
     responses={
         200: OpenApiResponse(
@@ -34,12 +40,15 @@ from ..utils import normalize_semester_filter
 def get_all_students(request):
     """Get all students with optional filtering"""
     
-    students = Students.objects.all()
+    base_students = Students.objects.all()
+    students = base_students
     
     # Apply filters
     department_filter = request.query_params.get('department_shortname')
     registration_semester_filter = request.query_params.get('registration_semester')
     username_filter = request.query_params.get('username')
+    search = request.query_params.get('search')
+    date_filter = request.query_params.get('date_filter')
     
     if department_filter:
         students = students.filter(department_shortname__icontains=department_filter)
@@ -53,16 +62,48 @@ def get_all_students(request):
     
     if username_filter:
         students = students.filter(username__icontains=username_filter)
+
+    if search:
+        normalized_search_semester = normalize_semester_filter(search)
+        students = students.filter(
+            Q(username__icontains=search)
+            | Q(full_name__icontains=search)
+            | Q(f_id__icontains=search)
+            | Q(email__icontains=search)
+            | Q(department_shortname__icontains=search)
+            | Q(registration_semester__icontains=normalized_search_semester)
+        )
+
+    if date_filter == 'today':
+        students = students.filter(created_at__date=timezone.localdate())
     
     # Order by creation date
     students = students.order_by('-created_at')
     
-    serializer = StudentsSerializer(students, many=True)
+    page_students, pagination = paginate_queryset(students, request)
+    serializer = StudentsSerializer(page_students, many=True)
     return Response({
         'success': True,
-        'count': students.count(),
+        'count': pagination['count'],
+        'pagination': pagination,
+        'filter_options': {
+            'departments': list(
+                base_students.exclude(department_shortname__isnull=True)
+                .exclude(department_shortname='')
+                .order_by('department_shortname')
+                .values_list('department_shortname', flat=True)
+                .distinct()
+            ),
+            'registration_semesters': list(
+                base_students.exclude(registration_semester__isnull=True)
+                .exclude(registration_semester='')
+                .order_by('registration_semester')
+                .values_list('registration_semester', flat=True)
+                .distinct()
+            ),
+        },
         'students': serializer.data,
-        'message': f'Found {students.count()} students'
+        'message': f'Found {pagination["count"]} students'
     })
 
 

@@ -2,7 +2,9 @@ from rest_framework import status, generics
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.db.models import Q
 from django.db import transaction
+from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
@@ -14,7 +16,83 @@ from ..serializers.student_assign_teacher_exam import (
 )
 from ..serializers.exam import ExamScheduleSerializer
 from ..authentication import CustomJWTAuthentication
-from ..utils import normalize_semester_filter
+from ..utils import normalize_semester_filter, paginate_queryset
+
+
+def apply_assignment_filters(assignments, request):
+    search = request.query_params.get('search')
+    teacher_id = request.query_params.get('teacher_id')
+    exam_id = request.query_params.get('exam_id')
+    schedule_id = request.query_params.get('schedule_id')
+    department_filter = request.query_params.get('department')
+    semester_filter = request.query_params.get('semester')
+    registration_semester_filter = request.query_params.get('registration_semester')
+    date_filter = request.query_params.get('date_filter')
+
+    if search:
+        normalized_search_semester = normalize_semester_filter(search)
+        search_query = (
+            Q(student__username__icontains=search)
+            | Q(student__full_name__icontains=search)
+            | Q(student__f_id__icontains=search)
+            | Q(student__email__icontains=search)
+            | Q(student__department_shortname__icontains=search)
+            | Q(student__registration_semester__icontains=normalized_search_semester)
+            | Q(teacher__username__icontains=search)
+            | Q(teacher__email__icontains=search)
+            | Q(exam__department__icontains=search)
+            | Q(exam__semester__icontains=normalized_search_semester)
+        )
+        if str(search).isdigit():
+            search_query |= Q(exam_id=int(search)) | Q(schedule_id=int(search))
+        assignments = assignments.filter(search_query)
+
+    if teacher_id:
+        assignments = assignments.filter(teacher_id=teacher_id)
+    if exam_id:
+        assignments = assignments.filter(exam_id=exam_id)
+    if schedule_id:
+        assignments = assignments.filter(schedule_id=schedule_id)
+    if department_filter:
+        assignments = assignments.filter(exam__department__icontains=department_filter)
+    if semester_filter:
+        assignments = assignments.filter(exam__semester__icontains=normalize_semester_filter(semester_filter))
+    if registration_semester_filter:
+        assignments = assignments.filter(
+            student__registration_semester__icontains=normalize_semester_filter(
+                registration_semester_filter
+            )
+        )
+    if date_filter == 'today':
+        assignments = assignments.filter(created_at__date=timezone.localdate())
+
+    return assignments
+
+
+def build_assignment_filter_options(assignments):
+    return {
+        'departments': list(
+            assignments.exclude(exam__department__isnull=True)
+            .exclude(exam__department='')
+            .order_by('exam__department')
+            .values_list('exam__department', flat=True)
+            .distinct()
+        ),
+        'semesters': list(
+            assignments.exclude(exam__semester__isnull=True)
+            .exclude(exam__semester='')
+            .order_by('exam__semester')
+            .values_list('exam__semester', flat=True)
+            .distinct()
+        ),
+        'registration_semesters': list(
+            assignments.exclude(student__registration_semester__isnull=True)
+            .exclude(student__registration_semester='')
+            .order_by('student__registration_semester')
+            .values_list('student__registration_semester', flat=True)
+            .distinct()
+        ),
+    }
 
 
 @extend_schema(
@@ -186,6 +264,13 @@ def assign_student_single(request):
             required=False,
             type=str,
         ),
+        OpenApiParameter(name='search', description='Search by student, teacher, form ID, department, semester, exam, or schedule', required=False, type=str),
+        OpenApiParameter(name='teacher_id', description='Filter by teacher ID', required=False, type=int),
+        OpenApiParameter(name='exam_id', description='Filter by exam ID', required=False, type=int),
+        OpenApiParameter(name='schedule_id', description='Filter by schedule ID', required=False, type=int),
+        OpenApiParameter(name='date_filter', description='Use today to show assignments created today', required=False, type=str),
+        OpenApiParameter(name='page', description='Page number', required=False, type=int),
+        OpenApiParameter(name='page_size', description='Rows per page', required=False, type=int),
     ],
     responses={
         200: OpenApiResponse(
@@ -201,7 +286,6 @@ def get_all_assignments(request):
     """Get all student assignments with role-based filtering"""
     
     user = request.user
-    registration_semester_filter = request.query_params.get('registration_semester')
     
     # Get the custom user and role information
     if hasattr(user, 'custom_user'):
@@ -235,16 +319,16 @@ def get_all_assignments(request):
         # If no custom_user, return empty queryset for security
         assignments = StudentAssignTeacherExam.objects.none()
 
-    if registration_semester_filter:
-        assignments = assignments.filter(
-            student__registration_semester__icontains=normalize_semester_filter(
-                registration_semester_filter
-            )
-        )
+    filter_options = build_assignment_filter_options(assignments)
+    assignments = apply_assignment_filters(assignments, request)
     
-    serializer = StudentAssignTeacherExamSerializer(assignments, many=True)
+    page_assignments, pagination = paginate_queryset(assignments, request)
+    serializer = StudentAssignTeacherExamSerializer(page_assignments, many=True)
     return Response({
         'success': True,
+        'count': pagination['count'],
+        'pagination': pagination,
+        'filter_options': filter_options,
         'data': serializer.data,
         'message': 'Assignments retrieved successfully'
     })
@@ -390,8 +474,12 @@ def get_student_assignments_by_teacher(request, teacher_id):
     assignments = StudentAssignTeacherExam.objects.filter(
         teacher_id=teacher_id
     ).select_related('student', 'teacher', 'exam', 'schedule').order_by('-created_at')
+
+    filter_options = build_assignment_filter_options(assignments)
+    assignments = apply_assignment_filters(assignments, request)
     
-    serializer = StudentAssignTeacherExamSerializer(assignments, many=True)
+    page_assignments, pagination = paginate_queryset(assignments, request)
+    serializer = StudentAssignTeacherExamSerializer(page_assignments, many=True)
     
     return Response({
         'success': True,
@@ -400,9 +488,11 @@ def get_student_assignments_by_teacher(request, teacher_id):
             'username': teacher.username,
             'email': teacher.email
         },
-        'count': assignments.count(),
+        'count': pagination['count'],
+        'pagination': pagination,
+        'filter_options': filter_options,
         'data': serializer.data,
-        'message': f'Found {assignments.count()} student assignments for teacher {teacher.username}'
+        'message': f'Found {pagination["count"]} student assignments for teacher {teacher.username}'
     })
 
 

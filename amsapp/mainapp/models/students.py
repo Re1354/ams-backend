@@ -21,6 +21,11 @@ class Students(models.Model):
 
     class Meta:
         db_table = 'students'
+        indexes = [
+            models.Index(fields=['department_shortname', 'registration_semester'], name='students_dept_sem_idx'),
+            models.Index(fields=['f_id'], name='students_fid_idx'),
+            models.Index(fields=['created_at'], name='students_created_idx'),
+        ]
 
     def save(self, *args, **kwargs):
         self.registration_semester = normalize_semester_value(self.registration_semester)

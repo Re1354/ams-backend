@@ -4,7 +4,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
-from drf_spectacular.utils import extend_schema
+from django.db.models import Q
+from django.utils import timezone
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 import random
 
 from ..models import ScrappedQuestion, Exam, ExamQuestion
@@ -12,7 +14,7 @@ from ..serializers import (
     ExamCreateSerializer, ExamQuestionSerializer, ExamSerializer
 )
 from ..authentication import CustomJWTAuthentication
-from ..utils import normalize_semester_value
+from ..utils import normalize_semester_filter, normalize_semester_value
 
 
 @extend_schema(
@@ -121,6 +123,14 @@ class CreateExamAPIView(APIView):
     summary="Get all exams",
     description="Retrieve exams with role-based filtering: superadmin sees all exams, other users only see exams that contain questions matching their department_shortname.",
     tags=['Exam'],
+    parameters=[
+        OpenApiParameter(name='search', description='Search by exam ID, department, or semester', required=False, type=str),
+        OpenApiParameter(name='department', description='Filter by exam department', required=False, type=str),
+        OpenApiParameter(name='semester', description='Filter by exam semester', required=False, type=str),
+        OpenApiParameter(name='date_filter', description='Use today to show exams created today', required=False, type=str),
+        OpenApiParameter(name='page', description='Page number', required=False, type=int),
+        OpenApiParameter(name='page_size', description='Rows per page', required=False, type=int),
+    ],
     responses={200: ExamSerializer(many=True)}
 )
 class AllExamsView(generics.ListAPIView):
@@ -138,6 +148,9 @@ class AllExamsView(generics.ListAPIView):
         user = self.request.user
         
         # Get the custom user and role information
+        queryset = Exam.objects.none()
+        scoped_queryset_set = False
+
         if hasattr(user, 'custom_user'):
             custom_user = user.custom_user
             
@@ -147,10 +160,11 @@ class AllExamsView(generics.ListAPIView):
                 
                 # Check if superadmin - return all exams
                 if role_name == 'superadmin':
-                    return Exam.objects.all().order_by('-created_at')
+                    queryset = Exam.objects.all()
+                    scoped_queryset_set = True
             
             # For non-superadmin users, filter by department_shortname
-            if custom_user.department:
+            if not scoped_queryset_set and custom_user.department:
                 user_dept_shortname = custom_user.department.department_shortname
                 
                 # Get exams that have questions matching user's department shortname
@@ -158,15 +172,34 @@ class AllExamsView(generics.ListAPIView):
                     department_shortname=user_dept_shortname
                 ).values_list('exam_id', flat=True).distinct()
                 
-                return Exam.objects.filter(
+                queryset = Exam.objects.filter(
                     id__in=exam_ids_with_matching_questions
-                ).order_by('-created_at')
-            
-            # If user has no department assigned, return empty queryset
-            return Exam.objects.none()
-        
-        # If no custom_user, return empty queryset for security
-        return Exam.objects.none()
+                )
+                scoped_queryset_set = True
+
+        params = self.request.query_params
+        search = params.get('search')
+        department = params.get('department')
+        semester = params.get('semester')
+        date_filter = params.get('date_filter')
+
+        if search:
+            normalized_search_semester = normalize_semester_filter(search)
+            search_query = (
+                Q(department__icontains=search)
+                | Q(semester__icontains=normalized_search_semester)
+            )
+            if str(search).isdigit():
+                search_query |= Q(id=int(search))
+            queryset = queryset.filter(search_query)
+        if department:
+            queryset = queryset.filter(department__icontains=department)
+        if semester:
+            queryset = queryset.filter(semester__icontains=normalize_semester_filter(semester))
+        if date_filter == 'today':
+            queryset = queryset.filter(created_at__date=timezone.localdate())
+
+        return queryset.order_by('-created_at')
 
 
 @extend_schema(

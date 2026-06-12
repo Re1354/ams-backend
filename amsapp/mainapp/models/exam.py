@@ -21,6 +21,12 @@ class Exam(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     faculty = models.CharField(max_length=255, null=True, blank=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['department', 'semester'], name='exam_dept_sem_idx'),
+            models.Index(fields=['created_at'], name='exam_created_idx'),
+        ]
+
     def save(self, *args, **kwargs):
         self.semester = normalize_semester_value(self.semester)
         self.except_semesters = normalize_semester_list(self.except_semesters)

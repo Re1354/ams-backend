@@ -11,6 +11,11 @@ class ExamSchedule(models.Model):
 
     class Meta:
         db_table = 'exam_schedule'
+        indexes = [
+            models.Index(fields=['start_time'], name='schedule_start_idx'),
+            models.Index(fields=['exam', 'start_time'], name='schedule_exam_start_idx'),
+            models.Index(fields=['is_active', 'start_time'], name='schedule_active_start_idx'),
+        ]
 
     def __str__(self):
         return f"Schedule for Exam {self.exam.id} - {self.start_time}"

@@ -33,7 +33,7 @@ from ..utils import normalize_semester_filter, semester_sort_key
 
 
 class AdmissionResultsPagination(PageNumberPagination):
-    page_size = 20
+    page_size = 25
     page_size_query_param = "page_size"
     max_page_size = 100
 
@@ -406,6 +406,8 @@ def calculate_results(request):
         OpenApiParameter(name="attended_exam", required=False, type=bool),
         OpenApiParameter(name="status", required=False, type=str),
         OpenApiParameter(name="result_status", required=False, type=str),
+        OpenApiParameter(name="exclude_result_status", required=False, type=str),
+        OpenApiParameter(name="minimum_score", required=False, type=float),
         OpenApiParameter(name="sort_by", required=False, type=str),
         OpenApiParameter(name="order", required=False, type=str),
         OpenApiParameter(name="page", required=False, type=int),
@@ -436,6 +438,8 @@ def get_admission_results(request):
     attended_exam = request.query_params.get("attended_exam")
     publication_status = request.query_params.get("status")
     result_status = request.query_params.get("result_status")
+    exclude_result_status = request.query_params.get("exclude_result_status")
+    minimum_score = request.query_params.get("minimum_score")
     sort_by = request.query_params.get("sort_by", "score")
     order = request.query_params.get("order", "desc")
     configuration_missing = False
@@ -491,8 +495,20 @@ def get_admission_results(request):
         results = results.filter(attended_exam=attended_exam.lower() in {"true", "1", "yes"})
     if publication_status:
         results = results.filter(status__iexact=publication_status)
+
+    summary_queryset = results
+    summary = summarize_status_counts(summary_queryset)
+    configuration = get_single_configuration(summary_queryset)
+
     if result_status:
         results = results.filter(result_status__iexact=result_status)
+    if exclude_result_status:
+        results = results.exclude(result_status__iexact=exclude_result_status)
+    if minimum_score not in (None, ""):
+        try:
+            results = results.filter(weighted_total_marks__gte=float(minimum_score))
+        except (TypeError, ValueError):
+            pass
 
     order_prefix = "" if order == "asc" else "-"
     sort_mapping = {
@@ -502,9 +518,6 @@ def get_admission_results(request):
         "serial": f"{order_prefix}id",
     }
     results = results.order_by(sort_mapping.get(sort_by, "-weighted_total_marks"), "-created_at")
-
-    summary = summarize_status_counts(results)
-    configuration = get_single_configuration(results)
 
     paginator = AdmissionResultsPagination()
     page = paginator.paginate_queryset(results, request)
@@ -529,6 +542,8 @@ def get_admission_results(request):
             "attended_exam": attended_exam,
             "status": publication_status,
             "result_status": result_status,
+            "exclude_result_status": exclude_result_status,
+            "minimum_score": minimum_score,
             "sort_by": sort_by,
             "order": order,
         }

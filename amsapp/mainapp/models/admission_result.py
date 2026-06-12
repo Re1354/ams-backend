@@ -171,8 +171,12 @@ class AdmissionResult(models.Model):
             models.Index(fields=['status']),
             models.Index(fields=['is_selected']),
             models.Index(fields=['result_status']),
-            models.Index(fields=['is_override_accepted']),
+            models.Index(fields=['is_override_accepted'], name='admission_r_is_over_8b945e_idx'),
             models.Index(fields=['configuration']),
+            models.Index(fields=['department', 'configuration'], name='admission_dept_config_idx'),
+            models.Index(fields=['status', 'result_status'], name='admission_status_result_idx'),
+            models.Index(fields=['weighted_total_marks'], name='admission_weighted_idx'),
+            models.Index(fields=['created_at'], name='admission_created_idx'),
         ]
         ordering = ['-weighted_total_marks', '-total_marks', '-created_at']
 

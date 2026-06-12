@@ -96,7 +96,7 @@ DATABASES = {
 # Override with DATABASE_URL if provided.
 DATABASE_URL = config(
     'DATABASE_URL',
-    default='postgresql://admin:NewStrongPassword123!@localhost:5432/amsdiudb'
+    default='postgresql://admin:NewStrongPassword123!@localhost:6000/amsdiudb'
 )
 if DATABASE_URL:
     DATABASES['default'] = dj_database_url.parse(DATABASE_URL, conn_max_age=600)
@@ -154,8 +154,8 @@ TEST_RUNNER = 'mainapp.test_runner.MainAppDiscoverRunner'
 
 # Django REST Framework configuration
 REST_FRAMEWORK = {
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 50,
+    'DEFAULT_PAGINATION_CLASS': 'mainapp.utils.pagination.StandardResultsPagination',
+    'PAGE_SIZE': 25,
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
