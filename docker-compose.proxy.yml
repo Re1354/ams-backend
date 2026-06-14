@@ -9,6 +9,9 @@ services:
     image: nginxproxy/nginx-proxy:latest
     container_name: nginx-proxy
     restart: unless-stopped
+    labels:
+      # Lets acme-companion auto-detect this as the proxy to configure.
+      - "com.github.nginx-proxy.nginx"
     ports:
       - "80:80"
       - "443:443"
@@ -27,6 +30,7 @@ services:
     restart: unless-stopped
     environment:
       DEFAULT_EMAIL: ${LETSENCRYPT_EMAIL}
+      NGINX_PROXY_CONTAINER: nginx-proxy
     volumes:
       - certs:/etc/nginx/certs
       - vhost:/etc/nginx/vhost.d
