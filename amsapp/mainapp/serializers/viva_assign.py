@@ -67,7 +67,13 @@ class VivaAssignmentCreateSerializer(serializers.ModelSerializer):
     def validate(self, data):
         # Ensure unique together constraint
         if VivaAssignment.objects.filter(student=data['student'], teacher=data['teacher'], exam=data['exam']).exists():
-            raise serializers.ValidationError('This viva assignment already exists.')
+            raise serializers.ValidationError({
+                'assignment': (
+                    f"Viva assignment already exists for student "
+                    f"{data['student'].id}, teacher {data['teacher'].id}, "
+                    f"exam {data['exam'].id}."
+                )
+            })
         return data
 
 class VivaAssignmentBulkCreateSerializer(serializers.Serializer):
@@ -79,10 +85,26 @@ class VivaAssignmentBulkCreateSerializer(serializers.Serializer):
         for item in data['assignments']:
             key = (item['student'].id, item['teacher'].id, item['exam'].id)
             if key in seen:
-                raise serializers.ValidationError('Duplicate assignment in payload.')
+                raise serializers.ValidationError({
+                    'assignments': (
+                        f"Duplicate assignment in payload for student {item['student'].id}, "
+                        f"teacher {item['teacher'].id}, exam {item['exam'].id}."
+                    )
+                })
             seen.add(key)
         # Check for existing assignments in DB
+        duplicate_messages = []
         for item in data['assignments']:
             if VivaAssignment.objects.filter(student=item['student'], teacher=item['teacher'], exam=item['exam']).exists():
-                raise serializers.ValidationError(f"Assignment already exists for student {item['student'].id}, teacher {item['teacher'].id}, exam {item['exam'].id}")
+                duplicate_messages.append(
+                    f"student {item['student'].id}, teacher {item['teacher'].id}, exam {item['exam'].id}"
+                )
+        if duplicate_messages:
+            raise serializers.ValidationError({
+                'assignments': (
+                    "Viva assignment already exists for "
+                    + "; ".join(duplicate_messages)
+                    + "."
+                )
+            })
         return data

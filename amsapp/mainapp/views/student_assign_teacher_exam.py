@@ -142,8 +142,8 @@ def assign_students_bulk(request):
                 assignment, created = StudentAssignTeacherExam.objects.get_or_create(
                     student=student,
                     teacher=teacher,
-                    exam=exam,
-                    defaults={'schedule': schedule}
+                    schedule=schedule,
+                    defaults={'exam': exam}
                 )
                 
                 if created:
@@ -218,8 +218,8 @@ def assign_student_single(request):
         assignment, created = StudentAssignTeacherExam.objects.get_or_create(
             student=student,
             teacher=teacher,
-            exam=exam,
-            defaults={'schedule': schedule}
+            schedule=schedule,
+            defaults={'exam': exam}
         )
         
         if created:

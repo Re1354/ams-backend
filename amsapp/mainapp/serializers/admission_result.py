@@ -24,6 +24,7 @@ class AdmissionConfigurationSerializer(serializers.ModelSerializer):
             "exam",
             "exam_department",
             "seat_limit",
+            "waiting_student_limit",
             "threshold",
             "notes",
             "created_at",
@@ -48,6 +49,7 @@ class AdmissionConfigurationUpsertSerializer(serializers.Serializer):
     exam_id = serializers.IntegerField(required=False)
     semester = serializers.CharField(required=False)
     seat_limit = serializers.IntegerField(required=False, min_value=0)
+    waiting_student_limit = serializers.IntegerField(required=False, min_value=0)
     threshold = serializers.FloatField(required=False, min_value=0.0, max_value=100.0)
     notes = serializers.CharField(required=False, allow_blank=True)
 

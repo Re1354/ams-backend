@@ -187,13 +187,22 @@ class AdmissionSystemTestCase(APITestCase):
         )
         return student
 
-    def set_thresholds(self, cse_threshold=60.0, eee_threshold=70.0, cse_seat_limit=10, eee_seat_limit=10):
+    def set_thresholds(
+        self,
+        cse_threshold=60.0,
+        eee_threshold=70.0,
+        cse_seat_limit=10,
+        eee_seat_limit=10,
+        cse_waiting_student_limit=0,
+        eee_waiting_student_limit=0,
+    ):
         DepartmentThreshold.objects.create(
             exam=self.exam,
             department=self.dept_cse,
             semester=self.exam.semester,
             min_threshold_mark=cse_threshold,
             seat_limit=cse_seat_limit,
+            waiting_student_limit=cse_waiting_student_limit,
         )
         DepartmentThreshold.objects.create(
             exam=self.exam,
@@ -201,6 +210,7 @@ class AdmissionSystemTestCase(APITestCase):
             semester=self.exam.semester,
             min_threshold_mark=eee_threshold,
             seat_limit=eee_seat_limit,
+            waiting_student_limit=eee_waiting_student_limit,
         )
 
     def test_set_threshold_mapping_success(self):
@@ -209,8 +219,18 @@ class AdmissionSystemTestCase(APITestCase):
             {
                 "semester": self.exam.semester,
                 "mappings": [
-                    {"department_id": self.dept_cse.id, "threshold": 60.0, "seat_limit": 5},
-                    {"department_id": self.dept_eee.id, "threshold": 75.0, "seat_limit": 8},
+                    {
+                        "department_id": self.dept_cse.id,
+                        "threshold": 60.0,
+                        "seat_limit": 5,
+                        "waiting_student_limit": 2,
+                    },
+                    {
+                        "department_id": self.dept_eee.id,
+                        "threshold": 75.0,
+                        "seat_limit": 8,
+                        "waiting_student_limit": 3,
+                    },
                 ],
             },
             format="json",
@@ -223,6 +243,11 @@ class AdmissionSystemTestCase(APITestCase):
             DepartmentThreshold.objects.filter(semester=self.exam.semester).count(),
             2,
         )
+        cse_threshold = DepartmentThreshold.objects.get(
+            semester=self.exam.semester,
+            department=self.dept_cse,
+        )
+        self.assertEqual(cse_threshold.waiting_student_limit, 2)
 
     def test_calculate_results_creates_waiting_rejected_and_absent_statuses(self):
         self.set_thresholds(cse_threshold=60.0, eee_threshold=70.0)
@@ -260,7 +285,12 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertFalse(result3.is_selected)
 
     def test_seat_limit_marks_extra_qualifying_students_waiting_not_selected(self):
-        self.set_thresholds(cse_threshold=90.0, eee_threshold=70.0, cse_seat_limit=1)
+        self.set_thresholds(
+            cse_threshold=90.0,
+            eee_threshold=70.0,
+            cse_seat_limit=1,
+            cse_waiting_student_limit=1,
+        )
         self.create_submissions_for_student(self.student1, correct_count=10)  # 100
         self.create_submissions_for_student(self.student2, correct_count=9)  # 90
 
@@ -284,6 +314,89 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(waiting_result.result_status, "WAITING")
         self.assertFalse(waiting_result.is_selected)
         self.assertFalse(waiting_result.is_override_accepted)
+
+    def test_zero_waiting_limit_marks_extra_attended_candidates_rejected(self):
+        self.set_thresholds(cse_threshold=90.0, eee_threshold=70.0, cse_seat_limit=1)
+        self.create_submissions_for_student(self.student1, correct_count=10)  # 100
+        self.create_submissions_for_student(self.student2, correct_count=9)  # 90
+
+        response = self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status_counts"]["SELECTED"], 1)
+        self.assertEqual(response.data["status_counts"]["WAITING"], 0)
+        self.assertEqual(response.data["status_counts"]["REJECTED"], 1)
+
+        selected_result = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
+        rejected_result = AdmissionResult.objects.get(student=self.student2, exam=self.exam)
+
+        self.assertEqual(selected_result.result_status, "SELECTED")
+        self.assertEqual(rejected_result.result_status, "REJECTED")
+        self.assertFalse(rejected_result.is_selected)
+
+    def test_bulk_assignment_uses_schedule_for_duplicate_detection(self):
+        second_schedule = ExamSchedule.objects.create(
+            exam=self.exam,
+            start_time=timezone.now() + timedelta(days=1),
+            end_time=timezone.now() + timedelta(days=1, hours=2),
+            is_active=True,
+        )
+
+        response = self.client.post(
+            "/api/student-assignments/assign-bulk/",
+            {
+                "student_ids": [self.student1.id],
+                "teacher_id": self.admin_user.id,
+                "schedule_id": second_schedule.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["data"]["created_count"], 1)
+        self.assertTrue(
+            StudentAssignTeacherExam.objects.filter(
+                student=self.student1,
+                teacher=self.admin_user,
+                exam=self.exam,
+                schedule=second_schedule,
+            ).exists()
+        )
+
+    def test_waiting_limit_takes_next_best_attended_candidates(self):
+        self.set_thresholds(
+            cse_threshold=90.0,
+            eee_threshold=70.0,
+            cse_seat_limit=1,
+            cse_waiting_student_limit=2,
+        )
+        extra_student = self.create_assigned_student(99)
+        self.create_submissions_for_student(self.student1, correct_count=10)  # 100
+        self.create_submissions_for_student(self.student2, correct_count=8)  # 80
+        self.create_submissions_for_student(extra_student, correct_count=7)  # 70
+
+        response = self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status_counts"]["SELECTED"], 1)
+        self.assertEqual(response.data["status_counts"]["WAITING"], 2)
+
+        self.assertEqual(
+            AdmissionResult.objects.get(student=self.student2, exam=self.exam).result_status,
+            "WAITING",
+        )
+        self.assertEqual(
+            AdmissionResult.objects.get(student=extra_student, exam=self.exam).result_status,
+            "WAITING",
+        )
 
     def test_missing_configuration_does_not_create_admission_results(self):
         self.create_submissions_for_student(self.student1, correct_count=7)
@@ -319,7 +432,12 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertFalse(AdmissionResult.objects.filter(exam=self.exam).exists())
 
     def test_override_accept_displaces_last_natural_candidate_and_removal_restores(self):
-        self.set_thresholds(cse_threshold=40.0, eee_threshold=40.0, cse_seat_limit=50)
+        self.set_thresholds(
+            cse_threshold=40.0,
+            eee_threshold=40.0,
+            cse_seat_limit=50,
+            cse_waiting_student_limit=1,
+        )
         candidates = []
         for index in range(51):
             candidate = self.create_assigned_student(index)

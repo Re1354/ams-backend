@@ -14,7 +14,8 @@ class DepartmentThresholdSerializer(serializers.ModelSerializer):
         model = DepartmentThreshold
         fields = [
             'id', 'department', 'department_id', 'department_name', 'department_shortname',
-            'semester', 'min_threshold_mark', 'seat_limit', 'created_at', 'updated_at'
+            'semester', 'min_threshold_mark', 'seat_limit', 'waiting_student_limit',
+            'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
@@ -30,6 +31,12 @@ class DepartmentThresholdSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Seat limit must be at least 1")
         return value
 
+    def validate_waiting_student_limit(self, value):
+        """Validate that waiting student limit is not negative"""
+        if value < 0:
+            raise serializers.ValidationError("Waiting student limit cannot be negative")
+        return value
+
 
 class ThresholdMappingItemSerializer(serializers.Serializer):
     """Serializer for individual threshold mapping item (semester-based)"""
@@ -42,6 +49,12 @@ class ThresholdMappingItemSerializer(serializers.Serializer):
     seat_limit = serializers.IntegerField(
         min_value=1,
         help_text="Maximum number of students to accept in this semester"
+    )
+    waiting_student_limit = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        default=0,
+        help_text="Maximum number of attended non-selected students to keep waiting"
     )
     
     def validate_department_id(self, value):

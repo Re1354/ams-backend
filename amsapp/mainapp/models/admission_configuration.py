@@ -32,6 +32,10 @@ class AdmissionConfiguration(models.Model):
         default=0,
         help_text="Maximum number of students that can be accepted for this semester",
     )
+    waiting_student_limit = models.PositiveIntegerField(
+        default=0,
+        help_text="Maximum number of attended non-selected students to keep in waiting status",
+    )
     threshold = models.FloatField(
         default=0.0,
         validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],

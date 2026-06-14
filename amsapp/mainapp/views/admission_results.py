@@ -107,6 +107,9 @@ def resolve_configuration_from_payload(validated_data):
     if "seat_limit" in validated_data:
         configuration.seat_limit = validated_data["seat_limit"]
         updates.append("seat_limit")
+    if "waiting_student_limit" in validated_data:
+        configuration.waiting_student_limit = validated_data["waiting_student_limit"]
+        updates.append("waiting_student_limit")
     if "threshold" in validated_data:
         configuration.threshold = validated_data["threshold"]
         updates.append("threshold")
@@ -117,13 +120,14 @@ def resolve_configuration_from_payload(validated_data):
     if updates:
         configuration.save(update_fields=updates + ["updated_at"])
 
-    if "seat_limit" in validated_data or "threshold" in validated_data:
+    if any(field in validated_data for field in ("seat_limit", "threshold", "waiting_student_limit")):
         DepartmentThreshold.objects.update_or_create(
             semester=configuration.semester,
             department=configuration.department,
             defaults={
                 "min_threshold_mark": configuration.threshold,
                 "seat_limit": configuration.seat_limit,
+                "waiting_student_limit": configuration.waiting_student_limit,
                 "exam": exam or configuration.exam,
             },
         )
@@ -225,7 +229,7 @@ def admission_configurations(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if any(field in serializer.validated_data for field in ("seat_limit", "threshold")):
+    if any(field in serializer.validated_data for field in ("seat_limit", "threshold", "waiting_student_limit")):
         calculate_semester_admission_results(
             department=configuration.department,
             semester=configuration.semester,
@@ -278,18 +282,19 @@ def admission_configuration_detail(request, config_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    for field in ("seat_limit", "threshold", "notes"):
+    for field in ("seat_limit", "waiting_student_limit", "threshold", "notes"):
         if field in serializer.validated_data:
             setattr(configuration, field, serializer.validated_data[field])
     configuration.save()
 
-    if any(field in serializer.validated_data for field in ("seat_limit", "threshold")):
+    if any(field in serializer.validated_data for field in ("seat_limit", "threshold", "waiting_student_limit")):
         DepartmentThreshold.objects.update_or_create(
             semester=configuration.semester,
             department=configuration.department,
             defaults={
                 "min_threshold_mark": configuration.threshold,
                 "seat_limit": configuration.seat_limit,
+                "waiting_student_limit": configuration.waiting_student_limit,
                 "exam": configuration.exam,
             },
         )
@@ -684,8 +689,7 @@ def bulk_update_admission_result_status(request):
                     ]
                 )
 
-        if had_override:
-            recalc_required = True
+        recalc_required = True
 
         message = f"Reverted {len(results)} candidates to their stored result status."
 
@@ -695,6 +699,7 @@ def bulk_update_admission_result_status(request):
             semester=configuration.semester,
             threshold_value=threshold_mapping.min_threshold_mark,
             seat_limit=threshold_mapping.seat_limit,
+            waiting_student_limit=threshold_mapping.waiting_student_limit,
         )
         if not status_application.get("success"):
             return Response(

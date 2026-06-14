@@ -217,7 +217,10 @@ class VivaAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(DepartmentThreshold)
 class DepartmentThresholdAdmin(admin.ModelAdmin):
-    list_display = ('id', 'exam', 'department', 'min_threshold_mark', 'created_at', 'updated_at')
+    list_display = (
+        'id', 'exam', 'department', 'min_threshold_mark', 'seat_limit',
+        'waiting_student_limit', 'created_at', 'updated_at'
+    )
     list_filter = ('department', 'created_at', 'updated_at')
     search_fields = ('exam__department', 'department__department_name')
     list_per_page = 25
@@ -228,7 +231,8 @@ class DepartmentThresholdAdmin(admin.ModelAdmin):
 @admin.register(AdmissionConfiguration)
 class AdmissionConfigurationAdmin(admin.ModelAdmin):
     list_display = (
-        'id', 'department', 'semester', 'exam', 'seat_limit', 'threshold', 'updated_at'
+        'id', 'department', 'semester', 'exam', 'seat_limit',
+        'waiting_student_limit', 'threshold', 'updated_at'
     )
     list_filter = ('department', 'semester', 'updated_at')
     search_fields = ('department__department_name', 'department__department_shortname', 'semester')

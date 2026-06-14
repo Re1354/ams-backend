@@ -133,6 +133,9 @@ def get_or_create_admission_configuration(exam, department):
             "seat_limit": (
                 threshold_mapping.seat_limit if threshold_mapping else 0
             ),
+            "waiting_student_limit": (
+                threshold_mapping.waiting_student_limit if threshold_mapping else 0
+            ),
         },
     )
 
@@ -148,6 +151,9 @@ def get_or_create_admission_configuration(exam, department):
         if configuration.seat_limit != threshold_mapping.seat_limit:
             configuration.seat_limit = threshold_mapping.seat_limit
             update_fields.append("seat_limit")
+        if configuration.waiting_student_limit != threshold_mapping.waiting_student_limit:
+            configuration.waiting_student_limit = threshold_mapping.waiting_student_limit
+            update_fields.append("waiting_student_limit")
 
     if update_fields:
         configuration.save(update_fields=update_fields + ["updated_at"])
@@ -467,7 +473,14 @@ def recalculate_admission_result_record(
     }
 
 
-def apply_semester_result_statuses(*, department, semester, threshold_value, seat_limit):
+def apply_semester_result_statuses(
+    *,
+    department,
+    semester,
+    threshold_value,
+    seat_limit,
+    waiting_student_limit=0,
+):
     if threshold_value is None or seat_limit is None or seat_limit <= 0:
         return {
             "success": False,
@@ -495,10 +508,7 @@ def apply_semester_result_statuses(*, department, semester, threshold_value, sea
 
     non_override = results.filter(is_override_accepted=False)
     non_override.filter(attended_exam=False).update(result_status="ABSENT")
-    non_override.filter(
-        attended_exam=True,
-        weighted_total_marks__lt=threshold_value,
-    ).update(result_status="REJECTED")
+    non_override.filter(attended_exam=True).update(result_status="REJECTED")
 
     qualified = non_override.filter(
         attended_exam=True,
@@ -519,10 +529,20 @@ def apply_semester_result_statuses(*, department, semester, threshold_value, sea
             is_selected=True,
         )
 
-    non_override.filter(
-        attended_exam=True,
-        weighted_total_marks__gte=threshold_value,
-    ).exclude(id__in=accepted_ids).update(result_status="WAITING", is_selected=False)
+    waiting_candidates = non_override.filter(attended_exam=True).exclude(id__in=accepted_ids).order_by(
+        "-weighted_total_marks",
+        "-written_viva_total",
+        "-mcq_marks",
+        "student_id",
+    )
+    waiting_limit = max(int(waiting_student_limit or 0), 0)
+    waiting_ids = list(waiting_candidates.values_list("id", flat=True)[:waiting_limit])
+
+    if waiting_ids:
+        non_override.filter(id__in=waiting_ids).update(
+            result_status="WAITING",
+            is_selected=False,
+        )
 
     return {
         "success": True,
@@ -611,6 +631,7 @@ def calculate_semester_admission_results(*, department, semester):
         semester=semester,
         threshold_value=threshold_mapping.min_threshold_mark,
         seat_limit=threshold_mapping.seat_limit,
+        waiting_student_limit=threshold_mapping.waiting_student_limit,
     )
     if not status_application.get("success"):
         return {
@@ -727,6 +748,7 @@ def recalculate_single_student_result(exam_id, student_id):
         semester=exam.semester,
         threshold_value=threshold_mapping.min_threshold_mark,
         seat_limit=threshold_mapping.seat_limit,
+        waiting_student_limit=threshold_mapping.waiting_student_limit,
     )
     if not status_application.get("success"):
         return {

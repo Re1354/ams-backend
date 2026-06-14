@@ -38,6 +38,11 @@ class DepartmentThreshold(models.Model):
         default=10,
         help_text="Maximum number of students to accept for this department in this semester"
     )
+    waiting_student_limit = models.IntegerField(
+        validators=[MinValueValidator(0)],
+        default=0,
+        help_text="Maximum number of attended non-selected students to keep in waiting status"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -51,7 +56,11 @@ class DepartmentThreshold(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.semester} - {self.department.department_name}: {self.min_threshold_mark} (seats: {self.seat_limit})"
+        return (
+            f"{self.semester} - {self.department.department_name}: "
+            f"{self.min_threshold_mark} (seats: {self.seat_limit}, "
+            f"waiting: {self.waiting_student_limit})"
+        )
 
     def clean(self):
         """Validate that threshold is reasonable"""
@@ -60,3 +69,5 @@ class DepartmentThreshold(models.Model):
             raise ValidationError("Threshold mark must be a positive number")
         if self.seat_limit < 1:
             raise ValidationError("Seat limit must be at least 1")
+        if self.waiting_student_limit < 0:
+            raise ValidationError("Waiting student limit cannot be negative")

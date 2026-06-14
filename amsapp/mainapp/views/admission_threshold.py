@@ -72,8 +72,8 @@ def set_threshold_mapping(request):
     {
         "semester": "Fall 2025",
         "mappings": [
-            {"department_id": 2, "threshold": 60.0, "seat_limit": 5},
-            {"department_id": 3, "threshold": 75.0, "seat_limit": 8}
+            {"department_id": 2, "threshold": 60.0, "seat_limit": 5, "waiting_student_limit": 10},
+            {"department_id": 3, "threshold": 75.0, "seat_limit": 8, "waiting_student_limit": 10}
         ]
     }
     """
@@ -98,6 +98,7 @@ def set_threshold_mapping(request):
             department_id = mapping['department_id']
             threshold_value = mapping['threshold']
             dept_seat_limit = mapping['seat_limit']
+            waiting_student_limit = mapping.get('waiting_student_limit', 0)
             
             try:
                 department = Department.objects.get(id=department_id)
@@ -113,7 +114,8 @@ def set_threshold_mapping(request):
                 department=department,
                 defaults={
                     'min_threshold_mark': threshold_value,
-                    'seat_limit': dept_seat_limit
+                    'seat_limit': dept_seat_limit,
+                    'waiting_student_limit': waiting_student_limit,
                 }
             )
 
@@ -122,6 +124,7 @@ def set_threshold_mapping(request):
                 semester=semester,
                 defaults={
                     'seat_limit': dept_seat_limit,
+                    'waiting_student_limit': waiting_student_limit,
                     'threshold': threshold_value,
                 }
             )
@@ -132,6 +135,9 @@ def set_threshold_mapping(request):
             if configuration.threshold != threshold_value:
                 configuration.threshold = threshold_value
                 config_updates.append('threshold')
+            if configuration.waiting_student_limit != waiting_student_limit:
+                configuration.waiting_student_limit = waiting_student_limit
+                config_updates.append('waiting_student_limit')
             if config_updates:
                 configuration.save(update_fields=config_updates + ['updated_at'])
             
@@ -277,7 +283,8 @@ def delete_threshold_mapping(request, threshold_id):
             'semester': threshold.semester,
             'department': threshold.department.department_name,
             'threshold': threshold.min_threshold_mark,
-            'seat_limit': threshold.seat_limit
+            'seat_limit': threshold.seat_limit,
+            'waiting_student_limit': threshold.waiting_student_limit
         }
         threshold.delete()
         
