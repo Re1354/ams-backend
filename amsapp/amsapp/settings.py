@@ -244,7 +244,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://ams-diu-student-16bv.vercel.app",
     "https://ams-diu-student-omega.vercel.app",
     "https://admin.tatomal.me",
-    "http://student.tatomal.me"
+    "https://student.tatomal.me"
 ]
 
 
