@@ -1,0 +1,54 @@
+# ==========================================================================
+#  AMS-DIU Backend (Django + Gunicorn) and its PostgreSQL database.
+#  - postgres data lives in the named volume "pgdata" and is NEVER removed
+#    by deploy.sh (we only ever `up`/`build`, never `down -v`).
+#  - the web container auto-runs migrate + collectstatic on start
+#    (see CMD in Dockerfile), so schema changes apply without data loss.
+# ==========================================================================
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ams-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  web:
+    build: .
+    container_name: ams-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Point Django at the postgres service. Overrides the localhost default
+      # baked into settings.py.
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      # Tell the shared nginx-proxy how to route this container.
+      VIRTUAL_HOST: ${API_DOMAIN}
+      VIRTUAL_PORT: "8000"
+      LETSENCRYPT_HOST: ${API_DOMAIN}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal   # to reach postgres
+      - web        # to be reached by nginx-proxy
+
+volumes:
+  pgdata:
+
+networks:
+  internal:
+  web:
+    external: true
