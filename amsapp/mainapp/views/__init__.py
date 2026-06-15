@@ -14,8 +14,8 @@ from .exams import (
 from .students import get_all_students, create_student, get_student_by_id, update_student, delete_student
 from .schedules import AllSchedulesView, create_exam_schedule, ScheduleDetailView, get_teacher_schedule
 from .student_app import (
-    student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
-    submit_exam, get_exam_result, calculate_exam_result, calculate_exam_result_helper,
+    student_login, StudentAvailableExamsView, StudentExamQuestionsView,
+    submit_exam, save_answer, get_draft_answers, get_exam_result, calculate_exam_result, calculate_exam_result_helper,
     get_student_scheduled_exams, get_student_schedule
 )
 from .auth import login_view, refresh_token_view, verify_token_view
@@ -70,7 +70,7 @@ __all__ = [
     
     # Student App
     'student_login', 'StudentAvailableExamsView', 'StudentExamQuestionsView',
-    'submit_exam', 'get_exam_result', 'calculate_exam_result', 'get_student_scheduled_exams', 'get_student_schedule',
+    'submit_exam', 'save_answer', 'get_draft_answers', 'get_exam_result', 'calculate_exam_result', 'get_student_scheduled_exams', 'get_student_schedule',
     
     # Authentication
     'login_view', 'refresh_token_view', 'verify_token_view',

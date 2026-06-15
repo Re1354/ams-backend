@@ -319,6 +319,127 @@ def submit_exam(request, exam_id):
 
 
 @extend_schema(
+    summary="Autosave a single answer (draft)",
+    description=(
+        "Persist one answer immediately as a draft so a student can recover "
+        "their work if their device disconnects. Unlike the final submit, this "
+        "does NOT trigger admission recalculation."
+    ),
+    tags=['Student App'],
+    responses={
+        200: {'type': 'object', 'properties': {'saved': {'type': 'boolean'}}},
+        400: {'type': 'object', 'properties': {'error': {'type': 'string'}}},
+    },
+)
+@csrf_exempt
+@api_view(['POST'])
+def save_answer(request, exam_id):
+    """Autosave a single answer as a draft (no admission recalculation)."""
+    student_id = request.data.get('student_id')
+    question_id = request.data.get('question_id')
+    answer = (request.data.get('answer') or '').strip()
+
+    if not student_id:
+        return Response(
+            {'error': 'Student ID is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if not question_id:
+        return Response(
+            {'error': 'Question ID is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        student = Students.objects.get(id=student_id)
+        exam = Exam.objects.get(id=exam_id)
+    except (Students.DoesNotExist, Exam.DoesNotExist):
+        return Response(
+            {'error': 'Student or Exam not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    try:
+        exam_question = ExamQuestion.objects.get(id=question_id, exam=exam)
+    except ExamQuestion.DoesNotExist:
+        return Response(
+            {'error': 'Question not found for this exam'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    is_correct = is_submission_correct(exam_question, answer)
+
+    Submission.objects.update_or_create(
+        student=student,
+        exam=exam,
+        question=exam_question,
+        defaults={
+            'answer': answer,
+            'is_correct': is_correct,
+        }
+    )
+
+    return Response({'saved': True}, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    summary="Get a student's draft answers",
+    description=(
+        "Return the answers a student has already saved for an exam so the "
+        "exam interface can restore them after a reload or device failure."
+    ),
+    tags=['Student App'],
+    responses={
+        200: {
+            'type': 'object',
+            'properties': {
+                'exam_id': {'type': 'integer'},
+                'student_id': {'type': 'integer'},
+                'answers': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'question_id': {'type': 'integer'},
+                            'answer': {'type': 'string'},
+                        },
+                    },
+                },
+            },
+        },
+    },
+)
+@csrf_exempt
+@api_view(['GET'])
+def get_draft_answers(request, exam_id, student_id):
+    """Return previously saved answers for a student/exam (for recovery)."""
+    try:
+        student = Students.objects.get(id=student_id)
+        exam = Exam.objects.get(id=exam_id)
+    except (Students.DoesNotExist, Exam.DoesNotExist):
+        return Response(
+            {'error': 'Student or Exam not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    submissions = Submission.objects.filter(
+        student=student, exam=exam
+    ).values('question_id', 'answer')
+
+    answers = [
+        {'question_id': item['question_id'], 'answer': item['answer']}
+        for item in submissions
+    ]
+
+    return Response({
+        'exam_id': exam.id,
+        'student_id': student.id,
+        'answers': answers,
+    }, status=status.HTTP_200_OK)
+
+
+@extend_schema(
     summary="Get exam result",
     description="Get student's exam result and performance details",
     tags=['Student App'],
