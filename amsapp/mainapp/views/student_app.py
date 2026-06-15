@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
-from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission, PublishedExam
+from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission, ExamDraft, PublishedExam
 from ..serializers import (
     StudentsSerializer, StudentLoginSerializer, ExamSubmissionSerializer,
     StudentLoginResponseSerializer, ExamSubmissionResponseSerializer
@@ -308,7 +308,11 @@ def submit_exam(request, exam_id):
                 
         except ExamQuestion.DoesNotExist:
             continue
-    
+
+    # The exam is now finally submitted, so the recovery drafts are no longer
+    # needed. Clear them so they can't be mistaken for in-progress work.
+    ExamDraft.objects.filter(student=student, exam=exam).delete()
+
     admission_recalculation = refresh_admission_results_after_submission(exam)
 
     return Response({
@@ -334,7 +338,13 @@ def submit_exam(request, exam_id):
 @csrf_exempt
 @api_view(['POST'])
 def save_answer(request, exam_id):
-    """Autosave a single answer as a draft (no admission recalculation)."""
+    """Autosave a single answer as a DRAFT.
+
+    Drafts are stored separately from `Submission`, so saving a draft does NOT
+    count as submitting the exam. Only `submit_exam` (Submit button or the
+    timer reaching zero) creates real submissions. This lets a student leave
+    and rejoin without their draft being treated as a final submission.
+    """
     student_id = request.data.get('student_id')
     question_id = request.data.get('question_id')
     answer = (request.data.get('answer') or '').strip()
@@ -368,16 +378,11 @@ def save_answer(request, exam_id):
             status=status.HTTP_404_NOT_FOUND
         )
 
-    is_correct = is_submission_correct(exam_question, answer)
-
-    Submission.objects.update_or_create(
+    ExamDraft.objects.update_or_create(
         student=student,
         exam=exam,
         question=exam_question,
-        defaults={
-            'answer': answer,
-            'is_correct': is_correct,
-        }
+        defaults={'answer': answer},
     )
 
     return Response({'saved': True}, status=status.HTTP_200_OK)
@@ -413,7 +418,7 @@ def save_answer(request, exam_id):
 @csrf_exempt
 @api_view(['GET'])
 def get_draft_answers(request, exam_id, student_id):
-    """Return previously saved answers for a student/exam (for recovery)."""
+    """Return a student's saved DRAFT answers for an exam (for recovery)."""
     try:
         student = Students.objects.get(id=student_id)
         exam = Exam.objects.get(id=exam_id)
@@ -423,13 +428,13 @@ def get_draft_answers(request, exam_id, student_id):
             status=status.HTTP_404_NOT_FOUND
         )
 
-    submissions = Submission.objects.filter(
+    drafts = ExamDraft.objects.filter(
         student=student, exam=exam
     ).values('question_id', 'answer')
 
     answers = [
         {'question_id': item['question_id'], 'answer': item['answer']}
-        for item in submissions
+        for item in drafts
     ]
 
     return Response({

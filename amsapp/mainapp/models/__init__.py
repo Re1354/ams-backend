@@ -6,6 +6,7 @@ from .exam_question import ExamQuestion
 from .exam_schedule import ExamSchedule
 from .students import Students
 from .submission import Submission
+from .exam_draft import ExamDraft
 from .menu import Menu
 from .role_menu import RoleMenu
 from .departments import Department
@@ -33,6 +34,7 @@ __all__ = [
     'ExamSchedule',
     'Students',
     'Submission',
+    'ExamDraft',
     'Menu',
     'RoleMenu',
     'Department',
