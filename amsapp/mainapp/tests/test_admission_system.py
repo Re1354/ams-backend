@@ -961,6 +961,44 @@ class AdmissionSystemTestCase(APITestCase):
             "Older marks",
         )
 
+    def test_teacher_results_endpoint_returns_paginated_page(self):
+        self.create_submissions_for_student(self.student1, correct_count=6)
+        self.create_submissions_for_student(self.student2, correct_count=5)
+
+        VivaAssignment.objects.create(
+            student=self.student1,
+            teacher=self.admin_user,
+            exam=self.exam,
+            scheduled_at=timezone.now(),
+            time=timezone.now().time(),
+            total_marks=7,
+            rubric_scores={"1": 4, "2": 3},
+            remarks="First paginated viva",
+        )
+        VivaAssignment.objects.create(
+            student=self.student2,
+            teacher=self.admin_user,
+            exam=self.exam,
+            scheduled_at=timezone.now(),
+            time=timezone.now().time(),
+            total_marks=8,
+            rubric_scores={"1": 4, "2": 4},
+            remarks="Second paginated viva",
+        )
+
+        response = self.client.get(
+            f"/api/get-all-results-by-teacher/{self.admin_user.id}/?page_size=1&page=2"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        pagination = response.data["data"]["pagination"]
+        self.assertEqual(pagination["count"], 2)
+        self.assertEqual(pagination["total_pages"], 2)
+        self.assertEqual(pagination["current_page"], 2)
+        self.assertEqual(pagination["page_size"], 1)
+        self.assertEqual(len(response.data["data"]["results"]), 1)
+
     def test_add_viva_marks_recalculates_admission_result_immediately(self):
         self.set_thresholds(cse_threshold=55.0, eee_threshold=70.0)
         MarksDistribution.objects.filter(department=self.dept_cse).update(

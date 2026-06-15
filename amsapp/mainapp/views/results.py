@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 
 from rest_framework import status
@@ -24,6 +25,8 @@ from ..utils import (
     normalize_semester_filter,
     paginate_queryset,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @extend_schema(
@@ -464,7 +467,7 @@ def get_all_results_by_teacher(request, teacher_id):
 
         response_data = {
             'pagination': pagination_info,
-            'results': page if page is not None else results_data,
+            'results': results_data,
             'filters': filters_info
         }
 
@@ -479,6 +482,17 @@ def get_all_results_by_teacher(request, teacher_id):
             'success': False,
             'message': 'Teacher not found'
         }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as exc:
+        logger.exception(
+            "Failed to get results for teacher_id=%s with params=%s",
+            teacher_id,
+            dict(request.query_params),
+        )
+        return Response({
+            'success': False,
+            'message': 'Failed to load exam results',
+            'error': str(exc),
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
