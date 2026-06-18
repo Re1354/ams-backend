@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 
-from ..models import AdmissionConfiguration, AdmissionResult, Department, Exam
+from ..models import AdmissionConfiguration, AdmissionResult, Department, Exam, VivaAssignment
+from ..models.viva_marks import VivaMarks
 from ..utils import normalize_semester_value
 
 
@@ -106,6 +107,7 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
         read_only=True,
     )
     exam_details = serializers.SerializerMethodField()
+    viva_marks_entered = serializers.SerializerMethodField()
 
     class Meta:
         model = AdmissionResult
@@ -127,6 +129,7 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "department_shortname",
             "mcq_marks",
             "viva_marks",
+            "viva_marks_entered",
             "written_viva_total",
             "total_marks",
             "weighted_total_marks",
@@ -166,6 +169,23 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "semester": obj.exam.semester,
             "total_marks": obj.exam.total_marks,
         }
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_viva_marks_entered(self, obj):
+        viva_assignment = (
+            VivaAssignment.objects.filter(student=obj.student, exam=obj.exam)
+            .order_by("-updated_at", "-created_at", "-id")
+            .first()
+        )
+        if viva_assignment:
+            return bool(
+                viva_assignment.rubric_scores
+                or viva_assignment.remarks
+                or float(viva_assignment.total_marks or 0) != 0
+                or VivaMarks.objects.filter(student=obj.student).exists()
+            )
+
+        return VivaMarks.objects.filter(student=obj.student).exists()
 
 
 class CalculateAdmissionResultsSerializer(serializers.Serializer):

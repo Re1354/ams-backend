@@ -1,5 +1,6 @@
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.pagination import PageNumberPagination
@@ -9,6 +10,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 
 from ..authentication import CustomJWTAuthentication
 from ..models import AdmissionConfiguration, AdmissionResult, Department, DepartmentThreshold, Exam
+from ..models import StudentAssignTeacherExam
 from ..serializers.admission_result import (
     AdmissionConfigurationSerializer,
     AdmissionConfigurationUpsertSerializer,
@@ -70,6 +72,37 @@ def is_threshold_qualified(result):
         result.attended_exam
         and threshold_value is not None
         and result.weighted_total_marks >= float(threshold_value)
+    )
+
+
+def filter_visible_results_by_exam_schedule(results):
+    """
+    Hide unattempted assigned candidates until their assigned schedule has ended.
+    Existing premature ABSENT rows can remain stored, but they should not appear
+    on the result board before the exam window is over.
+    """
+    now = timezone.now()
+    ended_assignment = StudentAssignTeacherExam.objects.filter(
+        student_id=OuterRef("student_id"),
+        exam_id=OuterRef("exam_id"),
+        schedule__end_time__lte=now,
+    )
+    future_assignment = StudentAssignTeacherExam.objects.filter(
+        student_id=OuterRef("student_id"),
+        exam_id=OuterRef("exam_id"),
+        schedule__end_time__gt=now,
+    )
+
+    return (
+        results.annotate(
+            has_ended_assignment=Exists(ended_assignment),
+            has_future_assignment=Exists(future_assignment),
+        )
+        .exclude(
+            attended_exam=False,
+            has_ended_assignment=False,
+            has_future_assignment=True,
+        )
     )
 
 
@@ -501,6 +534,7 @@ def get_admission_results(request):
     if publication_status:
         results = results.filter(status__iexact=publication_status)
 
+    results = filter_visible_results_by_exam_schedule(results)
     summary_queryset = results
     summary = summarize_status_counts(summary_queryset)
     configuration = get_single_configuration(summary_queryset)

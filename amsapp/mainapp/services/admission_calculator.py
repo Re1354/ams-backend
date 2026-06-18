@@ -8,6 +8,7 @@ specific exam. This service keeps that logic in one place.
 
 from collections import defaultdict
 
+from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q, Sum
 
@@ -341,16 +342,14 @@ def determine_result_status(
 
 def get_candidate_students_for_exam(exam):
     """
-    Prefer assigned candidates so absent students can be tracked. If the exam
-    has no assignments yet, fall back to students with submissions.
+    Include assigned candidates only after their schedule has ended, while
+    always keeping students who have already submitted answers.
     """
-    assigned_students = Students.objects.filter(
-        assigned_exams__exam=exam
+    now = timezone.now()
+    return Students.objects.filter(
+        Q(assigned_exams__exam=exam, assigned_exams__schedule__end_time__lte=now)
+        | Q(submissions__exam=exam)
     ).distinct()
-    if assigned_students.exists():
-        return assigned_students
-
-    return Students.objects.filter(submissions__exam=exam).distinct()
 
 
 def summarize_status_counts(results_queryset):
