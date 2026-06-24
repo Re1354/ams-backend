@@ -355,9 +355,7 @@ def build_calculation_equations(report: dict) -> tuple[list[dict[str, str]], str
     academic_divisor = get_academic_divisor(final_result)
     written_total_marks = get_written_total_marks_from_report(report)
     viva_total_marks = get_viva_total_marks_from_report(report)
-    if academic_source == "DIPLOMA":
-        academic_weight = distribution.get("diploma", 0)
-    elif academic_source == "HSC":
+    if academic_source in {"DIPLOMA", "HSC"}:
         academic_weight = distribution.get("hsc", 0)
     else:
         academic_weight = 0
@@ -597,6 +595,7 @@ def build_student_admission_detail_report_data(exam_id: int, student_id: int):
             "department_shortname": student.department_shortname,
             "registration_semester": student.registration_semester,
             "ssc": float(student.ssc or 0),
+            "academic_type": student.academic_type,
             "hsc": float(student.hsc or 0),
             "diploma": float(student.diploma or 0),
         },

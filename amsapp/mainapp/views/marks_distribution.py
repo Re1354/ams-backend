@@ -17,7 +17,7 @@ from ..authentication import CustomJWTAuthentication
     operation_id='create_marks_distribution',
     tags=['Marks Distribution Management'],
     summary="Create new marks distribution",
-    description="Create new marks distribution for a department with SSC, HSC, and Diploma marks",
+    description="Create new marks distribution for a department with SSC, shared HSC/Diploma, main, and viva weights",
     request=MarksDistributionCreateSerializer,
     responses={
         201: OpenApiResponse(

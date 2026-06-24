@@ -228,6 +228,14 @@ def get_viva_marks_for_student_exam(student, exam):
 def get_academic_score(student):
     diploma_score = clamp(student.diploma)
     hsc_score = clamp(student.hsc)
+    academic_type = str(getattr(student, "academic_type", "") or "").upper()
+
+    if academic_type == "DIPLOMA":
+        return "DIPLOMA", diploma_score
+    if academic_type == "HSC":
+        return "HSC", hsc_score
+
+    # Legacy fallback for records created before academic_type existed.
     if diploma_score > 0:
         return "DIPLOMA", diploma_score
     if hsc_score > 0:
@@ -294,7 +302,7 @@ def calculate_weighted_scores(student, exam, department, mcq_marks, viva_marks):
         }
 
     ssc_contribution = normalize_score(ssc_score, 5.0) * distribution.ssc
-    academic_weight = distribution.diploma if academic_source == "DIPLOMA" else distribution.hsc
+    academic_weight = distribution.hsc if academic_source in {"HSC", "DIPLOMA"} else 0
     academic_contribution = normalize_score(
         academic_score,
         get_academic_max_score(academic_source),

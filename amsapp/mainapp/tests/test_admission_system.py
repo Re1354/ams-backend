@@ -213,6 +213,125 @@ class AdmissionSystemTestCase(APITestCase):
             waiting_student_limit=eee_waiting_student_limit,
         )
 
+    def test_create_student_uses_selected_hsc_score(self):
+        suffix = uuid4().hex[:8]
+
+        response = self.client.post(
+            "/api/students/create/",
+            {
+                "username": f"hsc-student-{suffix}",
+                "password": "pass123",
+                "f_id": f"HSC-{suffix}",
+                "full_name": "HSC Student",
+                "email": f"hsc-student-{suffix}@test.com",
+                "department_shortname": "CSE",
+                "registration_semester": "Spring 2026",
+                "ssc": 4.8,
+                "academic_type": "HSC",
+                "hsc": 4.5,
+                "diploma": 3.6,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        student = Students.objects.get(username=f"hsc-student-{suffix}")
+        self.assertEqual(student.academic_type, "HSC")
+        self.assertEqual(student.hsc, 4.5)
+        self.assertEqual(student.diploma, 0)
+        self.assertEqual(response.data["data"]["academic_type"], "HSC")
+
+    def test_create_student_uses_selected_diploma_score(self):
+        suffix = uuid4().hex[:8]
+
+        response = self.client.post(
+            "/api/students/create/",
+            {
+                "username": f"diploma-student-{suffix}",
+                "password": "pass123",
+                "f_id": f"DIP-{suffix}",
+                "full_name": "Diploma Student",
+                "email": f"diploma-student-{suffix}@test.com",
+                "department_shortname": "CSE",
+                "registration_semester": "Spring 2026",
+                "ssc": 4.7,
+                "academic_type": "DIPLOMA",
+                "hsc": 4.9,
+                "diploma": 3.2,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        student = Students.objects.get(username=f"diploma-student-{suffix}")
+        self.assertEqual(student.academic_type, "DIPLOMA")
+        self.assertEqual(student.hsc, 0)
+        self.assertEqual(student.diploma, 3.2)
+        self.assertEqual(response.data["data"]["academic_type"], "DIPLOMA")
+
+    def test_create_student_rejects_scores_outside_gpa_scale(self):
+        suffix = uuid4().hex[:8]
+
+        response = self.client.post(
+            "/api/students/create/",
+            {
+                "username": f"bad-diploma-{suffix}",
+                "password": "pass123",
+                "f_id": f"BAD-{suffix}",
+                "full_name": "Bad Diploma Student",
+                "email": f"bad-diploma-{suffix}@test.com",
+                "department_shortname": "CSE",
+                "registration_semester": "Spring 2026",
+                "ssc": 4.7,
+                "academic_type": "DIPLOMA",
+                "diploma": 4.1,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("diploma", response.data["errors"])
+
+    def test_update_student_can_switch_to_diploma(self):
+        response = self.client.patch(
+            f"/api/students/{self.student1.id}/update/",
+            {
+                "academic_type": "DIPLOMA",
+                "diploma": 3.8,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.student1.refresh_from_db()
+        self.assertEqual(self.student1.academic_type, "DIPLOMA")
+        self.assertEqual(self.student1.hsc, 0)
+        self.assertEqual(self.student1.diploma, 3.8)
+
+    def test_create_marks_distribution_uses_one_shared_hsc_diploma_weight(self):
+        department = Department.objects.create(
+            department_name=f"Shared Academic Department {uuid4().hex[:8]}",
+            department_shortname=f"SAD{uuid4().hex[:4]}",
+        )
+
+        response = self.client.post(
+            "/api/create-marks-distribution/",
+            {
+                "department": department.id,
+                "ssc": 5,
+                "hsc": 5,
+                "diploma": 40,
+                "main_marks": 80,
+                "viva_marks": 10,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        distribution = MarksDistribution.objects.get(department=department)
+        self.assertEqual(distribution.hsc, 5)
+        self.assertEqual(distribution.diploma, 5)
+
     def test_set_threshold_mapping_success(self):
         response = self.client.post(
             "/api/admission/threshold-mapping/",
@@ -834,15 +953,16 @@ class AdmissionSystemTestCase(APITestCase):
         cse_distribution = MarksDistribution.objects.get(department=self.dept_cse)
         cse_distribution.ssc = 5
         cse_distribution.hsc = 5
-        cse_distribution.diploma = 10
+        cse_distribution.diploma = 5
         cse_distribution.main_marks = 80
         cse_distribution.viva_marks = 0
         cse_distribution.save()
 
         self.student1.ssc = 4.5
+        self.student1.academic_type = "DIPLOMA"
         self.student1.hsc = 0
         self.student1.diploma = 3.2
-        self.student1.save(update_fields=["ssc", "hsc", "diploma"])
+        self.student1.save(update_fields=["ssc", "academic_type", "hsc", "diploma"])
 
         weighted = calculate_weighted_scores(
             student=self.student1,
@@ -853,10 +973,10 @@ class AdmissionSystemTestCase(APITestCase):
         )
 
         self.assertEqual(weighted["ssc_contribution"], 4.5)
-        self.assertEqual(weighted["academic_contribution"], 8.0)
+        self.assertEqual(weighted["academic_contribution"], 4.0)
         self.assertEqual(weighted["written_contribution"], 40.0)
         self.assertEqual(weighted["viva_contribution"], 0.0)
-        self.assertEqual(weighted["weighted_total_marks"], 52.5)
+        self.assertEqual(weighted["weighted_total_marks"], 48.5)
 
     def test_teacher_results_and_viva_updates_use_teacher_specific_assignment(self):
         StudentAssignTeacherExam.objects.create(

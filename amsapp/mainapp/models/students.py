@@ -3,6 +3,11 @@ from ..utils import normalize_semester_value
 
 
 class Students(models.Model):
+    ACADEMIC_TYPE_CHOICES = [
+        ('HSC', 'HSC'),
+        ('DIPLOMA', 'Diploma'),
+    ]
+
     username = models.CharField(max_length=100, unique=True)
     password = models.CharField(max_length=255)  # In real app, use hashed passwords
     f_id = models.CharField(max_length=50, help_text="Form ID")
@@ -16,6 +21,12 @@ class Students(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     ssc = models.FloatField(default=0)
+    academic_type = models.CharField(
+        max_length=20,
+        choices=ACADEMIC_TYPE_CHOICES,
+        default='HSC',
+        help_text="Whether the student uses HSC GPA or Diploma CGPA",
+    )
     hsc = models.FloatField(default=0)
     diploma = models.FloatField(default=0)
 

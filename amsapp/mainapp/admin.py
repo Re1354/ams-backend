@@ -87,8 +87,8 @@ class ExamScheduleAdmin(admin.ModelAdmin):
 
 @admin.register(Students)
 class StudentsAdmin(admin.ModelAdmin):
-    list_display = ('id', 'username', 'f_id', 'full_name', 'email', 'department_shortname', 'registration_semester', 'created_at')
-    list_filter = ('department_shortname', 'registration_semester', 'created_at')
+    list_display = ('id', 'username', 'f_id', 'full_name', 'email', 'department_shortname', 'registration_semester', 'academic_type', 'created_at')
+    list_filter = ('department_shortname', 'registration_semester', 'academic_type', 'created_at')
     search_fields = ('username', 'f_id', 'full_name', 'email', 'registration_semester')
     list_per_page = 25
 

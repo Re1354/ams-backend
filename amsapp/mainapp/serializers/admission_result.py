@@ -95,6 +95,10 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
         read_only=True,
     )
     student_ssc = serializers.FloatField(source="student.ssc", read_only=True)
+    student_academic_type = serializers.CharField(
+        source="student.academic_type",
+        read_only=True,
+    )
     student_hsc = serializers.FloatField(source="student.hsc", read_only=True)
     student_diploma = serializers.FloatField(source="student.diploma", read_only=True)
     department_name = serializers.CharField(source="department.department_name", read_only=True)
@@ -120,6 +124,7 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "student_f_id",
             "student_registration_semester",
             "student_ssc",
+            "student_academic_type",
             "student_hsc",
             "student_diploma",
             "configuration",

@@ -3,6 +3,39 @@ from ..models import Students, Submission, ExamQuestion, Exam
 from ..utils import normalize_semester_value
 
 
+ACADEMIC_TYPE_HSC = 'HSC'
+ACADEMIC_TYPE_DIPLOMA = 'DIPLOMA'
+
+
+def validate_gpa_range(value, label, maximum):
+    if value < 0:
+        raise serializers.ValidationError(f"{label} cannot be negative")
+    if value > maximum:
+        raise serializers.ValidationError(f"{label} cannot be greater than {maximum:g}")
+    return value
+
+
+def normalize_academic_fields(serializer, data):
+    academic_type = data.get(
+        'academic_type',
+        getattr(serializer.instance, 'academic_type', ACADEMIC_TYPE_HSC) if serializer.instance else ACADEMIC_TYPE_HSC,
+    )
+    academic_type = (academic_type or ACADEMIC_TYPE_HSC).upper()
+
+    if academic_type not in {ACADEMIC_TYPE_HSC, ACADEMIC_TYPE_DIPLOMA}:
+        raise serializers.ValidationError({
+            'academic_type': 'Academic type must be HSC or DIPLOMA'
+        })
+
+    data['academic_type'] = academic_type
+    if academic_type == ACADEMIC_TYPE_HSC:
+        data['diploma'] = 0
+    else:
+        data['hsc'] = 0
+
+    return data
+
+
 class StudentsSerializer(serializers.ModelSerializer):
     """Serializer for Students model"""
     
@@ -11,7 +44,7 @@ class StudentsSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'password', 'f_id', 'full_name', 'email',
             'department_shortname', 'registration_semester', 'created_at',
-            'ssc', 'hsc', 'diploma'
+            'ssc', 'academic_type', 'hsc', 'diploma'
         ]
         read_only_fields = ['id', 'created_at']
         extra_kwargs = {
@@ -31,22 +64,16 @@ class StudentsSerializer(serializers.ModelSerializer):
         return value
     
     def validate_ssc(self, value):
-        """Validate SSC marks is non-negative"""
-        if value < 0:
-            raise serializers.ValidationError("SSC marks cannot be negative")
-        return value
+        """Validate SSC GPA is within the 5-point scale"""
+        return validate_gpa_range(value, "SSC GPA", 5)
     
     def validate_hsc(self, value):
-        """Validate HSC marks is non-negative"""
-        if value < 0:
-            raise serializers.ValidationError("HSC marks cannot be negative")
-        return value
+        """Validate HSC GPA is within the 5-point scale"""
+        return validate_gpa_range(value, "HSC GPA", 5)
     
     def validate_diploma(self, value):
-        """Validate Diploma marks is non-negative"""
-        if value < 0:
-            raise serializers.ValidationError("Diploma marks cannot be negative")
-        return value
+        """Validate Diploma CGPA is within the 4-point scale"""
+        return validate_gpa_range(value, "Diploma CGPA", 4)
 
     def validate_registration_semester(self, value):
         """Validate registration semester is provided"""
@@ -54,6 +81,9 @@ class StudentsSerializer(serializers.ModelSerializer):
             return normalize_semester_value(value)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc))
+
+    def validate(self, data):
+        return normalize_academic_fields(self, data)
 
 
 class StudentCreateSerializer(serializers.ModelSerializer):
@@ -63,7 +93,8 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         model = Students
         fields = [
             'username', 'password', 'f_id', 'full_name', 'email',
-            'department_shortname', 'registration_semester', 'ssc', 'hsc', 'diploma'
+            'department_shortname', 'registration_semester', 'ssc',
+            'academic_type', 'hsc', 'diploma'
         ]
         extra_kwargs = {
             'password': {'write_only': True}
@@ -76,22 +107,16 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         return value
     
     def validate_ssc(self, value):
-        """Validate SSC marks is non-negative"""
-        if value < 0:
-            raise serializers.ValidationError("SSC marks cannot be negative")
-        return value
+        """Validate SSC GPA is within the 5-point scale"""
+        return validate_gpa_range(value, "SSC GPA", 5)
     
     def validate_hsc(self, value):
-        """Validate HSC marks is non-negative"""
-        if value < 0:
-            raise serializers.ValidationError("HSC marks cannot be negative")
-        return value
+        """Validate HSC GPA is within the 5-point scale"""
+        return validate_gpa_range(value, "HSC GPA", 5)
     
     def validate_diploma(self, value):
-        """Validate Diploma marks is non-negative"""
-        if value < 0:
-            raise serializers.ValidationError("Diploma marks cannot be negative")
-        return value
+        """Validate Diploma CGPA is within the 4-point scale"""
+        return validate_gpa_range(value, "Diploma CGPA", 4)
 
     def validate_registration_semester(self, value):
         """Validate registration semester is provided"""
@@ -99,6 +124,9 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             return normalize_semester_value(value)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc))
+
+    def validate(self, data):
+        return normalize_academic_fields(self, data)
 
 
 class StudentUpdateSerializer(serializers.ModelSerializer):
@@ -108,7 +136,8 @@ class StudentUpdateSerializer(serializers.ModelSerializer):
         model = Students
         fields = [
             'username', 'f_id', 'full_name', 'email',
-            'department_shortname', 'registration_semester', 'ssc', 'hsc', 'diploma'
+            'department_shortname', 'registration_semester', 'ssc',
+            'academic_type', 'hsc', 'diploma'
         ]
         # Note: Password update should be handled separately for security
     
@@ -119,22 +148,16 @@ class StudentUpdateSerializer(serializers.ModelSerializer):
         return value
     
     def validate_ssc(self, value):
-        """Validate SSC marks is non-negative"""
-        if value < 0:
-            raise serializers.ValidationError("SSC marks cannot be negative")
-        return value
+        """Validate SSC GPA is within the 5-point scale"""
+        return validate_gpa_range(value, "SSC GPA", 5)
     
     def validate_hsc(self, value):
-        """Validate HSC marks is non-negative"""
-        if value < 0:
-            raise serializers.ValidationError("HSC marks cannot be negative")
-        return value
+        """Validate HSC GPA is within the 5-point scale"""
+        return validate_gpa_range(value, "HSC GPA", 5)
     
     def validate_diploma(self, value):
-        """Validate Diploma marks is non-negative"""
-        if value < 0:
-            raise serializers.ValidationError("Diploma marks cannot be negative")
-        return value
+        """Validate Diploma CGPA is within the 4-point scale"""
+        return validate_gpa_range(value, "Diploma CGPA", 4)
 
     def validate_registration_semester(self, value):
         """Validate registration semester is provided"""
@@ -142,6 +165,9 @@ class StudentUpdateSerializer(serializers.ModelSerializer):
             return normalize_semester_value(value)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc))
+
+    def validate(self, data):
+        return normalize_academic_fields(self, data)
 
 
 class SubmissionSerializer(serializers.ModelSerializer):

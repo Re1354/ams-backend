@@ -17,7 +17,7 @@ from ..utils import normalize_semester_filter, paginate_queryset
     operation_id='get_all_students',
     tags=['Student Management'],
     summary="Get all students",
-    description="Retrieve all registered students with SSC, HSC, and Diploma marks",
+    description="Retrieve all registered students with SSC and selected HSC/Diploma academic scores",
     parameters=[
         OpenApiParameter(name='department_shortname', description='Filter by department shortname', required=False, type=str),
         OpenApiParameter(name='registration_semester', description='Filter by student registration semester', required=False, type=str),
@@ -111,7 +111,7 @@ def get_all_students(request):
     operation_id='create_student',
     tags=['Student Management'],
     summary="Create new student",
-    description="Create a new student with SSC, HSC, and Diploma marks",
+    description="Create a new student with SSC and one selected HSC/Diploma academic score",
     request=StudentCreateSerializer,
     responses={
         201: OpenApiResponse(
@@ -190,7 +190,7 @@ def get_student_by_id(request, student_id):
     operation_id='update_student',
     tags=['Student Management'],
     summary="Update student",
-    description="Update an existing student's information including SSC, HSC, and Diploma marks",
+    description="Update an existing student's information including SSC and selected HSC/Diploma academic score",
     request=StudentUpdateSerializer,
     responses={
         200: OpenApiResponse(
