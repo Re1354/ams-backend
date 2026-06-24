@@ -308,6 +308,44 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(self.student1.hsc, 0)
         self.assertEqual(self.student1.diploma, 3.8)
 
+    def test_update_student_recalculates_existing_diploma_result(self):
+        cse_distribution = MarksDistribution.objects.get(department=self.dept_cse)
+        cse_distribution.ssc = 5
+        cse_distribution.hsc = 5
+        cse_distribution.diploma = 5
+        cse_distribution.main_marks = 90
+        cse_distribution.viva_marks = 0
+        cse_distribution.save()
+        self.set_thresholds(cse_threshold=0.0)
+        self.create_submissions_for_student(self.student1, correct_count=5)
+
+        calculate_response = self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+        self.assertEqual(calculate_response.status_code, status.HTTP_200_OK)
+        result = AdmissionResult.objects.get(student=self.student1, exam=self.exam)
+        self.assertEqual(result.academic_source, "HSC")
+        self.assertEqual(result.academic_contribution, 5.0)
+
+        response = self.client.patch(
+            f"/api/students/{self.student1.id}/update/",
+            {
+                "academic_type": "DIPLOMA",
+                "diploma": 3.78,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["result_recalculation"]["recalculated"], 1)
+        result.refresh_from_db()
+        self.assertEqual(result.academic_source, "DIPLOMA")
+        self.assertEqual(result.academic_score, 3.78)
+        self.assertEqual(result.academic_contribution, 4.73)
+        self.assertEqual(result.weighted_total_marks, 54.73)
+
     def test_create_marks_distribution_uses_one_shared_hsc_diploma_weight(self):
         department = Department.objects.create(
             department_name=f"Shared Academic Department {uuid4().hex[:8]}",
@@ -977,6 +1015,34 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(weighted["written_contribution"], 40.0)
         self.assertEqual(weighted["viva_contribution"], 0.0)
         self.assertEqual(weighted["weighted_total_marks"], 48.5)
+
+    def test_calculate_weighted_scores_rounds_diploma_378_with_shared_weight(self):
+        cse_distribution = MarksDistribution.objects.get(department=self.dept_cse)
+        cse_distribution.ssc = 0
+        cse_distribution.hsc = 5
+        cse_distribution.diploma = 5
+        cse_distribution.main_marks = 95
+        cse_distribution.viva_marks = 0
+        cse_distribution.save()
+
+        self.student1.ssc = 0
+        self.student1.academic_type = "DIPLOMA"
+        self.student1.hsc = 0
+        self.student1.diploma = 3.78
+        self.student1.save(update_fields=["ssc", "academic_type", "hsc", "diploma"])
+
+        weighted = calculate_weighted_scores(
+            student=self.student1,
+            exam=self.exam,
+            department=self.dept_cse,
+            mcq_marks=0,
+            viva_marks=0,
+        )
+
+        self.assertEqual(weighted["academic_source"], "DIPLOMA")
+        self.assertEqual(weighted["academic_score"], 3.78)
+        self.assertEqual(weighted["academic_contribution"], 4.73)
+        self.assertEqual(weighted["weighted_total_marks"], 4.73)
 
     def test_teacher_results_and_viva_updates_use_teacher_specific_assignment(self):
         StudentAssignTeacherExam.objects.create(

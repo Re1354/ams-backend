@@ -7,10 +7,11 @@ specific exam. This service keeps that logic in one place.
 """
 
 from collections import defaultdict
+from decimal import Decimal, ROUND_HALF_UP
 
-from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q, Sum
+from django.utils import timezone
 
 from ..models import (
     AdmissionConfiguration,
@@ -88,6 +89,10 @@ def normalize_score(score, max_score):
     if max_score <= 0:
         return 0.0
     return clamp(score, 0.0, max_score) / max_score
+
+
+def round_weighted_value(value):
+    return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def resolve_department_for_exam(exam):
@@ -295,9 +300,9 @@ def calculate_weighted_scores(student, exam, department, mcq_marks, viva_marks):
             "academic_contribution": 0.0,
             "written_contribution": 0.0,
             "viva_contribution": 0.0,
-            "weighted_total_marks": clamp(mcq_marks + viva_marks),
-            "written_total_marks": round(written_total_marks, 2),
-            "viva_total_marks": round(viva_total_marks, 2),
+            "weighted_total_marks": round_weighted_value(clamp(mcq_marks + viva_marks)),
+            "written_total_marks": round_weighted_value(written_total_marks),
+            "viva_total_marks": round_weighted_value(viva_total_marks),
             "distribution_found": False,
         }
 
@@ -319,16 +324,16 @@ def calculate_weighted_scores(student, exam, department, mcq_marks, viva_marks):
     )
 
     return {
-        "ssc_score": round(ssc_score, 2),
-        "academic_score": round(academic_score, 2),
+        "ssc_score": round_weighted_value(ssc_score),
+        "academic_score": round_weighted_value(academic_score),
         "academic_source": academic_source,
-        "ssc_contribution": round(ssc_contribution, 2),
-        "academic_contribution": round(academic_contribution, 2),
-        "written_contribution": round(written_contribution, 2),
-        "viva_contribution": round(viva_contribution, 2),
-        "weighted_total_marks": round(weighted_total_marks, 2),
-        "written_total_marks": round(written_total_marks, 2),
-        "viva_total_marks": round(viva_total_marks, 2),
+        "ssc_contribution": round_weighted_value(ssc_contribution),
+        "academic_contribution": round_weighted_value(academic_contribution),
+        "written_contribution": round_weighted_value(written_contribution),
+        "viva_contribution": round_weighted_value(viva_contribution),
+        "weighted_total_marks": round_weighted_value(weighted_total_marks),
+        "written_total_marks": round_weighted_value(written_total_marks),
+        "viva_total_marks": round_weighted_value(viva_total_marks),
         "distribution_found": True,
     }
 

@@ -7,10 +7,48 @@ from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
-from ..models import Students
+from ..models import AdmissionResult, Students
 from ..serializers.student import StudentsSerializer, StudentCreateSerializer, StudentUpdateSerializer
 from ..authentication import CustomJWTAuthentication
+from ..services.admission_calculator import recalculate_single_student_result
 from ..utils import normalize_semester_filter, paginate_queryset
+
+
+STUDENT_RESULT_RECALCULATION_FIELDS = {
+    'ssc',
+    'academic_type',
+    'hsc',
+    'diploma',
+    'department_shortname',
+}
+
+
+def recalculate_existing_student_results(student):
+    """Refresh stored admission results after a student's scoring data changes."""
+    exam_ids = list(
+        AdmissionResult.objects.filter(student=student)
+        .order_by()
+        .values_list('exam_id', flat=True)
+        .distinct()
+    )
+    recalculated = 0
+    errors = []
+
+    for exam_id in exam_ids:
+        result = recalculate_single_student_result(exam_id, student.id)
+        if result.get('success'):
+            recalculated += 1
+        else:
+            errors.append({
+                'exam_id': exam_id,
+                'message': result.get('error', 'Failed to recalculate result'),
+            })
+
+    return {
+        'attempted': len(exam_ids),
+        'recalculated': recalculated,
+        'errors': errors,
+    }
 
 
 @extend_schema(
@@ -222,17 +260,41 @@ def update_student(request, student_id):
             'message': 'Invalid request data',
             'errors': serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
-    
+
+    previous_result_inputs = {
+        field: getattr(student, field)
+        for field in STUDENT_RESULT_RECALCULATION_FIELDS
+    }
+
     try:
         with transaction.atomic():
             updated_student = serializer.save()
-            
-            return Response({
-                'success': True,
-                'message': 'Student updated successfully',
-                'data': StudentsSerializer(updated_student).data
-            })
-            
+
+        should_recalculate_results = any(
+            getattr(updated_student, field) != previous_result_inputs[field]
+            for field in STUDENT_RESULT_RECALCULATION_FIELDS
+        )
+        recalculation = (
+            recalculate_existing_student_results(updated_student)
+            if should_recalculate_results
+            else {'attempted': 0, 'recalculated': 0, 'errors': []}
+        )
+
+        response_data = {
+            'success': True,
+            'message': 'Student updated successfully',
+            'data': StudentsSerializer(updated_student).data,
+        }
+        if should_recalculate_results:
+            response_data['result_recalculation'] = recalculation
+
+        if recalculation.get('errors'):
+            response_data['warning'] = (
+                'Student updated, but some existing admission results could not be recalculated.'
+            )
+
+        return Response(response_data)
+
     except Exception as e:
         return Response({
             'success': False,
