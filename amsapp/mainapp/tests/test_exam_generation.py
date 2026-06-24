@@ -4,7 +4,7 @@ from django.contrib.auth.hashers import make_password
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
-from ..models import BlocklistQuestion, Department, Role, ScrappedQuestion, User
+from ..models import BlocklistQuestion, Department, ExamQuestion, Role, ScrappedQuestion, User
 from ..tokens import get_tokens_for_user
 
 
@@ -107,3 +107,39 @@ class RowLevelQuestionRegenerationTests(APITestCase):
             response.data["message"],
             "No replacement question available for this subject and marks.",
         )
+
+    def test_save_generated_exam_accepts_text_questions_for_future_semester(self):
+        response = self.client.post(
+            "/api/exams/save-generated/",
+            {
+                "department": self.department.department_name,
+                "semester": "Fall 2027",
+                "total_questions": 1,
+                "total_marks": 5,
+                "duration_minutes": 90,
+                "except_semesters": [],
+                "language": "english",
+                "faculty": "FSIT",
+                "questions": [
+                    {
+                        "id": 1,
+                        "subject": "English",
+                        "questions": "Write a short note about modal verbs.",
+                        "type": "text",
+                        "text": "",
+                        "options": None,
+                        "answer": "A modal verb expresses possibility or necessity.",
+                        "marks": 5,
+                        "semester": "Fall 2027",
+                        "department_shortname": self.department.department_shortname,
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["success"])
+        saved_question = ExamQuestion.objects.get(exam_id=response.data["data"]["exam_id"])
+        self.assertEqual(saved_question.type, "text")
+        self.assertEqual(saved_question.semester, "Fall 2027")

@@ -65,12 +65,14 @@ class ExamQuestionSaveSerializer(serializers.Serializer):
     # questions may be a string or a dict containing 'both'/'english' keys depending on generation language
     questions = serializers.JSONField(help_text="Question text or object (string or {both, english})")  # Changed to JSONField to accept both dict and string
     type = serializers.ChoiceField(choices=[
+        ('option', 'Multiple Choice Option'),
+        ('text', 'Text Answer'),
+        # Keep legacy/generated aliases accepted so older clients do not break.
         ('mcq', 'Multiple Choice'),
-        ('option', 'Multiple Choice Option'),  # Added option type
         ('short', 'Short Answer'),
         ('long', 'Long Answer'),
         ('tf', 'True/False'),
-        ('fill', 'Fill in the blank')
+        ('fill', 'Fill in the blank'),
     ])
     text = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     options = serializers.JSONField(required=False, allow_null=True)
