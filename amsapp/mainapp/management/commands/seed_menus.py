@@ -107,7 +107,7 @@ class Command(BaseCommand):
                     'component': 'BlockedQuestions'
                 },
                 {
-                    'label': 'Delete Questions',
+                    'label': 'Delete Questions(DB)',
                     'icon': 'Trash2',
                     'link': '/deletequestions',
                     'component': 'DeleteQuestions'
