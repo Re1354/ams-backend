@@ -96,7 +96,7 @@ class AllSchedulesView(generics.ListCreateAPIView):
         if date_filter == 'today':
             queryset = queryset.filter(start_time__date=timezone.localdate())
 
-        return queryset.select_related('exam').prefetch_related('exam__exam_questions').order_by('start_time')
+        return queryset.select_related('exam').prefetch_related('exam__exam_questions').order_by('-id')
 
 
 @extend_schema(
