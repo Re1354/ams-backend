@@ -204,8 +204,30 @@ def ensure_semester_admission_results(department=None, semester=None):
     if not semester_exams:
         return
 
-    has_results = AdmissionResult.objects.filter(exam__in=semester_exams).exists()
-    if has_results:
+    # Recalculate when any assigned student whose exam window has already ended
+    # is still missing a result row — i.e. an absentee who never submitted. The
+    # old guard skipped as soon as ANY row existed, so a single submitter during
+    # the exam permanently blocked absentees from ever being generated once the
+    # window closed. This check is self-limiting: after the backfill runs the
+    # rows exist, so it won't re-trigger. Windows still open (end_time > now) are
+    # excluded, so absentees are never generated prematurely.
+    now = timezone.now()
+    missing_absentees = (
+        StudentAssignTeacherExam.objects.filter(
+            exam__in=semester_exams,
+            schedule__end_time__lte=now,
+        )
+        .exclude(
+            Exists(
+                AdmissionResult.objects.filter(
+                    exam_id=OuterRef("exam_id"),
+                    student_id=OuterRef("student_id"),
+                )
+            )
+        )
+        .exists()
+    )
+    if not missing_absentees:
         return
 
     calculate_semester_admission_results(department=department, semester=semester)
