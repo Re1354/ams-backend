@@ -1,5 +1,6 @@
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.utils import timezone
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
@@ -39,6 +40,23 @@ def api_info(request):
             'REST API with Swagger Documentation',
             'CORS Support for Frontend Integration'
         ]
+    })
+
+
+@extend_schema(
+    operation_id='get_server_time',
+    summary="Server time",
+    description="Authoritative server clock (epoch ms) so client exam countdowns "
+                "don't depend on the local device clock.",
+    tags=['Information'],
+)
+@api_view(['GET'])
+def server_time(request):
+    """Return the server's current time so clients can anchor timers to the VPS."""
+    now = timezone.now()
+    return Response({
+        'now_ms': int(now.timestamp() * 1000),
+        'iso': now.isoformat(),
     })
 
 

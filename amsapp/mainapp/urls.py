@@ -73,7 +73,7 @@ from .views.admission_report import (
     download_student_admission_detail_report_pdf,
     download_student_admission_reports_pdf_batch_zip,
 )
-from .api_info import api_info, home
+from .api_info import api_info, home, server_time
 
 app_name = 'mainapp'
 
@@ -83,6 +83,7 @@ urlpatterns = [
     
     # API Info
     path('api/info/', api_info, name='api-info'),
+    path('api/server-time/', server_time, name='server-time'),
     
     # Questions API
     path('api/all-scrapped-questions/', AllScrappedQuestionsView.as_view(), name='all-scrapped-questions'),
