@@ -142,6 +142,7 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "subject_wise_marks",
             "is_selected",
             "is_override_accepted",
+            "is_admitted",
             "result_status",
             "status",
             "threshold_applied",
@@ -244,7 +245,7 @@ class BulkAdmissionStatusUpdateSerializer(serializers.Serializer):
     configuration_id = serializers.IntegerField(required=False)
     exam_id = serializers.IntegerField(required=False)
     action = serializers.ChoiceField(
-        choices=["SET_STATUS", "REVERT_TO_STORED_STATUS"],
+        choices=["SET_STATUS", "SET_ADMITTED", "REVERT_TO_STORED_STATUS"],
         required=False,
         default="SET_STATUS",
     )

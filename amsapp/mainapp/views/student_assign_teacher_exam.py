@@ -95,6 +95,40 @@ def build_assignment_filter_options(assignments):
     }
 
 
+def get_semester_mismatches(students, exam):
+    """
+    Students may only be assigned to exams of their own registration semester.
+    Both sides are normalized so legacy rows with non-canonical semester text
+    are compared fairly. Returns (mismatched_students, normalized_exam_semester).
+    """
+    exam_semester = normalize_semester_filter(exam.semester)
+    mismatched = [
+        {
+            'id': student.id,
+            'username': student.username,
+            'f_id': student.f_id,
+            'full_name': student.full_name,
+            'registration_semester': student.registration_semester,
+        }
+        for student in students
+        if normalize_semester_filter(student.registration_semester) != exam_semester
+    ]
+    return mismatched, exam_semester
+
+
+def build_semester_mismatch_response(mismatched, exam_semester):
+    return Response({
+        'success': False,
+        'message': (
+            f'{len(mismatched)} student(s) are registered for a different semester '
+            f'than the exam ({exam_semester}). No assignments were created.'
+        ),
+        'error_code': 'SEMESTER_MISMATCH',
+        'exam_semester': exam_semester,
+        'mismatched_students': mismatched,
+    }, status=status.HTTP_400_BAD_REQUEST)
+
+
 @extend_schema(
     operation_id='assign_students_bulk',
     tags=['Student Assignment'],
@@ -103,7 +137,12 @@ def build_assignment_filter_options(assignments):
     request=StudentAssignBulkSerializer,
     responses={
         201: OpenApiResponse(description="Students assigned successfully"),
-        400: OpenApiResponse(description="Invalid request data"),
+        400: OpenApiResponse(
+            description=(
+                "Invalid request data, or one or more students are registered for a "
+                "different semester than the exam (error_code SEMESTER_MISMATCH)"
+            )
+        ),
         409: OpenApiResponse(description="Some assignments already exist")
     }
 )
@@ -133,7 +172,13 @@ def assign_students_bulk(request):
             schedule = ExamSchedule.objects.select_related('exam').get(id=schedule_id)
             exam = schedule.exam  # Get exam from schedule automatically
             students = Students.objects.filter(id__in=student_ids)
-            
+
+            # All-or-nothing: reject the whole request if any student belongs to a
+            # different semester than the exam, so cross-semester rows never exist.
+            mismatched, exam_semester = get_semester_mismatches(students, exam)
+            if mismatched:
+                return build_semester_mismatch_response(mismatched, exam_semester)
+
             # Track results
             created_assignments = []
             existing_assignments = []
@@ -184,7 +229,12 @@ def assign_students_bulk(request):
     request=StudentAssignSingleSerializer,
     responses={
         201: OpenApiResponse(description="Student assigned successfully"),
-        400: OpenApiResponse(description="Invalid request data"),
+        400: OpenApiResponse(
+            description=(
+                "Invalid request data, or the student is registered for a different "
+                "semester than the exam (error_code SEMESTER_MISMATCH)"
+            )
+        ),
         409: OpenApiResponse(description="Assignment already exists")
     }
 )
@@ -213,7 +263,11 @@ def assign_student_single(request):
         teacher = User.objects.get(id=teacher_id)
         schedule = ExamSchedule.objects.select_related('exam').get(id=schedule_id)
         exam = schedule.exam  # Get exam from schedule automatically
-        
+
+        mismatched, exam_semester = get_semester_mismatches([student], exam)
+        if mismatched:
+            return build_semester_mismatch_response(mismatched, exam_semester)
+
         # Create or get assignment
         assignment, created = StudentAssignTeacherExam.objects.get_or_create(
             student=student,

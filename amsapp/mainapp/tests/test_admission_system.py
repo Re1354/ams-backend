@@ -411,6 +411,12 @@ class AdmissionSystemTestCase(APITestCase):
         self.create_submissions_for_student(self.student1, correct_count=7)  # 70
         self.create_submissions_for_student(self.student2, correct_count=5)  # 50
         VivaMarks.objects.create(student=self.student1, marks=0, rubrics_marks={})
+        # Assigned non-submitters only become ABSENT candidates once their
+        # schedule window has ended.
+        ExamSchedule.objects.filter(id=self.schedule.id).update(
+            start_time=timezone.now() - timedelta(hours=3),
+            end_time=timezone.now() - timedelta(hours=1),
+        )
 
         response = self.client.post(
             "/api/admission/calculate-results/",
@@ -668,6 +674,174 @@ class AdmissionSystemTestCase(APITestCase):
         self.assertEqual(override_result.result_status, "WAITING")
         self.assertFalse(override_result.is_selected)
         self.assertFalse(override_result.is_override_accepted)
+
+    def test_set_admitted_requires_selected_status(self):
+        self.set_thresholds(cse_threshold=60.0, eee_threshold=70.0)
+        self.create_submissions_for_student(self.student1, correct_count=7)  # 70 SELECTED
+        self.create_submissions_for_student(self.student2, correct_count=5)  # 50 REJECTED
+        self.client.post(
+            "/api/admission/calculate-results/", {"exam_id": self.exam.id}, format="json"
+        )
+
+        rejected_result = AdmissionResult.objects.get(exam=self.exam, student=self.student2)
+        response = self.client.post(
+            "/api/admission/results/bulk-status-update/",
+            {
+                "configuration_id": rejected_result.configuration_id,
+                "student_ids": [self.student2.id],
+                "action": "SET_ADMITTED",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(self.student2.username, response.data["invalid_candidates"])
+        rejected_result.refresh_from_db()
+        self.assertFalse(rejected_result.is_admitted)
+
+    def test_set_admitted_moves_to_accepted_and_survives_threshold_raise(self):
+        self.set_thresholds(cse_threshold=60.0, eee_threshold=70.0)
+        self.create_submissions_for_student(self.student1, correct_count=7)  # 70 SELECTED
+        self.client.post(
+            "/api/admission/calculate-results/", {"exam_id": self.exam.id}, format="json"
+        )
+
+        result = AdmissionResult.objects.get(exam=self.exam, student=self.student1)
+        admit_response = self.client.post(
+            "/api/admission/results/bulk-status-update/",
+            {
+                "configuration_id": result.configuration_id,
+                "student_ids": [self.student1.id],
+                "action": "SET_ADMITTED",
+            },
+            format="json",
+        )
+
+        self.assertEqual(admit_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(admit_response.data["summary"]["ACCEPTED"], 1)
+        self.assertEqual(admit_response.data["summary"]["SELECTED"], 0)
+        result.refresh_from_db()
+        self.assertTrue(result.is_admitted)
+        self.assertFalse(result.is_override_accepted)
+        self.assertEqual(result.result_status, "SELECTED")
+
+        # Accepted tab returns the admitted row; Selected tab no longer does.
+        accepted_response = self.client.get(
+            f"/api/admission/results/?department_id={self.dept_cse.id}"
+            f"&semester=Spring 2026&result_status=ACCEPTED"
+        )
+        self.assertEqual(accepted_response.data["count"], 1)
+        selected_response = self.client.get(
+            f"/api/admission/results/?department_id={self.dept_cse.id}"
+            f"&semester=Spring 2026&result_status=SELECTED"
+        )
+        self.assertEqual(selected_response.data["count"], 0)
+
+        # Raising the threshold above the student's score must not demote them.
+        DepartmentThreshold.objects.filter(
+            department=self.dept_cse, semester=self.exam.semester
+        ).update(min_threshold_mark=90.0)
+        self.client.post(
+            "/api/admission/calculate-results/", {"exam_id": self.exam.id}, format="json"
+        )
+
+        result.refresh_from_db()
+        self.assertTrue(result.is_admitted)
+        self.assertEqual(result.result_status, "SELECTED")
+        self.assertTrue(result.is_selected)
+
+    def test_admitted_candidate_holds_seat_against_natural_selection(self):
+        self.set_thresholds(cse_threshold=40.0, eee_threshold=40.0, cse_seat_limit=1)
+        self.create_submissions_for_student(self.student1, correct_count=10)  # 100
+        self.create_submissions_for_student(self.student2, correct_count=8)  # 80
+        self.client.post(
+            "/api/admission/calculate-results/", {"exam_id": self.exam.id}, format="json"
+        )
+
+        top_result = AdmissionResult.objects.get(exam=self.exam, student=self.student1)
+        self.assertEqual(top_result.result_status, "SELECTED")
+        self.client.post(
+            "/api/admission/results/bulk-status-update/",
+            {
+                "configuration_id": top_result.configuration_id,
+                "student_ids": [self.student1.id],
+                "action": "SET_ADMITTED",
+            },
+            format="json",
+        )
+
+        self.client.post(
+            "/api/admission/calculate-results/", {"exam_id": self.exam.id}, format="json"
+        )
+
+        top_result.refresh_from_db()
+        runner_up = AdmissionResult.objects.get(exam=self.exam, student=self.student2)
+        self.assertTrue(top_result.is_admitted)
+        self.assertEqual(top_result.result_status, "SELECTED")
+        # The admitted candidate consumes the only seat.
+        self.assertNotEqual(runner_up.result_status, "SELECTED")
+
+    def test_override_board_accept_sets_admitted(self):
+        self.set_thresholds(cse_threshold=60.0, eee_threshold=70.0, cse_seat_limit=1)
+        self.create_submissions_for_student(self.student1, correct_count=10)  # 100 takes seat
+        self.create_submissions_for_student(self.student2, correct_count=7)  # 70 over threshold, no seat
+        self.client.post(
+            "/api/admission/calculate-results/", {"exam_id": self.exam.id}, format="json"
+        )
+
+        result2 = AdmissionResult.objects.get(exam=self.exam, student=self.student2)
+        self.assertNotEqual(result2.result_status, "SELECTED")
+
+        response = self.client.post(
+            "/api/admission/results/bulk-status-update/",
+            {
+                "configuration_id": result2.configuration_id,
+                "student_ids": [self.student2.id],
+                "result_status": "SELECTED",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result2.refresh_from_db()
+        self.assertEqual(result2.result_status, "SELECTED")
+        self.assertTrue(result2.is_override_accepted)
+        self.assertTrue(result2.is_admitted)
+
+    def test_revert_clears_admitted_flag(self):
+        self.set_thresholds(cse_threshold=60.0, eee_threshold=70.0)
+        self.create_submissions_for_student(self.student1, correct_count=7)  # 70
+        self.client.post(
+            "/api/admission/calculate-results/", {"exam_id": self.exam.id}, format="json"
+        )
+
+        result = AdmissionResult.objects.get(exam=self.exam, student=self.student1)
+        self.client.post(
+            "/api/admission/results/bulk-status-update/",
+            {
+                "configuration_id": result.configuration_id,
+                "student_ids": [self.student1.id],
+                "action": "SET_ADMITTED",
+            },
+            format="json",
+        )
+
+        revert_response = self.client.post(
+            "/api/admission/results/bulk-status-update/",
+            {
+                "configuration_id": result.configuration_id,
+                "student_ids": [self.student1.id],
+                "action": "REVERT_TO_STORED_STATUS",
+            },
+            format="json",
+        )
+
+        self.assertEqual(revert_response.status_code, status.HTTP_200_OK)
+        result.refresh_from_db()
+        self.assertFalse(result.is_admitted)
+        self.assertFalse(result.is_override_accepted)
+        # Still above threshold with free seats, so natural recalc re-selects.
+        self.assertEqual(result.result_status, "SELECTED")
 
     def test_submit_exam_triggers_admission_recalculation_when_configured(self):
         self.set_thresholds(cse_threshold=10.0, eee_threshold=10.0)

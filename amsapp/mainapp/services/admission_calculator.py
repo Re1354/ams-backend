@@ -30,7 +30,7 @@ from ..utils import normalize_semester_filter
 from .viva_assessment import get_viva_assessment_for_student_exam
 
 
-RESULT_STATUSES = ("SELECTED", "WAITING", "REJECTED", "ABSENT")
+RESULT_STATUSES = ("ACCEPTED", "SELECTED", "WAITING", "REJECTED", "ABSENT")
 
 
 def normalize_semester_input(value):
@@ -366,10 +366,14 @@ def get_candidate_students_for_exam(exam):
 
 
 def summarize_status_counts(results_queryset):
+    # ACCEPTED is a virtual status: admitted rows keep result_status=SELECTED
+    # but are reported (and tabbed) separately from not-yet-admitted selected.
     counts = {status: 0 for status in RESULT_STATUSES}
-    for item in results_queryset.values_list("result_status", flat=True):
-        if item in counts:
-            counts[item] += 1
+    for status_value, is_admitted in results_queryset.values_list("result_status", "is_admitted"):
+        if is_admitted:
+            counts["ACCEPTED"] += 1
+        elif status_value in counts:
+            counts[status_value] += 1
     return counts
 
 
@@ -435,7 +439,10 @@ def recalculate_admission_result_record(
     is_above_threshold = attended_exam and (
         weighted["weighted_total_marks"] >= float(threshold_value)
     )
-    override_locked = bool(existing_result and existing_result.is_override_accepted)
+    override_locked = bool(
+        existing_result
+        and (existing_result.is_override_accepted or existing_result.is_admitted)
+    )
     result_status = determine_result_status(
         attended_exam=attended_exam,
         is_above_threshold=is_above_threshold,
@@ -513,12 +520,14 @@ def apply_semester_result_statuses(
 
     results.update(threshold_applied=threshold_value, is_selected=False)
 
-    override_qs = results.filter(is_override_accepted=True)
-    override_qs.exclude(result_status="SELECTED").update(result_status="SELECTED")
-    override_qs.update(is_selected=True)
-    override_count = override_qs.count()
+    # Admitted candidates hold their seats exactly like override-accepted ones:
+    # forced SELECTED and counted against seat_limit before natural selection.
+    protected_qs = results.filter(Q(is_override_accepted=True) | Q(is_admitted=True))
+    protected_qs.exclude(result_status="SELECTED").update(result_status="SELECTED")
+    protected_qs.update(is_selected=True)
+    protected_count = protected_qs.count()
 
-    non_override = results.filter(is_override_accepted=False)
+    non_override = results.filter(is_override_accepted=False, is_admitted=False)
     non_override.filter(attended_exam=False).update(result_status="ABSENT")
     non_override.filter(attended_exam=True).update(result_status="REJECTED")
 
@@ -532,7 +541,7 @@ def apply_semester_result_statuses(
         "student_id",
     )
 
-    remaining_seats = max(seat_limit - override_count, 0)
+    remaining_seats = max(seat_limit - protected_count, 0)
     accepted_ids = list(qualified.values_list("id", flat=True)[:remaining_seats])
 
     if accepted_ids:
@@ -559,7 +568,7 @@ def apply_semester_result_statuses(
     return {
         "success": True,
         "configuration_missing": False,
-        "override_count": override_count,
+        "override_count": protected_count,
     }
 
 

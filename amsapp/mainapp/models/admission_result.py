@@ -98,6 +98,10 @@ class AdmissionResult(models.Model):
         default=False,
         help_text="True if candidate is manually accepted and locked as selected"
     )
+    is_admitted = models.BooleanField(
+        default=False,
+        help_text="True if admission is confirmed; survives recalculation and holds a seat"
+    )
     ssc_score = models.FloatField(
         default=0.0,
         validators=[MinValueValidator(0.0)],
@@ -172,6 +176,7 @@ class AdmissionResult(models.Model):
             models.Index(fields=['is_selected']),
             models.Index(fields=['result_status']),
             models.Index(fields=['is_override_accepted'], name='admission_r_is_over_8b945e_idx'),
+            models.Index(fields=['is_admitted'], name='admission_r_is_admt_idx'),
             models.Index(fields=['configuration']),
             models.Index(fields=['department', 'configuration'], name='admission_dept_config_idx'),
             models.Index(fields=['status', 'result_status'], name='admission_status_result_idx'),

@@ -41,8 +41,12 @@ class AdmissionResultsPagination(PageNumberPagination):
 
 
 def get_single_configuration(filters):
+    # order_by() clears the model's default ordering, whose columns would
+    # otherwise be added to the DISTINCT and split one configuration into
+    # multiple "distinct" rows.
     config_ids = list(
         filters.exclude(configuration__isnull=True)
+        .order_by()
         .values_list("configuration_id", flat=True)
         .distinct()[:2]
     )
@@ -503,6 +507,7 @@ def get_admission_results(request):
     sort_by = request.query_params.get("sort_by", "score")
     order = request.query_params.get("order", "desc")
     configuration_missing = False
+    unconfigured_exam_semesters = []
 
     if exam_id:
         results = results.filter(exam_id=exam_id)
@@ -524,6 +529,21 @@ def get_admission_results(request):
         if resolved_department:
             threshold_mapping = get_threshold_mapping_for_semester(resolved_department, semester)
             configuration_missing = not is_configuration_complete(threshold_mapping)
+            exam_semesters = (
+                get_exam_queryset_for_department_semester(department=resolved_department)
+                .values_list("semester", flat=True)
+                .distinct()
+            )
+            unconfigured_exam_semesters = sorted(
+                {
+                    exam_semester
+                    for exam_semester in exam_semesters
+                    if not is_configuration_complete(
+                        get_threshold_mapping_for_semester(resolved_department, exam_semester)
+                    )
+                },
+                key=semester_sort_key,
+            )
         results = AdmissionResult.objects.select_related(
             "exam",
             "student",
@@ -562,7 +582,15 @@ def get_admission_results(request):
     configuration = get_single_configuration(summary_queryset)
 
     if result_status:
-        results = results.filter(result_status__iexact=result_status)
+        # ACCEPTED is virtual: admitted rows keep result_status=SELECTED, so the
+        # Selected tab must exclude them and the Accepted tab filters the flag.
+        normalized_status = result_status.upper()
+        if normalized_status == "ACCEPTED":
+            results = results.filter(is_admitted=True)
+        elif normalized_status == "SELECTED":
+            results = results.filter(result_status="SELECTED", is_admitted=False)
+        else:
+            results = results.filter(result_status__iexact=result_status)
     if exclude_result_status:
         results = results.exclude(result_status__iexact=exclude_result_status)
     if minimum_score not in (None, ""):
@@ -592,6 +620,7 @@ def get_admission_results(request):
             AdmissionConfigurationSerializer(configuration).data if configuration else None
         )
         response.data["configuration_missing"] = configuration_missing
+        response.data["unconfigured_exam_semesters"] = unconfigured_exam_semesters
         response.data["filters_applied"] = {
             "exam_id": exam_id,
             "configuration_id": configuration_id,
@@ -619,6 +648,7 @@ def get_admission_results(request):
                 AdmissionConfigurationSerializer(configuration).data if configuration else None
             ),
             "configuration_missing": configuration_missing,
+            "unconfigured_exam_semesters": unconfigured_exam_semesters,
             "results": serializer.data,
         }
     )
@@ -651,7 +681,7 @@ def bulk_update_admission_result_status(request):
     action = validated.get("action", "SET_STATUS")
     target_status = validated.get("result_status")
 
-    queryset = AdmissionResult.objects.select_related("configuration").filter(student_id__in=student_ids)
+    queryset = AdmissionResult.objects.select_related("configuration", "student").filter(student_id__in=student_ids)
     if validated.get("configuration_id"):
         queryset = queryset.filter(configuration_id=validated["configuration_id"])
     if validated.get("exam_id"):
@@ -697,7 +727,26 @@ def bulk_update_admission_result_status(request):
     had_override = any(result.is_override_accepted for result in results)
     recalc_required = False
 
-    if action == "SET_STATUS":
+    if action == "SET_ADMITTED":
+        not_selected = [
+            result.student.username
+            for result in results
+            if result.result_status != "SELECTED"
+        ]
+        if not_selected:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only selected candidates can be accepted for admission.",
+                    "invalid_candidates": not_selected,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Rows are already SELECTED and hold their seats; no recalc needed.
+        queryset.update(is_admitted=True)
+        message = f"Accepted {len(results)} candidates for admission."
+    elif action == "SET_STATUS":
         if target_status == "SELECTED":
             recalc_required = True
 
@@ -719,11 +768,16 @@ def bulk_update_admission_result_status(request):
 
         with transaction.atomic():
             if target_status == "SELECTED":
-                queryset.update(result_status=target_status, is_override_accepted=True)
+                queryset.update(
+                    result_status=target_status,
+                    is_override_accepted=True,
+                    is_admitted=True,
+                )
             else:
                 queryset.update(
                     result_status=target_status,
                     is_override_accepted=False,
+                    is_admitted=False,
                     is_selected=False,
                 )
                 if had_override:
@@ -735,11 +789,13 @@ def bulk_update_admission_result_status(request):
             for result in results:
                 result.result_status = resolve_reverted_status(result)
                 result.is_override_accepted = False
+                result.is_admitted = False
                 result.is_selected = False
                 result.save(
                     update_fields=[
                         "result_status",
                         "is_override_accepted",
+                        "is_admitted",
                         "is_selected",
                         "updated_at",
                     ]
