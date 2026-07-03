@@ -14,12 +14,12 @@ class Command(BaseCommand):
 
             defaults = {
                 'email': 'admin@example.com',
-                'password': make_password('admin123'),
+                'password': make_password('S_admin@diu123'),
                 'role': superadmin_role,
             }
 
             admin_user, created = User.objects.get_or_create(
-                username='admin',
+                username='s_admin',
                 defaults=defaults,
             )
 

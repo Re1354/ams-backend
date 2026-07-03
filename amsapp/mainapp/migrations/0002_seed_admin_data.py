@@ -17,11 +17,11 @@ def create_admin_data(apps, schema_editor):
     
     # Create admin user
     admin_user, created = User.objects.get_or_create(
-        username='admin',
+        username='s_admin',
         defaults={
-            'username': 'admin',
+            'username': 's_admin',
             'email': 'admin@example.com',
-            'password': make_password('admin123'),
+            'password': make_password('S_admin@diu123'),
             'role': superadmin_role
         }
     )
@@ -38,7 +38,7 @@ def reverse_admin_data(apps, schema_editor):
     User = apps.get_model('mainapp', 'User')
     
     # Remove admin user
-    User.objects.filter(username='admin').delete()
+    User.objects.filter(username='s_admin').delete()
     
     # Remove superadmin role if no users are using it
     superadmin_role = Role.objects.filter(role_name='superadmin').first()
