@@ -10,6 +10,7 @@ from .views import (
     get_all_users, create_user, get_user_by_id, update_user, delete_user, get_all_teachers
 )
 from .views import upload_docx_scrape_multipart
+from .views import ai_scrape_upload
 from .views import insert_scrapped_questions
 from .views.students import (
     get_all_students, create_student, get_student_by_id, update_student, delete_student
@@ -254,5 +255,6 @@ urlpatterns = [
     
     # Document scraper upload
     path('api/scrape-docx/', upload_docx_scrape_multipart, name='upload-docx-scrape'),
+    path('api/ai-scrape/', ai_scrape_upload, name='ai-scrape-upload'),
     path('api/scrapped-questions/insert/', insert_scrapped_questions, name='insert-scrapped-questions'),
 ]

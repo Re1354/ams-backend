@@ -113,6 +113,12 @@ class Command(BaseCommand):
                     'component': 'DeleteQuestions'
                 },
                 {
+                    'label': 'AI Question Scrapper',
+                    'icon': 'Cpu',
+                    'link': '/ai-question-scrapper',
+                    'component': 'AiQuestionScrapper'
+                },
+                {
                     'label': 'Publish Exam',
                     'icon': 'FileCheck',
                     'link': '/published-exams',
