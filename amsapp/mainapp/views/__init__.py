@@ -51,6 +51,7 @@ from .admission_report import (
     download_student_admission_detail_report_pdf,
 )
 from .scrapper import upload_docx_scrape_multipart
+from .ai_scrapper import ai_scrape_upload
 
 # Make all views available when importing from mainapp.views
 __all__ = [
@@ -108,5 +109,6 @@ __all__ = [
     'get_student_admission_detail_report',
     'download_student_admission_detail_report_pdf',
     'upload_docx_scrape_multipart',
+    'ai_scrape_upload',
     'insert_scrapped_questions'
 ]
