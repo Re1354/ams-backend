@@ -62,7 +62,9 @@ def ai_scrape_upload(request):
                 ],
                 "message": str(exc),
             },
-            status=status.HTTP_502_BAD_GATEWAY,
+            # 400 (not 502) so a Gemini/config error is distinguishable from a
+            # real gateway/timeout 502 coming from nginx-proxy/gunicorn.
+            status=status.HTTP_400_BAD_REQUEST,
         )
     except Exception as exc:  # pragma: no cover - defensive
         return Response(
