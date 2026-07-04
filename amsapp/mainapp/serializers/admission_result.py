@@ -135,6 +135,7 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "mcq_marks",
             "viva_marks",
             "viva_marks_entered",
+            "viva_given",
             "written_viva_total",
             "total_marks",
             "weighted_total_marks",

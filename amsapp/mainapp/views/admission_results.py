@@ -837,6 +837,39 @@ def bulk_update_admission_result_status(request):
 
 
 @extend_schema(
+    operation_id="set_admission_result_viva_status",
+    tags=["Admission Management"],
+    summary="Toggle a candidate's viva given/not-given display flag",
+    description=(
+        "Display-only flag for the results board: when false the Viva column "
+        "shows 'Not Given'. Never touches marks, weighted totals, or selection."
+    ),
+    responses={200: OpenApiResponse(description="Viva status updated")},
+)
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def set_admission_result_viva_status(request, result_id):
+    viva_given = request.data.get("viva_given")
+    if not isinstance(viva_given, bool):
+        return Response(
+            {"success": False, "message": "viva_given must be a boolean."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    result = AdmissionResult.objects.filter(id=result_id).first()
+    if not result:
+        return Response(
+            {"success": False, "message": "Admission result not found."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    result.viva_given = viva_given
+    result.save(update_fields=["viva_given", "updated_at"])
+    return Response({"success": True, "viva_given": result.viva_given})
+
+
+@extend_schema(
     operation_id="get_admission_result_by_id",
     tags=["Admission Management"],
     summary="Get specific admission result by ID",

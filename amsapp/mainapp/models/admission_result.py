@@ -102,6 +102,10 @@ class AdmissionResult(models.Model):
         default=False,
         help_text="True if admission is confirmed; survives recalculation and holds a seat"
     )
+    viva_given = models.BooleanField(
+        default=True,
+        help_text="Display flag: show viva marks vs 'Not Given' on result boards"
+    )
     ssc_score = models.FloatField(
         default=0.0,
         validators=[MinValueValidator(0.0)],

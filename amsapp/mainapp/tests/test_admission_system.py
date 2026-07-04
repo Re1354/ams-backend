@@ -843,6 +843,51 @@ class AdmissionSystemTestCase(APITestCase):
         # Still above threshold with free seats, so natural recalc re-selects.
         self.assertEqual(result.result_status, "SELECTED")
 
+    def test_viva_given_defaults_true_and_toggles_without_touching_marks(self):
+        self.set_thresholds(cse_threshold=60.0, eee_threshold=70.0)
+        self.create_submissions_for_student(self.student1, correct_count=7)  # 70
+        self.client.post(
+            "/api/admission/calculate-results/", {"exam_id": self.exam.id}, format="json"
+        )
+
+        result = AdmissionResult.objects.get(exam=self.exam, student=self.student1)
+        self.assertTrue(result.viva_given)
+
+        list_response = self.client.get(
+            f"/api/admission/results/?department_id={self.dept_cse.id}&semester=Spring 2026"
+        )
+        self.assertTrue(list_response.data["results"][0]["viva_given"])
+
+        marks_before = result.weighted_total_marks
+        toggle_response = self.client.patch(
+            f"/api/admission/results/{result.id}/viva-status/",
+            {"viva_given": False},
+            format="json",
+        )
+
+        self.assertEqual(toggle_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(toggle_response.data["viva_given"])
+        result.refresh_from_db()
+        self.assertFalse(result.viva_given)
+        # Display flag only: scores and status untouched.
+        self.assertEqual(result.weighted_total_marks, marks_before)
+        self.assertEqual(result.result_status, "SELECTED")
+
+    def test_viva_status_rejects_non_boolean_and_missing_result(self):
+        response = self.client.patch(
+            "/api/admission/results/999999/viva-status/",
+            {"viva_given": "yes"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.patch(
+            "/api/admission/results/999999/viva-status/",
+            {"viva_given": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_submit_exam_triggers_admission_recalculation_when_configured(self):
         self.set_thresholds(cse_threshold=10.0, eee_threshold=10.0)
 

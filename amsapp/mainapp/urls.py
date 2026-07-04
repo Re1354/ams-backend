@@ -67,7 +67,8 @@ from .views.admission_results import (
     admission_configurations, admission_configuration_detail, admission_semester_options,
     bulk_update_admission_result_status,
     calculate_results, get_admission_results, get_admission_result_by_id,
-    get_student_admission_result, publish_admission_results, recalculate_student_result
+    get_student_admission_result, publish_admission_results, recalculate_student_result,
+    set_admission_result_viva_status
 )
 from .views.admission_report import (
     get_student_admission_detail_report,
@@ -246,6 +247,7 @@ urlpatterns = [
     path('api/admission/results/', get_admission_results, name='get-admission-results'),
     path('api/admission/results/bulk-status-update/', bulk_update_admission_result_status, name='bulk-update-admission-result-status'),
     path('api/admission/results/<int:result_id>/', get_admission_result_by_id, name='get-admission-result-by-id'),
+    path('api/admission/results/<int:result_id>/viva-status/', set_admission_result_viva_status, name='set-admission-result-viva-status'),
     path('api/admission/results/student/<int:exam_id>/<int:student_id>/', get_student_admission_result, name='get-student-admission-result'),
     path('api/admission/reports/student/<int:exam_id>/<int:student_id>/', get_student_admission_detail_report, name='get-student-admission-detail-report'),
     path('api/admission/reports/student/<int:exam_id>/<int:student_id>/pdf/', download_student_admission_detail_report_pdf, name='download-student-admission-detail-report-pdf'),
