@@ -75,7 +75,7 @@ def _normalize_question_payload(item: dict[str, Any]) -> dict[str, Any]:
             ],
         },
         "marks": int(item.get("marks") or 1),
-        "semester": normalize_semester_value(item.get("semester") or ""),
+        "semester": _clean_text(item.get("semester")),
         "department_shortname": _clean_text(
             item.get("department_shortname") or item.get("department") or "CSE"
         ),
@@ -93,6 +93,14 @@ def _normalize_question_payload(item: dict[str, Any]) -> dict[str, Any]:
 def validate_scraped_question_item(item: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     normalized = _normalize_question_payload(item)
     issues: list[str] = []
+
+    # A malformed semester flags only this item instead of failing the whole batch.
+    try:
+        normalized["semester"] = normalize_semester_value(normalized["semester"])
+    except ValueError:
+        issues.append(
+            f"Semester '{normalized['semester']}' is missing or invalid (expected e.g. 'Spring 2026')."
+        )
 
     if not normalized["subject"]:
         issues.append("Subject is missing.")
