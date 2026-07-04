@@ -550,7 +550,12 @@ def apply_semester_result_statuses(
             is_selected=True,
         )
 
-    waiting_candidates = non_override.filter(attended_exam=True).exclude(id__in=accepted_ids).order_by(
+    # Waiting list honours the same threshold as selection: below-threshold
+    # candidates are never promoted to WAITING.
+    waiting_candidates = non_override.filter(
+        attended_exam=True,
+        weighted_total_marks__gte=threshold_value,
+    ).exclude(id__in=accepted_ids).order_by(
         "-weighted_total_marks",
         "-written_viva_total",
         "-mcq_marks",

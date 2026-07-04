@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
-from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission, ExamDraft, PublishedExam
+from ..models import Students, ExamSchedule, Exam, ExamQuestion, Submission, ExamDraft, PublishedExam, StudentAssignTeacherExam
 from ..serializers import (
     StudentsSerializer, StudentLoginSerializer, ExamSubmissionSerializer,
     StudentLoginResponseSerializer, ExamSubmissionResponseSerializer
@@ -272,10 +272,18 @@ def submit_exam(request, exam_id):
         exam = Exam.objects.get(id=exam_id)
     except (Students.DoesNotExist, Exam.DoesNotExist):
         return Response(
-            {'error': 'Student or Exam not found'}, 
+            {'error': 'Student or Exam not found'},
             status=status.HTTP_404_NOT_FOUND
         )
-    
+
+    # Only assigned students may submit. Blocks ghost submissions against a
+    # stale exam id, which used to create phantom result rows for that exam.
+    if not StudentAssignTeacherExam.objects.filter(student=student, exam=exam).exists():
+        return Response(
+            {'error': 'You are not assigned to this exam.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
     submissions_created = 0
     
     for submission_data in submissions:
@@ -368,6 +376,12 @@ def save_answer(request, exam_id):
         return Response(
             {'error': 'Student or Exam not found'},
             status=status.HTTP_404_NOT_FOUND
+        )
+
+    if not StudentAssignTeacherExam.objects.filter(student=student, exam=exam).exists():
+        return Response(
+            {'error': 'You are not assigned to this exam.'},
+            status=status.HTTP_403_FORBIDDEN
         )
 
     try:

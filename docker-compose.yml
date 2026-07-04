@@ -16,6 +16,10 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      # Bound to the VPS loopback only — reachable via SSH tunnel, never from
+      # the public internet.
+      - "127.0.0.1:5432:5432"
     networks:
       - internal
     healthcheck:

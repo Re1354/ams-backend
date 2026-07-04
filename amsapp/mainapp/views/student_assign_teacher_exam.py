@@ -129,6 +129,48 @@ def build_semester_mismatch_response(mismatched, exam_semester):
     }, status=status.HTTP_400_BAD_REQUEST)
 
 
+def get_duplicate_semester_assignments(students, exam):
+    """
+    A student may sit only one exam per semester. Flags students who already
+    hold an assignment to a DIFFERENT exam in this exam's semester (extra
+    schedules of the same exam stay allowed).
+    """
+    exam_semester = normalize_semester_filter(exam.semester)
+    duplicated = []
+    for student in students:
+        existing = (
+            StudentAssignTeacherExam.objects.filter(student=student)
+            .exclude(exam=exam)
+            .select_related('exam')
+        )
+        if any(
+            normalize_semester_filter(assignment.exam.semester) == exam_semester
+            for assignment in existing
+        ):
+            duplicated.append({
+                'id': student.id,
+                'username': student.username,
+                'f_id': student.f_id,
+                'full_name': student.full_name,
+                'registration_semester': student.registration_semester,
+            })
+    return duplicated, exam_semester
+
+
+def build_duplicate_semester_response(duplicated, exam_semester):
+    return Response({
+        'success': False,
+        'message': (
+            f'{len(duplicated)} student(s) are already assigned to another exam in '
+            f'{exam_semester}. A student can only take one exam per semester. '
+            'No assignments were created.'
+        ),
+        'error_code': 'DUPLICATE_SEMESTER_ASSIGNMENT',
+        'exam_semester': exam_semester,
+        'mismatched_students': duplicated,
+    }, status=status.HTTP_400_BAD_REQUEST)
+
+
 @extend_schema(
     operation_id='assign_students_bulk',
     tags=['Student Assignment'],
@@ -178,6 +220,10 @@ def assign_students_bulk(request):
             mismatched, exam_semester = get_semester_mismatches(students, exam)
             if mismatched:
                 return build_semester_mismatch_response(mismatched, exam_semester)
+
+            duplicated, exam_semester = get_duplicate_semester_assignments(students, exam)
+            if duplicated:
+                return build_duplicate_semester_response(duplicated, exam_semester)
 
             # Track results
             created_assignments = []
@@ -267,6 +313,10 @@ def assign_student_single(request):
         mismatched, exam_semester = get_semester_mismatches([student], exam)
         if mismatched:
             return build_semester_mismatch_response(mismatched, exam_semester)
+
+        duplicated, exam_semester = get_duplicate_semester_assignments([student], exam)
+        if duplicated:
+            return build_duplicate_semester_response(duplicated, exam_semester)
 
         # Create or get assignment
         assignment, created = StudentAssignTeacherExam.objects.get_or_create(
