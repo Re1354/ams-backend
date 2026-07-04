@@ -1,10 +1,23 @@
 import json
+from datetime import timedelta
 
+from django.contrib.auth.hashers import make_password
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from ..models import Exam, ExamQuestion, PublishedExam, Students, Submission
+from ..models import (
+    Exam,
+    ExamQuestion,
+    ExamSchedule,
+    PublishedExam,
+    Role,
+    StudentAssignTeacherExam,
+    Students,
+    Submission,
+    User,
+)
 from ..utils import calculate_submission_summary, is_submission_correct
 
 
@@ -79,6 +92,27 @@ class StudentExamResultScoringTests(APITestCase):
             department_shortname="CSE",
         )
         PublishedExam.objects.create(exam=self.exam, is_published=True)
+
+        # Submissions are only accepted from assigned students.
+        role = Role.objects.create(role_name="Teacher-scoring")
+        teacher = User.objects.create(
+            username="scoring-teacher",
+            email="scoring-teacher@test.com",
+            password=make_password("pass123"),
+            role=role,
+        )
+        schedule = ExamSchedule.objects.create(
+            exam=self.exam,
+            start_time=timezone.now(),
+            end_time=timezone.now() + timedelta(hours=2),
+            is_active=True,
+        )
+        StudentAssignTeacherExam.objects.create(
+            student=self.student,
+            teacher=teacher,
+            exam=self.exam,
+            schedule=schedule,
+        )
 
     def test_submit_exam_marks_json_string_answer_correct(self):
         response = self.client.post(

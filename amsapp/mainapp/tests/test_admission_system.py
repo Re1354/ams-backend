@@ -531,8 +531,10 @@ class AdmissionSystemTestCase(APITestCase):
         )
 
     def test_waiting_limit_takes_next_best_attended_candidates(self):
+        # Threshold 60: the 80 and 70 scorers qualify but miss the single seat,
+        # so they land on the waiting list.
         self.set_thresholds(
-            cse_threshold=90.0,
+            cse_threshold=60.0,
             eee_threshold=70.0,
             cse_seat_limit=1,
             cse_waiting_student_limit=2,
@@ -560,6 +562,80 @@ class AdmissionSystemTestCase(APITestCase):
             AdmissionResult.objects.get(student=extra_student, exam=self.exam).result_status,
             "WAITING",
         )
+
+    def test_below_threshold_candidate_is_rejected_not_waiting(self):
+        self.set_thresholds(
+            cse_threshold=60.0,
+            eee_threshold=70.0,
+            cse_seat_limit=1,
+            cse_waiting_student_limit=5,
+        )
+        self.create_submissions_for_student(self.student1, correct_count=7)  # 70 takes seat
+        self.create_submissions_for_student(self.student2, correct_count=1)  # 10 < threshold
+
+        response = self.client.post(
+            "/api/admission/calculate-results/",
+            {"exam_id": self.exam.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        low_scorer = AdmissionResult.objects.get(student=self.student2, exam=self.exam)
+        self.assertEqual(low_scorer.result_status, "REJECTED")
+
+    def test_submit_exam_rejects_unassigned_student(self):
+        suffix = uuid4().hex[:8]
+        outsider = Students.objects.create(
+            username=f"outsider-{suffix}",
+            password="pass123",
+            f_id=f"OUT-{suffix}",
+            full_name="Outsider Student",
+            email=f"outsider-{suffix}@test.com",
+            department_shortname="CSE",
+            registration_semester="Spring 2026",
+            ssc=80,
+            hsc=80,
+        )
+
+        response = self.client.post(
+            f"/api/student/exam/{self.exam.id}/submit/",
+            {
+                "student_id": outsider.id,
+                "submissions": [{"question_id": self.questions[0].id, "answer": "A"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(
+            Submission.objects.filter(student=outsider, exam=self.exam).exists()
+        )
+
+    def test_save_answer_rejects_unassigned_student(self):
+        suffix = uuid4().hex[:8]
+        outsider = Students.objects.create(
+            username=f"drafter-{suffix}",
+            password="pass123",
+            f_id=f"DRF-{suffix}",
+            full_name="Drafting Outsider",
+            email=f"drafter-{suffix}@test.com",
+            department_shortname="CSE",
+            registration_semester="Spring 2026",
+            ssc=80,
+            hsc=80,
+        )
+
+        response = self.client.post(
+            f"/api/student/exam/{self.exam.id}/save-answer/",
+            {
+                "student_id": outsider.id,
+                "question_id": self.questions[0].id,
+                "answer": "A",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_missing_configuration_does_not_create_admission_results(self):
         self.create_submissions_for_student(self.student1, correct_count=7)

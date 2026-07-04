@@ -1,9 +1,14 @@
 from io import BytesIO
+from uuid import uuid4
 
+from django.contrib.auth.hashers import make_password
 from django.test import TestCase
 from docx import Document
+from rest_framework import status
+from rest_framework.test import APIClient, APITestCase
 
-from ..models import ScrappedQuestion
+from ..models import Role, ScrappedQuestion, User
+from ..tokens import get_tokens_for_user
 from ..utils.question_ingestion import ingest_scraped_question_entries, validate_scraped_question_item
 from ..views.demo_scrapper import parse_docx_fileobj
 
@@ -122,3 +127,81 @@ class ScrappedQuestionIngestionTests(TestCase):
         stored = ScrappedQuestion.objects.get()
         self.assertEqual(stored.questions["bangla"], "২ + ২ কত?")
         self.assertEqual(stored.questions["both"], "২ + ২ কত?")
+
+
+class ScrappedQuestionUpdateTests(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        suffix = uuid4().hex[:8]
+        role = Role.objects.create(role_name=f"Admin-{suffix}")
+        admin = User.objects.create(
+            username=f"admin-{suffix}",
+            email=f"admin-{suffix}@test.com",
+            password=make_password("admin123"),
+            role=role,
+        )
+        tokens = get_tokens_for_user(admin)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+
+        self.question = ScrappedQuestion.objects.create(
+            subject="Math",
+            questions={"bangla": "২ + ২ কত?", "english": "", "both": "২ + ২ কত?"},
+            type="option",
+            options={
+                "both": {"ক": "3", "খ": "4", "গ": "5", "ঘ": "6"},
+                "english": {"A": "3", "B": "4", "C": "5", "D": "6"},
+            },
+            answer={"both": ["খ"], "english": ["B"]},
+            marks=2,
+            semester="Spring 2026",
+            department_shortname="CSE",
+        )
+
+    def test_update_question_saves_both_languages_and_keeps_marks(self):
+        response = self.client.patch(
+            f"/api/question-bank/{self.question.id}/update/",
+            {
+                "subject": "Math",
+                "question_bangla": "২ + ৩ কত?",
+                "question_english": "What is 2 + 3?",
+                "question_both": "২ + ৩ কত? (What is 2 + 3?)",
+                "options": {
+                    "both": {"ক": "4", "খ": "5", "গ": "6", "ঘ": "7"},
+                    "english": {"A": "4", "B": "5", "C": "6", "D": "7"},
+                },
+                "answer": {"both": ["খ"], "english": ["B"]},
+                "semester": "Spring 2026",
+                "department": "CSE",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.questions["bangla"], "২ + ৩ কত?")
+        self.assertEqual(self.question.questions["english"], "What is 2 + 3?")
+        self.assertEqual(self.question.options["english"]["B"], "5")
+        self.assertEqual(self.question.marks, 2)  # preserved when not sent
+
+    def test_update_question_rejects_invalid_payload(self):
+        response = self.client.patch(
+            f"/api/question-bank/{self.question.id}/update/",
+            {
+                "subject": "Math",
+                "question_bangla": "২ + ৩ কত?",
+                "question_english": "",
+                "options": {
+                    "both": {"ক": "4", "খ": "5"},
+                    "english": {},
+                },
+                "answer": {"both": ["ঘ"], "english": []},
+                "semester": "Spring 2026",
+                "department": "CSE",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(response.data["issues"])
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.questions["bangla"], "২ + ২ কত?")  # unchanged

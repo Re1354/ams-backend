@@ -165,6 +165,105 @@ class AssignmentSemesterValidationTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_bulk_assignment_rejects_second_exam_in_same_semester(self):
+        StudentAssignTeacherExam.objects.create(
+            student=self.matching_student,
+            teacher=self.admin_user,
+            exam=self.exam,
+            schedule=self.schedule,
+        )
+        second_exam = Exam.objects.create(
+            department="CSE",
+            semester="Spring 2026",
+            total_questions=10,
+            present_question=10,
+            total_marks=100,
+            duration_minutes=120,
+        )
+        second_schedule = ExamSchedule.objects.create(
+            exam=second_exam,
+            start_time=timezone.now(),
+            end_time=timezone.now() + timedelta(hours=2),
+            is_active=True,
+        )
+
+        response = self.client.post(
+            "/api/student-assignments/assign-bulk/",
+            {
+                "student_ids": [self.matching_student.id],
+                "teacher_id": self.admin_user.id,
+                "schedule_id": second_schedule.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "DUPLICATE_SEMESTER_ASSIGNMENT")
+        self.assertFalse(
+            StudentAssignTeacherExam.objects.filter(exam=second_exam).exists()
+        )
+
+    def test_single_assignment_rejects_second_exam_in_same_semester(self):
+        StudentAssignTeacherExam.objects.create(
+            student=self.matching_student,
+            teacher=self.admin_user,
+            exam=self.exam,
+            schedule=self.schedule,
+        )
+        second_exam = Exam.objects.create(
+            department="CSE",
+            semester="Spring 2026",
+            total_questions=10,
+            present_question=10,
+            total_marks=100,
+            duration_minutes=120,
+        )
+        second_schedule = ExamSchedule.objects.create(
+            exam=second_exam,
+            start_time=timezone.now(),
+            end_time=timezone.now() + timedelta(hours=2),
+            is_active=True,
+        )
+
+        response = self.client.post(
+            "/api/student-assignments/assign-single/",
+            {
+                "student_id": self.matching_student.id,
+                "teacher_id": self.admin_user.id,
+                "schedule_id": second_schedule.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "DUPLICATE_SEMESTER_ASSIGNMENT")
+
+    def test_second_schedule_of_same_exam_still_allowed(self):
+        StudentAssignTeacherExam.objects.create(
+            student=self.matching_student,
+            teacher=self.admin_user,
+            exam=self.exam,
+            schedule=self.schedule,
+        )
+        later_schedule = ExamSchedule.objects.create(
+            exam=self.exam,
+            start_time=timezone.now() + timedelta(days=1),
+            end_time=timezone.now() + timedelta(days=1, hours=2),
+            is_active=True,
+        )
+
+        response = self.client.post(
+            "/api/student-assignments/assign-bulk/",
+            {
+                "student_ids": [self.matching_student.id],
+                "teacher_id": self.admin_user.id,
+                "schedule_id": later_schedule.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_results_endpoint_reports_unconfigured_exam_semesters(self):
         # No DepartmentThreshold exists, so absent generation is silently
         # blocked — the endpoint must say so.
