@@ -12,7 +12,7 @@ from .views import (
 from .views import upload_docx_scrape_multipart
 from .views import ai_scrape_upload
 from .views import insert_scrapped_questions
-from .views.questions import update_scrapped_question
+#from .views.questions import update_scrapped_question
 from .views.students import (
     get_all_students, create_student, get_student_by_id, update_student, delete_student
 )
@@ -93,7 +93,7 @@ urlpatterns = [
     path('api/questions-stats/', questions_stats, name='questions-stats'),
     path('api/total-questions/', total_questions, name='total-questions'),
     path('api/question-bank/<int:question_id>/delete/', delete_scrapped_question, name='delete-scrapped-question'),
-    path('api/question-bank/<int:question_id>/update/', update_scrapped_question, name='update-scrapped-question'),
+    # path('api/question-bank/<int:question_id>/update/', update_scrapped_question, name='update-scrapped-question'),
     path('api/question-bank/delete-bulk/', bulk_delete_scrapped_questions, name='bulk-delete-scrapped-questions'),
     
     # Exam API
