@@ -18,7 +18,10 @@ from ..authentication import CustomJWTAuthentication
 from drf_spectacular.utils import OpenApiResponse
 from django.shortcuts import get_object_or_404
 from ..utils import normalize_semester_filter
-from ..utils.question_ingestion import ingest_scraped_question_entries
+from ..utils.question_ingestion import (
+    ingest_scraped_question_entries,
+    validate_scraped_question_item,
+)
 
 
 @extend_schema(
@@ -274,6 +277,61 @@ def bulk_delete_scrapped_questions(request):
         'deleted_ids': sorted(found_ids),
         'raw_deleted_count': deleted_count,
     }, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    operation_id='update_scrapped_question',
+    tags=['Questions'],
+    summary='Update a question-bank item',
+    description=(
+        'Accepts the scraper item shape (subject, question_bangla, question_english, '
+        'options, answer, semester, department) and updates the ScrappedQuestion. '
+        'Validated with the same rules as inserts.'
+    ),
+    request=None,
+    responses={200: OpenApiResponse(description='Question updated successfully')},
+)
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def update_scrapped_question(request, question_id):
+    question = ScrappedQuestion.objects.filter(id=question_id).first()
+    if not question:
+        return Response(
+            {'success': False, 'message': 'Question not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    payload = dict(request.data)
+    # Preserve stored marks unless the caller sends them explicitly.
+    payload.setdefault('marks', question.marks)
+
+    normalized, issues = validate_scraped_question_item(payload)
+    if issues:
+        return Response(
+            {'success': False, 'message': 'Question is invalid.', 'issues': issues},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    question.subject = normalized['subject']
+    question.questions = {
+        'bangla': normalized['question_bangla'],
+        'english': normalized['question_english'],
+        'both': normalized['question_both'],
+    }
+    question.type = normalized['type']
+    question.options = normalized['options']
+    question.answer = normalized['answer']
+    question.marks = normalized['marks']
+    question.semester = normalized['semester']
+    question.department_shortname = normalized['department_shortname'] or 'CSE'
+    question.save()
+
+    return Response({
+        'success': True,
+        'message': 'Question updated successfully.',
+        'data': ScrappedQuestionSerializer(question).data,
+    })
 
 
 @extend_schema(
