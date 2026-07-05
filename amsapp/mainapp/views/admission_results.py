@@ -1,5 +1,8 @@
+from datetime import timedelta
+
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -1020,5 +1023,142 @@ def recalculate_student_result(request, exam_id, student_id):
             "success": True,
             "message": f"Result updated successfully for student {result['student']}",
             "data": serializer.data,
+        }
+    )
+
+
+RESULT_STATUS_KEYS = ["SELECTED", "WAITING", "REJECTED", "ABSENT"]
+PUBLICATION_STATUS_KEYS = ["PENDING", "PUBLISHED", "CANCELLED"]
+
+
+@extend_schema(
+    operation_id="admission_dashboard_stats",
+    tags=["Admission Management"],
+    summary="Aggregated admission statistics for the dashboard",
+    parameters=[
+        OpenApiParameter(name="days", required=False, type=int),
+        OpenApiParameter(name="semester", required=False, type=str),
+        OpenApiParameter(name="department_id", required=False, type=int),
+    ],
+    responses={200: OpenApiResponse(description="Dashboard statistics")},
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def admission_dashboard_stats(request):
+    """
+    Return admission-result aggregates for the dashboard:
+      - daily: result counts per creation day, split by result_status
+      - status_totals / publication_totals: overall breakdowns
+      - by_department: selected vs total per department (top 8)
+      - totals: headline KPI numbers
+    All aggregates respect the optional semester / department_id filters; the
+    daily series is additionally limited to the last `days` days (default 30).
+    """
+    try:
+        days = int(request.query_params.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+
+    semester = request.query_params.get("semester")
+    department_id = request.query_params.get("department_id")
+
+    base_qs = AdmissionResult.objects.all()
+    if semester:
+        semester = normalize_semester_filter(semester)
+        base_qs = base_qs.filter(
+            Q(configuration__semester__iexact=semester) | Q(exam__semester__iexact=semester)
+        )
+    if department_id:
+        base_qs = base_qs.filter(department_id=department_id)
+
+    # --- Daily series (by creation date), split by result_status ---
+    start_date = (timezone.now() - timedelta(days=days - 1)).date()
+    window_qs = base_qs.filter(created_at__date__gte=start_date)
+
+    daily_map = {}
+    daily_rows = (
+        window_qs.annotate(day=TruncDate("created_at"))
+        .values("day", "result_status")
+        .annotate(count=Count("id"))
+    )
+    for row in daily_rows:
+        day = row["day"]
+        if not day:
+            continue
+        key = day.isoformat()
+        entry = daily_map.setdefault(
+            key,
+            {"date": key, "SELECTED": 0, "WAITING": 0, "REJECTED": 0, "ABSENT": 0, "total": 0},
+        )
+        status_key = (row["result_status"] or "WAITING").upper()
+        if status_key not in RESULT_STATUS_KEYS:
+            status_key = "WAITING"
+        entry[status_key] += row["count"]
+        entry["total"] += row["count"]
+
+    # Only return days that actually have results, ordered chronologically.
+    daily = [daily_map[key] for key in sorted(daily_map.keys())]
+
+    # --- Status totals (all-time within filters) ---
+    status_totals = {key: 0 for key in RESULT_STATUS_KEYS}
+    for row in base_qs.values("result_status").annotate(count=Count("id")):
+        status_key = (row["result_status"] or "WAITING").upper()
+        if status_key not in status_totals:
+            status_key = "WAITING"
+        status_totals[status_key] += row["count"]
+
+    # --- Publication status totals ---
+    publication_totals = {key: 0 for key in PUBLICATION_STATUS_KEYS}
+    for row in base_qs.values("status").annotate(count=Count("id")):
+        status_key = (row["status"] or "PENDING").upper()
+        if status_key not in publication_totals:
+            status_key = "PENDING"
+        publication_totals[status_key] += row["count"]
+
+    # --- Per-department breakdown (top 8 by total) ---
+    dept_rows = (
+        base_qs.values("department__department_shortname", "department__department_name")
+        .annotate(
+            total=Count("id"),
+            selected=Count("id", filter=Q(result_status="SELECTED")),
+        )
+        .order_by("-total")[:8]
+    )
+    by_department = [
+        {
+            "department": (
+                row["department__department_shortname"]
+                or row["department__department_name"]
+                or "Unassigned"
+            ),
+            "department_name": row["department__department_name"] or "Unassigned",
+            "total": row["total"],
+            "selected": row["selected"],
+        }
+        for row in dept_rows
+    ]
+
+    totals = {
+        "total_results": base_qs.count(),
+        "selected": status_totals["SELECTED"],
+        "waiting": status_totals["WAITING"],
+        "rejected": status_totals["REJECTED"],
+        "absent": status_totals["ABSENT"],
+        "admitted": base_qs.filter(is_admitted=True).count(),
+        "attended": base_qs.filter(attended_exam=True).count(),
+        "published": publication_totals["PUBLISHED"],
+    }
+
+    return Response(
+        {
+            "success": True,
+            "days": days,
+            "daily": daily,
+            "status_totals": status_totals,
+            "publication_totals": publication_totals,
+            "by_department": by_department,
+            "totals": totals,
         }
     )

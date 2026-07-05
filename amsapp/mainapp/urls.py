@@ -65,7 +65,8 @@ from .views.admission_threshold import (
     set_threshold_mapping, get_threshold_mapping, get_threshold_by_id, delete_threshold_mapping
 )
 from .views.admission_results import (
-    admission_configurations, admission_configuration_detail, admission_semester_options,
+    admission_configurations, admission_configuration_detail, admission_dashboard_stats,
+    admission_semester_options,
     bulk_update_admission_result_status,
     calculate_results, get_admission_results, get_admission_result_by_id,
     get_student_admission_result, publish_admission_results, recalculate_student_result,
@@ -248,6 +249,7 @@ urlpatterns = [
     path('api/admission/configurations/<int:config_id>/', admission_configuration_detail, name='admission-configuration-detail'),
     path('api/admission/semester-options/', admission_semester_options, name='admission-semester-options'),
     path('api/admission/calculate-results/', calculate_results, name='calculate-admission-results'),
+    path('api/admission/dashboard-stats/', admission_dashboard_stats, name='admission-dashboard-stats'),
     path('api/admission/results/', get_admission_results, name='get-admission-results'),
     path('api/admission/results/bulk-status-update/', bulk_update_admission_result_status, name='bulk-update-admission-result-status'),
     path('api/admission/results/<int:result_id>/', get_admission_result_by_id, name='get-admission-result-by-id'),
