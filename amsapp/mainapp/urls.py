@@ -12,7 +12,7 @@ from .views import (
 from .views import upload_docx_scrape_multipart
 from .views import ai_scrape_upload
 from .views import insert_scrapped_questions
-#from .views.questions import update_scrapped_question
+from .views.questions import update_scrapped_question
 from .views.students import (
     get_all_students, create_student, get_student_by_id, update_student, delete_student
 )
@@ -35,9 +35,9 @@ from .views.subject_departments import (
 )
 from .views.exam_generation import generate_exam, regenerate_question, save_generated_exam
 from .views.student_assign_teacher_exam import (
-    assign_students_bulk, assign_student_single, get_all_assignments, 
+    assign_students_bulk, assign_student_single, get_all_assignments,
     delete_assignment, delete_assignments_bulk, get_available_schedules,
-    get_student_assignments_by_teacher
+    get_student_assignments_by_teacher, get_assigned_student_ids
 )
 from .views.results import (
     toggle_exam_publication, get_student_exam_result_enhanced,
@@ -56,7 +56,7 @@ from .views.marks_distribution import (
 )
 from .views.viva_assign import (
     create_viva_assignment, get_all_viva_assignments, delete_viva_assignment,
-    get_viva_assignments_by_teacher
+    get_viva_assignments_by_teacher, get_viva_assigned_student_ids
 )
 from .views.viva_marks import (
     add_viva_marks, delete_viva_marks
@@ -93,7 +93,7 @@ urlpatterns = [
     path('api/questions-stats/', questions_stats, name='questions-stats'),
     path('api/total-questions/', total_questions, name='total-questions'),
     path('api/question-bank/<int:question_id>/delete/', delete_scrapped_question, name='delete-scrapped-question'),
-    # path('api/question-bank/<int:question_id>/update/', update_scrapped_question, name='update-scrapped-question'),
+    path('api/question-bank/<int:question_id>/update/', update_scrapped_question, name='update-scrapped-question'),
     path('api/question-bank/delete-bulk/', bulk_delete_scrapped_questions, name='bulk-delete-scrapped-questions'),
     
     # Exam API
@@ -196,6 +196,7 @@ urlpatterns = [
     path('api/student-assignments/<int:assignment_id>/delete/', delete_assignment, name='delete-assignment'),
     path('api/student-assignments/delete-bulk/', delete_assignments_bulk, name='delete-assignments-bulk'),
     path('api/student-assignments/available-schedules/', get_available_schedules, name='get-available-schedules'),
+    path('api/student-assignments/assigned-student-ids/', get_assigned_student_ids, name='get-assigned-student-ids'),
     
     # Results Management API
     path('api/result/published/', toggle_exam_publication, name='toggle-exam-publication'),
@@ -229,6 +230,7 @@ urlpatterns = [
     path('api/viva-assignments/', get_all_viva_assignments, name='get-all-viva-assignments'),
     path('api/viva-assignments/<int:teacher_id>/', get_viva_assignments_by_teacher, name='get-viva-assignments-by-teacher'),
     path('api/viva-assignments/create/', create_viva_assignment, name='create-viva-assignment'),
+    path('api/viva-assignments/assigned-student-ids/', get_viva_assigned_student_ids, name='get-viva-assigned-student-ids'),
     path('api/viva-assignments/<int:assignment_id>/delete/', delete_viva_assignment, name='delete-viva-assignment'),
 
     # Viva Marks Management API

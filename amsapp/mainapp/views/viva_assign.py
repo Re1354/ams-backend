@@ -239,3 +239,25 @@ def delete_viva_assignment(request, assignment_id):
             'success': False,
             'message': 'Viva assignment not found'
         }, status=status.HTTP_404_NOT_FOUND)
+
+
+@extend_schema(
+    operation_id='get_viva_assigned_student_ids',
+    tags=['Viva Assignment'],
+    summary="Get ids of all students holding a viva assignment",
+    description="Unpaginated distinct student ids. Used by the viva assign page to compute which students are still available.",
+    responses={200: OpenApiResponse(description="Assigned student ids retrieved successfully")}
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def get_viva_assigned_student_ids(request):
+    """Distinct student ids with an existing viva assignment (unpaginated).
+
+    Same reasoning as the written-exam endpoint: availability must never be
+    computed against a paginated page of assignments.
+    """
+    student_ids = list(
+        VivaAssignment.objects.values_list('student_id', flat=True).distinct()
+    )
+    return Response({'success': True, 'student_ids': student_ids})

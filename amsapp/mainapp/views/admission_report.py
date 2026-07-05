@@ -207,6 +207,12 @@ def get_written_total_marks_from_report(report: dict) -> float:
     return float(written_summary.get("total_marks") or 0)
 
 
+def get_viva_total_marks_from_report(report: dict) -> float:
+    viva = report.get("viva") or {}
+    rubric_rows = viva.get("rubric_rows") or []
+    return round(sum(float(row.get("max_marks") or 0) for row in rubric_rows), 2)
+
+
 def build_weighted_component_equation(
     label: str,
     numerator_label: str,
@@ -348,6 +354,7 @@ def build_calculation_equations(report: dict) -> tuple[list[dict[str, str]], str
     academic_source = str(final_result.get("academic_source") or "").upper()
     academic_divisor = get_academic_divisor(final_result)
     written_total_marks = get_written_total_marks_from_report(report)
+    viva_total_marks = get_viva_total_marks_from_report(report)
     if academic_source in {"DIPLOMA", "HSC"}:
         academic_weight = distribution.get("hsc", 0)
     else:
@@ -394,14 +401,27 @@ def build_calculation_equations(report: dict) -> tuple[list[dict[str, str]], str
             ),
         },
         {
-            # ponytail: viva omitted from the equation while viva contribution is 0 (marks hidden).
+            "label": "Viva Contribution",
+            "equation": build_weighted_component_equation(
+                label="Viva Contribution",
+                numerator_label="Viva Marks",
+                numerator_value=final_result.get("viva_marks"),
+                denominator_label="Total Viva Marks",
+                denominator_value=viva_total_marks,
+                weight_label="Viva Weight",
+                weight_value=distribution.get("viva"),
+                contribution_value=final_result.get("viva_contribution"),
+            ),
+        },
+        {
             "label": "Final Weighted Total",
             "equation": (
                 f"Final Weighted Total = SSC Contribution + {academic_label} Contribution + "
-                "Written Contribution = "
+                "Written Contribution + Viva Contribution = "
                 f"{format_report_number(final_result.get('ssc_contribution'))} + "
                 f"{format_report_number(final_result.get('academic_contribution'))} + "
-                f"{format_report_number(final_result.get('written_contribution'))} = "
+                f"{format_report_number(final_result.get('written_contribution'))} + "
+                f"{format_report_number(final_result.get('viva_contribution'))} = "
                 f"{format_report_number(final_result.get('weighted_total'))}"
             ),
         },
@@ -786,8 +806,6 @@ def build_final_result(exam, student, summary, viva_assignment):
     return {
         "written_marks": round(written_marks, 2),
         "viva_marks": round(viva_marks, 2),
-        # Display flag driving the "Passed / Not Passed" viva indicator (marks hidden).
-        "viva_given": bool(existing_result.viva_given) if existing_result else True,
         "written_viva_total": written_viva_total,
         "weighted_total": round(weighted_total, 2),
         "threshold": round(threshold, 2) if threshold is not None else None,

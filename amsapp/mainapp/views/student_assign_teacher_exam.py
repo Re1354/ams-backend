@@ -132,15 +132,15 @@ def build_semester_mismatch_response(mismatched, exam_semester):
 def get_duplicate_semester_assignments(students, exam):
     """
     A student may sit only one exam per semester. Flags students who already
-    hold an assignment to a DIFFERENT exam in this exam's semester (extra
-    schedules of the same exam stay allowed).
+    hold ANY assignment in this exam's semester — including another schedule
+    of the same exam, which previously slipped through and allowed duplicate
+    assignments for students who had already taken the exam.
     """
     exam_semester = normalize_semester_filter(exam.semester)
     duplicated = []
     for student in students:
         existing = (
             StudentAssignTeacherExam.objects.filter(student=student)
-            .exclude(exam=exam)
             .select_related('exam')
         )
         if any(
@@ -161,7 +161,7 @@ def build_duplicate_semester_response(duplicated, exam_semester):
     return Response({
         'success': False,
         'message': (
-            f'{len(duplicated)} student(s) are already assigned to another exam in '
+            f'{len(duplicated)} student(s) are already assigned to an exam in '
             f'{exam_semester}. A student can only take one exam per semester. '
             'No assignments were created.'
         ),
@@ -664,3 +664,26 @@ def get_available_schedules(request):
         'data': serializer.data,
         'message': 'Available schedules retrieved successfully'
     })
+
+
+@extend_schema(
+    operation_id='get_assigned_student_ids',
+    tags=['Student Assignment'],
+    summary="Get ids of all students holding a written-exam assignment",
+    description="Unpaginated distinct student ids. Used by the assign page to compute which students are still available.",
+    responses={200: OpenApiResponse(description="Assigned student ids retrieved successfully")}
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def get_assigned_student_ids(request):
+    """Distinct student ids with an existing assignment (unpaginated).
+
+    Availability must be computed against this full set — computing it against
+    the paginated list made students whose rows fell off page 1 look
+    available for reassignment again.
+    """
+    student_ids = list(
+        StudentAssignTeacherExam.objects.values_list('student_id', flat=True).distinct()
+    )
+    return Response({'success': True, 'student_ids': student_ids})

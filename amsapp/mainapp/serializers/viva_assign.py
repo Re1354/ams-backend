@@ -7,7 +7,10 @@ from ..models.exam import Exam
 class VivaAssignmentSerializer(serializers.ModelSerializer):
     student_username = serializers.CharField(source='student.username', read_only=True)
     student_name = serializers.SerializerMethodField()
+    student_full_name = serializers.CharField(source='student.full_name', read_only=True)
     student_f_id = serializers.CharField(source='student.f_id', read_only=True)
+    student_registration_semester = serializers.CharField(source='student.registration_semester', read_only=True)
+    student_department_shortname = serializers.CharField(source='student.department_shortname', read_only=True)
     teacher_username = serializers.CharField(source='teacher.username', read_only=True)
     exam_name = serializers.SerializerMethodField()
     exam_details = serializers.SerializerMethodField()
@@ -15,7 +18,8 @@ class VivaAssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = VivaAssignment
         fields = [
-            'id', 'student', 'student_username', 'student_name', 'student_f_id',
+            'id', 'student', 'student_username', 'student_name', 'student_full_name',
+            'student_f_id', 'student_registration_semester', 'student_department_shortname',
             'teacher', 'teacher_username', 'exam', 'exam_name', 'exam_details',
             'scheduled_at', 'time', 'room', 'total_marks', 'rubric_snapshot',
             'rubric_scores', 'remarks', 'created_at', 'updated_at'
