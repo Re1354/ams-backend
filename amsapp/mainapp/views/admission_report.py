@@ -786,7 +786,7 @@ def build_final_result(exam, student, summary, viva_assignment):
     return {
         "written_marks": round(written_marks, 2),
         "viva_marks": round(viva_marks, 2),
-        # Display flag driving the "Given / Not Given" viva indicator (marks hidden).
+        # Display flag driving the "Passed / Not Passed" viva indicator (marks hidden).
         "viva_given": bool(existing_result.viva_given) if existing_result else True,
         "written_viva_total": written_viva_total,
         "weighted_total": round(weighted_total, 2),
