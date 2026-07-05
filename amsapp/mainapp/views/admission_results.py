@@ -1,9 +1,10 @@
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q, Subquery
 from django.db.models.functions import TruncDate
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.pagination import PageNumberPagination
@@ -13,7 +14,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 
 from ..authentication import CustomJWTAuthentication
 from ..models import AdmissionConfiguration, AdmissionResult, Department, DepartmentThreshold, Exam
-from ..models import StudentAssignTeacherExam
+from ..models import StudentAssignTeacherExam, Submission
 from ..serializers.admission_result import (
     AdmissionConfigurationSerializer,
     AdmissionConfigurationUpsertSerializer,
@@ -477,6 +478,7 @@ def calculate_results(request):
         OpenApiParameter(name="minimum_score", required=False, type=float),
         OpenApiParameter(name="sort_by", required=False, type=str),
         OpenApiParameter(name="order", required=False, type=str),
+        OpenApiParameter(name="exam_taken_date", required=False, type=str),
         OpenApiParameter(name="page", required=False, type=int),
         OpenApiParameter(name="page_size", required=False, type=int),
     ],
@@ -602,6 +604,29 @@ def get_admission_results(request):
         except (TypeError, ValueError):
             pass
 
+    # Exam-taken datetime = latest submission by this student for this exam.
+    # Absent students have no submission -> null (sorted last, blank in UI).
+    latest_submission = (
+        Submission.objects.filter(student=OuterRef("student"), exam=OuterRef("exam"))
+        .order_by("-submitted_at")
+        .values("submitted_at")[:1]
+    )
+    results = results.annotate(exam_taken_at=Subquery(latest_submission))
+
+    exam_taken_date = request.query_params.get("exam_taken_date")
+    if exam_taken_date:
+        parsed_date = parse_date(exam_taken_date)
+        if parsed_date:
+            # submitted_at is stored UTC; the frontend sends a LOCAL calendar day.
+            # Map that local day to a UTC range so "today"/custom-date match the
+            # day admins mean. Uses the project TIME_ZONE (Asia/Dhaka).
+            local_tz = timezone.get_current_timezone()
+            day_start = datetime.combine(parsed_date, time.min, tzinfo=local_tz)
+            results = results.filter(
+                exam_taken_at__gte=day_start,
+                exam_taken_at__lt=day_start + timedelta(days=1),
+            )
+
     order_prefix = "" if order == "asc" else "-"
     sort_mapping = {
         "name": f"{order_prefix}student__full_name",
@@ -609,7 +634,15 @@ def get_admission_results(request):
         "form_id": f"{order_prefix}student__f_id",
         "serial": f"{order_prefix}id",
     }
-    results = results.order_by(sort_mapping.get(sort_by, "-weighted_total_marks"), "-created_at")
+    if sort_by == "date":
+        date_order = (
+            F("exam_taken_at").asc(nulls_last=True)
+            if order == "asc"
+            else F("exam_taken_at").desc(nulls_last=True)
+        )
+        results = results.order_by(date_order, "-created_at")
+    else:
+        results = results.order_by(sort_mapping.get(sort_by, "-weighted_total_marks"), "-created_at")
 
     paginator = AdmissionResultsPagination()
     page = paginator.paginate_queryset(results, request)
@@ -639,6 +672,7 @@ def get_admission_results(request):
             "minimum_score": minimum_score,
             "sort_by": sort_by,
             "order": order,
+            "exam_taken_date": exam_taken_date,
         }
         return response
 

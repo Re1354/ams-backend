@@ -112,6 +112,9 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
     )
     exam_details = serializers.SerializerMethodField()
     viva_marks_entered = serializers.SerializerMethodField()
+    # Populated from the queryset annotation in get_admission_results; null when
+    # the student never submitted (absent).
+    exam_taken_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = AdmissionResult
@@ -156,11 +159,13 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "written_contribution",
             "viva_contribution",
             "exam_details",
+            "exam_taken_at",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
+            "exam_taken_at",
             "created_at",
             "updated_at",
             "total_marks",
