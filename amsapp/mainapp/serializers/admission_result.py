@@ -112,6 +112,10 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
     )
     exam_details = serializers.SerializerMethodField()
     viva_marks_entered = serializers.SerializerMethodField()
+    # Denominators for the "obtained out of total" display on the results board.
+    # Reuse the scorer's own totals so UI matches the weighted calculation.
+    written_total_marks = serializers.SerializerMethodField()
+    viva_total_marks = serializers.SerializerMethodField()
     # Populated from the queryset annotation in get_admission_results; null when
     # the student never submitted (absent).
     exam_taken_at = serializers.DateTimeField(read_only=True)
@@ -139,6 +143,8 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "viva_marks",
             "viva_marks_entered",
             "viva_given",
+            "written_total_marks",
+            "viva_total_marks",
             "written_viva_total",
             "total_marks",
             "weighted_total_marks",
@@ -166,6 +172,8 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "exam_taken_at",
+            "written_total_marks",
+            "viva_total_marks",
             "created_at",
             "updated_at",
             "total_marks",
@@ -198,6 +206,22 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             )
 
         return VivaMarks.objects.filter(student=obj.student).exists()
+
+    @extend_schema_field(serializers.FloatField())
+    def get_written_total_marks(self, obj):
+        # Lazy import avoids a serializer <-> services import cycle.
+        from ..services.admission_calculator import get_written_total_marks_for_exam
+
+        cache = self.context.setdefault("_written_total", {})
+        if obj.exam_id not in cache:
+            cache[obj.exam_id] = get_written_total_marks_for_exam(obj.exam)
+        return cache[obj.exam_id]
+
+    @extend_schema_field(serializers.FloatField())
+    def get_viva_total_marks(self, obj):
+        from ..services.admission_calculator import get_viva_total_marks_for_student_exam
+
+        return get_viva_total_marks_for_student_exam(obj.student, obj.exam)
 
 
 class CalculateAdmissionResultsSerializer(serializers.Serializer):

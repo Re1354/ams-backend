@@ -269,6 +269,13 @@ def update_student(request, student_id):
     try:
         with transaction.atomic():
             updated_student = serializer.save()
+            # StudentUpdateSerializer omits password by design; apply it here so
+            # credential edits actually persist. Only when a non-empty value is
+            # sent, so a blank field never wipes the existing password.
+            new_password = request.data.get('password')
+            if new_password:
+                updated_student.password = new_password
+                updated_student.save(update_fields=['password'])
 
         should_recalculate_results = any(
             getattr(updated_student, field) != previous_result_inputs[field]
