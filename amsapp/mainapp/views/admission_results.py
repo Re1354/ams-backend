@@ -568,12 +568,6 @@ def get_admission_results(request):
         results = results.filter(
             Q(configuration__semester__iexact=semester) | Q(exam__semester__iexact=semester)
         )
-    if search:
-        results = results.filter(
-            Q(student__username__icontains=search)
-            | Q(student__full_name__icontains=search)
-            | Q(student__f_id__icontains=search)
-        )
     if is_selected is not None:
         results = results.filter(is_selected=is_selected.lower() in {"true", "1", "yes"})
     if attended_exam is not None:
@@ -582,15 +576,24 @@ def get_admission_results(request):
         results = results.filter(status__iexact=publication_status)
 
     results = filter_visible_results_by_exam_schedule(results)
-    # Board identity is independent of the date filter, so resolve it from the
-    # full (pre-date) cohort.
+    # Board identity and the top summary cards are independent of the search/date
+    # filters, so resolve them from the whole visible cohort *before* those are
+    # applied: `total_summary` feeds the cards (always the semester totals) while
+    # `summary` below feeds the tab counts (which track the active filters).
     configuration = get_single_configuration(results)
+    total_summary = summarize_status_counts(results)
+
+    if search:
+        results = results.filter(
+            Q(student__username__icontains=search)
+            | Q(student__full_name__icontains=search)
+            | Q(student__f_id__icontains=search)
+        )
 
     # Exam-taken datetime = latest submission by this student for this exam.
     # Absent students have no submission -> null (sorted last, blank in UI).
     # Annotate + apply the date filter *before* summarizing, so the per-status
-    # counts on the cards/tabs track the active date filter instead of always
-    # showing the whole-cohort totals. (Search is already applied above.)
+    # tab counts track the active date filter instead of the whole-cohort totals.
     latest_submission = (
         Submission.objects.filter(student=OuterRef("student"), exam=OuterRef("exam"))
         .order_by("-submitted_at")
@@ -658,6 +661,7 @@ def get_admission_results(request):
         response = paginator.get_paginated_response(serializer.data)
         response.data["success"] = True
         response.data["summary"] = summary
+        response.data["total_summary"] = total_summary
         response.data["configuration"] = (
             AdmissionConfigurationSerializer(configuration).data if configuration else None
         )
@@ -687,6 +691,7 @@ def get_admission_results(request):
             "success": True,
             "count": results.count(),
             "summary": summary,
+            "total_summary": total_summary,
             "configuration": (
                 AdmissionConfigurationSerializer(configuration).data if configuration else None
             ),
