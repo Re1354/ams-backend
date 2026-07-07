@@ -11,7 +11,8 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParamet
 
 from ..models import (
     PublishedExam, Exam, Students, Submission,
-    StudentAssignTeacherExam, User, ExamQuestion, VivaAssignment
+    StudentAssignTeacherExam, User, ExamQuestion, VivaAssignment,
+    AdmissionResult,
 )
 from ..models.viva_marks import VivaMarks
 from ..serializers.results import (
@@ -407,6 +408,17 @@ def get_all_results_by_teacher(request, teacher_id):
             for viva in VivaMarks.objects.filter(student_id__in=student_ids)
         }
 
+        # Admission status per (exam, student). ACCEPTED when admitted, else the
+        # stored result_status; PENDING when the board hasn't been calculated.
+        admission_status_by_pair = {}
+        for admission in AdmissionResult.objects.filter(
+            exam_id__in=exam_ids, student_id__in=student_ids
+        ).values('exam_id', 'student_id', 'result_status', 'is_admitted'):
+            pair_key = (admission['exam_id'], admission['student_id'])
+            admission_status_by_pair[pair_key] = (
+                'ACCEPTED' if admission['is_admitted'] else admission['result_status']
+            )
+
         results_data = []
         for pair_key in page_pairs:
             exam_id, student_id = pair_key
@@ -453,7 +465,8 @@ def get_all_results_by_teacher(request, teacher_id):
                 },
                 'results': summary,
                 'subjects': subject_rows,
-                'viva_marks': viva_marks_data
+                'viva_marks': viva_marks_data,
+                'result_status': admission_status_by_pair.get(pair_key, 'PENDING'),
             })
 
         # Prepare filters info
