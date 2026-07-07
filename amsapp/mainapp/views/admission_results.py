@@ -582,30 +582,15 @@ def get_admission_results(request):
         results = results.filter(status__iexact=publication_status)
 
     results = filter_visible_results_by_exam_schedule(results)
-    summary_queryset = results
-    summary = summarize_status_counts(summary_queryset)
-    configuration = get_single_configuration(summary_queryset)
-
-    if result_status:
-        # ACCEPTED is virtual: admitted rows keep result_status=SELECTED, so the
-        # Selected tab must exclude them and the Accepted tab filters the flag.
-        normalized_status = result_status.upper()
-        if normalized_status == "ACCEPTED":
-            results = results.filter(is_admitted=True)
-        elif normalized_status == "SELECTED":
-            results = results.filter(result_status="SELECTED", is_admitted=False)
-        else:
-            results = results.filter(result_status__iexact=result_status)
-    if exclude_result_status:
-        results = results.exclude(result_status__iexact=exclude_result_status)
-    if minimum_score not in (None, ""):
-        try:
-            results = results.filter(weighted_total_marks__gte=float(minimum_score))
-        except (TypeError, ValueError):
-            pass
+    # Board identity is independent of the date filter, so resolve it from the
+    # full (pre-date) cohort.
+    configuration = get_single_configuration(results)
 
     # Exam-taken datetime = latest submission by this student for this exam.
     # Absent students have no submission -> null (sorted last, blank in UI).
+    # Annotate + apply the date filter *before* summarizing, so the per-status
+    # counts on the cards/tabs track the active date filter instead of always
+    # showing the whole-cohort totals. (Search is already applied above.)
     latest_submission = (
         Submission.objects.filter(student=OuterRef("student"), exam=OuterRef("exam"))
         .order_by("-submitted_at")
@@ -626,6 +611,27 @@ def get_admission_results(request):
                 exam_taken_at__gte=day_start,
                 exam_taken_at__lt=day_start + timedelta(days=1),
             )
+
+    summary_queryset = results
+    summary = summarize_status_counts(summary_queryset)
+
+    if result_status:
+        # ACCEPTED is virtual: admitted rows keep result_status=SELECTED, so the
+        # Selected tab must exclude them and the Accepted tab filters the flag.
+        normalized_status = result_status.upper()
+        if normalized_status == "ACCEPTED":
+            results = results.filter(is_admitted=True)
+        elif normalized_status == "SELECTED":
+            results = results.filter(result_status="SELECTED", is_admitted=False)
+        else:
+            results = results.filter(result_status__iexact=result_status)
+    if exclude_result_status:
+        results = results.exclude(result_status__iexact=exclude_result_status)
+    if minimum_score not in (None, ""):
+        try:
+            results = results.filter(weighted_total_marks__gte=float(minimum_score))
+        except (TypeError, ValueError):
+            pass
 
     order_prefix = "" if order == "asc" else "-"
     sort_mapping = {
