@@ -32,6 +32,14 @@ from .viva_assessment import get_viva_assessment_for_student_exam
 
 RESULT_STATUSES = ("ACCEPTED", "SELECTED", "WAITING", "REJECTED", "ABSENT")
 
+# weighted_total_marks is a FloatField rounded to 2 decimals (see
+# round_weighted_value). A value that should equal the threshold can compare
+# just below it because of binary-float representation, which flips a candidate
+# SELECTED<->WAITING<->REJECTED between otherwise-identical recalculations. Give
+# every threshold comparison half a rounding unit of slack so the boundary is
+# stable and consistent across all comparison sites.
+THRESHOLD_EPSILON = 0.005
+
 
 def normalize_semester_input(value):
     normalized = normalize_semester_filter(value)
@@ -343,26 +351,64 @@ def determine_result_status(
     is_above_threshold,
     existing_result=None,
     is_override_accepted=False,
+    has_semester_submission=False,
 ):
     if is_override_accepted:
         return "SELECTED"
     if not attended_exam:
+        # A student is ABSENT only when they sat NO exam in the semester. If they
+        # submitted a different exam, this non-attended row is a stray duplicate;
+        # return None so the caller skips/removes it instead of storing ABSENT.
+        if has_semester_submission:
+            return None
         return "ABSENT"
     if not is_above_threshold:
         return "REJECTED"
     return "WAITING"
 
 
+def student_ids_with_semester_submission(exams):
+    """
+    Student IDs that submitted at least one of the given exams. Used to enforce
+    "one exam per student per semester": a student who sat any exam in the
+    semester is never treated as an absentee for a different (stray) exam.
+    """
+    return set(
+        Submission.objects.filter(exam__in=exams)
+        .values_list("student_id", flat=True)
+        .distinct()
+    )
+
+
+def has_semester_submission(student, department, semester):
+    """True when the student submitted any exam in the department + semester."""
+    semester_exams = get_exams_for_department_semester(department, semester)
+    return Submission.objects.filter(student=student, exam__in=semester_exams).exists()
+
+
 def get_candidate_students_for_exam(exam):
     """
     Include assigned candidates only after their schedule has ended, while
     always keeping students who have already submitted answers.
+
+    A student may sit only one exam per semester, so an assigned-but-not-yet-
+    submitted student is pulled in as an absentee candidate only when they have
+    NO submission for any exam in the same department + semester. This stops a
+    student who already sat exam A from being manufactured into a duplicate
+    ABSENT row for a stray exam B in the same semester.
     """
     now = timezone.now()
-    return Students.objects.filter(
-        Q(assigned_exams__exam=exam, assigned_exams__schedule__end_time__lte=now)
-        | Q(submissions__exam=exam)
-    ).distinct()
+    department = resolve_department_for_exam(exam)
+    semester_exams = get_exams_for_department_semester(department, exam.semester)
+    semester_submitter_ids = student_ids_with_semester_submission(semester_exams)
+
+    assigned_absentees = Students.objects.filter(
+        assigned_exams__exam=exam,
+        assigned_exams__schedule__end_time__lte=now,
+    ).exclude(id__in=semester_submitter_ids)
+    submitted_this_exam = Students.objects.filter(submissions__exam=exam)
+
+    return (submitted_this_exam | assigned_absentees).distinct()
 
 
 def summarize_status_counts(results_queryset):
@@ -437,18 +483,40 @@ def recalculate_admission_result_record(
     )
 
     is_above_threshold = attended_exam and (
-        weighted["weighted_total_marks"] >= float(threshold_value)
+        weighted["weighted_total_marks"] >= float(threshold_value) - THRESHOLD_EPSILON
     )
     override_locked = bool(
         existing_result
         and (existing_result.is_override_accepted or existing_result.is_admitted)
+    )
+    # Only a non-attended, non-protected row can be a stray semester duplicate,
+    # so pay for the semester-submission lookup only in that case.
+    student_has_semester_submission = (
+        not attended_exam
+        and not override_locked
+        and has_semester_submission(student, exam_department, exam.semester)
     )
     result_status = determine_result_status(
         attended_exam=attended_exam,
         is_above_threshold=is_above_threshold,
         existing_result=existing_result,
         is_override_accepted=override_locked,
+        has_semester_submission=student_has_semester_submission,
     )
+
+    if result_status is None:
+        # Student sat another exam this semester; a non-attended row for THIS
+        # exam is a stray duplicate. Remove any existing one and create none, so
+        # exactly one row per student per semester survives.
+        AdmissionResult.objects.filter(exam=exam, student=student).delete()
+        return {
+            "success": True,
+            "result": None,
+            "skipped": True,
+            "distribution_found": weighted["distribution_found"],
+            "warning": None,
+        }
+
     preserved_status = existing_result.status if existing_result else "PENDING"
 
     admission_result, _ = AdmissionResult.objects.update_or_create(
@@ -528,12 +596,23 @@ def apply_semester_result_statuses(
     protected_count = protected_qs.count()
 
     non_override = results.filter(is_override_accepted=False, is_admitted=False)
+
+    # One exam per student per semester: a non-attended row for a student who
+    # submitted a DIFFERENT exam this semester is a stray duplicate. Delete it
+    # (rather than stamping ABSENT) so the same student never appears twice, and
+    # a student who sat an exam is never wrongly shown as absent.
+    semester_submitter_ids = student_ids_with_semester_submission(exams)
+    non_override.filter(
+        attended_exam=False,
+        student_id__in=semester_submitter_ids,
+    ).delete()
+
     non_override.filter(attended_exam=False).update(result_status="ABSENT")
     non_override.filter(attended_exam=True).update(result_status="REJECTED")
 
     qualified = non_override.filter(
         attended_exam=True,
-        weighted_total_marks__gte=threshold_value,
+        weighted_total_marks__gte=threshold_value - THRESHOLD_EPSILON,
     ).order_by(
         "-weighted_total_marks",
         "-written_viva_total",
@@ -554,7 +633,7 @@ def apply_semester_result_statuses(
     # candidates are never promoted to WAITING.
     waiting_candidates = non_override.filter(
         attended_exam=True,
-        weighted_total_marks__gte=threshold_value,
+        weighted_total_marks__gte=threshold_value - THRESHOLD_EPSILON,
     ).exclude(id__in=accepted_ids).order_by(
         "-weighted_total_marks",
         "-written_viva_total",
@@ -767,8 +846,6 @@ def recalculate_single_student_result(exam_id, student_id):
     if not result["success"]:
         return result
 
-    admission_result = result["result"]
-
     status_application = apply_semester_result_statuses(
         department=exam_department,
         semester=exam.semester,
@@ -783,7 +860,22 @@ def recalculate_single_student_result(exam_id, student_id):
             "error": status_application.get("error", "Failed to refresh result statuses"),
         }
 
-    admission_result.refresh_from_db()
+    # The row may have been removed as a stray semester duplicate (student sat a
+    # different exam this semester), so re-fetch instead of trusting the
+    # pre-recalc object and report a graceful skip when it is gone.
+    admission_result = AdmissionResult.objects.filter(
+        exam_id=exam_id, student_id=student_id
+    ).first()
+    if admission_result is None:
+        return {
+            "success": True,
+            "student": student.username,
+            "student_id": student.id,
+            "exam_id": exam.id,
+            "action": "skipped",
+            "result_status": None,
+            "warning": result.get("warning"),
+        }
 
     return {
         "success": True,

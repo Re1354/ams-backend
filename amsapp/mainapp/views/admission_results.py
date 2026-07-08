@@ -24,12 +24,14 @@ from ..serializers.admission_result import (
     CalculateResultsResponseSerializer,
 )
 from ..services.admission_calculator import (
+    THRESHOLD_EPSILON,
     apply_semester_result_statuses,
     calculate_admission_results,
     calculate_semester_admission_results,
     get_threshold_mapping_for_semester,
     get_or_create_admission_configuration,
     get_candidate_students_for_exam,
+    has_semester_submission,
     is_configuration_complete,
     recalculate_single_student_result,
     resolve_department_for_exam,
@@ -61,6 +63,14 @@ def get_single_configuration(filters):
 
 def resolve_reverted_status(result):
     if not result.attended_exam:
+        # A student is ABSENT only if they sat no exam this semester. If they
+        # submitted a different exam, this is a stray row (the recalc that runs
+        # right after a revert removes it); keep it out of the Absent tab.
+        department = resolve_department_for_exam(result.exam)
+        if department and has_semester_submission(
+            result.student, department, result.exam.semester
+        ):
+            return "REJECTED"
         return "ABSENT"
     if is_threshold_qualified(result):
         return "WAITING"
@@ -79,7 +89,7 @@ def is_threshold_qualified(result):
     return (
         result.attended_exam
         and threshold_value is not None
-        and result.weighted_total_marks >= float(threshold_value)
+        and result.weighted_total_marks >= float(threshold_value) - THRESHOLD_EPSILON
     )
 
 
