@@ -1,3 +1,5 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email as django_validate_email
 from rest_framework import serializers
 from ..models import Students, Submission, ExamQuestion, Exam
 from ..utils import normalize_semester_value
@@ -5,6 +7,38 @@ from ..utils import normalize_semester_value
 
 ACADEMIC_TYPE_HSC = 'HSC'
 ACADEMIC_TYPE_DIPLOMA = 'DIPLOMA'
+
+# When a student is added without an email, the app stores this marker instead
+# of a fabricated address, so the field is a plain CharField (not EmailField)
+# that still validates real addresses. Keep this string in sync with the
+# frontend NOT_ENTERED_EMAIL constant.
+EMAIL_NOT_ENTERED = 'Not Entered'
+
+
+def optional_email_field():
+    """A student email field: optional, accepts the 'Not Entered' marker."""
+    return serializers.CharField(required=False, allow_blank=True, max_length=254)
+
+
+def validate_optional_email(value):
+    """Allow blank or the 'Not Entered' marker; validate any real address."""
+    if value is None:
+        return value
+    trimmed = value.strip()
+    if trimmed in ('', EMAIL_NOT_ENTERED):
+        return trimmed
+    try:
+        django_validate_email(trimmed)
+    except DjangoValidationError:
+        raise serializers.ValidationError('Enter a valid email address.')
+    return trimmed
+
+
+class OptionalEmailSerializerMixin:
+    """Validate email, tolerating blank and the 'Not Entered' marker."""
+
+    def validate_email(self, value):
+        return validate_optional_email(value)
 
 
 def validate_gpa_range(value, label, maximum):
@@ -36,9 +70,11 @@ def normalize_academic_fields(serializer, data):
     return data
 
 
-class StudentsSerializer(serializers.ModelSerializer):
+class StudentsSerializer(OptionalEmailSerializerMixin, serializers.ModelSerializer):
     """Serializer for Students model"""
-    
+
+    email = optional_email_field()
+
     class Meta:
         model = Students
         fields = [
@@ -86,9 +122,11 @@ class StudentsSerializer(serializers.ModelSerializer):
         return normalize_academic_fields(self, data)
 
 
-class StudentCreateSerializer(serializers.ModelSerializer):
+class StudentCreateSerializer(OptionalEmailSerializerMixin, serializers.ModelSerializer):
     """Serializer for creating students"""
-    
+
+    email = optional_email_field()
+
     class Meta:
         model = Students
         fields = [
@@ -129,9 +167,11 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         return normalize_academic_fields(self, data)
 
 
-class StudentUpdateSerializer(serializers.ModelSerializer):
+class StudentUpdateSerializer(OptionalEmailSerializerMixin, serializers.ModelSerializer):
     """Serializer for updating students"""
-    
+
+    email = optional_email_field()
+
     class Meta:
         model = Students
         fields = [
