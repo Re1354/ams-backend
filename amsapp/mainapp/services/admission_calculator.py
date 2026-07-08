@@ -386,6 +386,62 @@ def has_semester_submission(student, department, semester):
     return Submission.objects.filter(student=student, exam__in=semester_exams).exists()
 
 
+def _result_survivor_rank(result):
+    # Best survivor first: attended over absent, then higher weighted total,
+    # then the most recently created row.
+    return (
+        1 if result.attended_exam else 0,
+        result.weighted_total_marks or 0.0,
+        result.created_at,
+    )
+
+
+def collapse_duplicate_semester_results(exams):
+    """
+    Enforce one AdmissionResult per student per semester, regardless of HOW a
+    duplicate arose — legacy pre-guardrail dual assignments, a future guardrail
+    edge case, or a manual DB edit. For each student holding more than one row
+    across the semester's exams, keep the best row (attended over absent, then
+    higher weighted total, then newest) and delete the rest, folding any
+    admitted / override seat onto the survivor so no accepted candidate is lost.
+
+    This is the last line of defence: even if a bad duplicate slips past every
+    upstream guard, it can never surface on the board because the very next
+    recalc collapses it. Returns the number of rows deleted.
+    """
+    grouped = defaultdict(list)
+    for result in AdmissionResult.objects.filter(exam__in=exams):
+        grouped[result.student_id].append(result)
+
+    deleted = 0
+    for rows in grouped.values():
+        if len(rows) < 2:
+            continue
+        rows.sort(key=_result_survivor_rank, reverse=True)
+        survivor, losers = rows[0], rows[1:]
+
+        had_admitted = any(r.is_admitted for r in rows)
+        had_override = any(r.is_override_accepted for r in rows)
+        changed = False
+        if had_admitted and not survivor.is_admitted:
+            survivor.is_admitted = True
+            changed = True
+        if had_override and not survivor.is_override_accepted:
+            survivor.is_override_accepted = True
+            changed = True
+        if (survivor.is_admitted or survivor.is_override_accepted) and not survivor.is_selected:
+            survivor.is_selected = True
+            survivor.result_status = "SELECTED"
+            changed = True
+        if changed:
+            survivor.save()
+
+        for loser in losers:
+            loser.delete()
+            deleted += 1
+    return deleted
+
+
 def get_candidate_students_for_exam(exam):
     """
     Include assigned candidates only after their schedule has ended, while
@@ -584,6 +640,12 @@ def apply_semester_result_statuses(
         }
 
     threshold_value = float(threshold_value)
+
+    # Collapse any duplicate rows to one per student BEFORE ranking, so a
+    # duplicate can never surface no matter how it was created (see
+    # collapse_duplicate_semester_results).
+    collapse_duplicate_semester_results(exams)
+
     results = AdmissionResult.objects.filter(exam__in=exams)
 
     results.update(threshold_applied=threshold_value, is_selected=False)
