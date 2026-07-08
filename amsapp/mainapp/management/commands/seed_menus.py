@@ -89,7 +89,7 @@ class Command(BaseCommand):
                     'component': 'SubjectDepartmentMapping'
                 },
                 {
-                    'label':'Student Assign(Written)',
+                    'label':'Student Assign',
                     'icon':'UserPlus',
                     'link':'/student-assign-teacher-exam',
                     'component':'StudentAssignTeacherExam'
@@ -129,12 +129,6 @@ class Command(BaseCommand):
                     'icon':'Mic',
                     'link':'/viva-rubrics-management',
                     'component':'VivaManagement'
-                },
-                {
-                    'label':'Student Assign(Viva)',
-                    'icon':'Cpu',
-                    'link':'/viva-assign',
-                    'component':'VivaAssign'
                 },
                 {
                     'label':'Marks Distribution Management',
@@ -247,6 +241,20 @@ class Command(BaseCommand):
                             f'Menu {menu.label} already assigned to superadmin'
                         )
                     )
+
+            # Clean up legacy menu rows that are no longer in the seed list.
+            # The old "Student Assign(Viva)" menu (component='VivaAssign') was
+            # removed when the page was merged into "Student Assign"; delete
+            # any leftover row here so it stops appearing in user menus.
+            seed_components = {m['component'] for m in menu_data}
+            legacy_qs = Menu.objects.exclude(component__in=seed_components)
+            for legacy in legacy_qs:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f'Removing legacy menu: {legacy.label} (component={legacy.component})'
+                    )
+                )
+                legacy.delete()
 
             self.stdout.write(
                 self.style.SUCCESS('\nSeeding completed successfully!')
