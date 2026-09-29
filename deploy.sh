@@ -31,6 +31,6 @@ echo ""
 echo ">> Status:"
 docker compose ps
 echo ""
-echo "Backend deployed -> https://$(grep -E '^API_DOMAIN=' .env | cut -d= -f2)"
+echo "Backend deployed -> https://$((grep -E '^API_DOMAIN=' .env || true) | cut -d= -f2 | tr -d '\r')"
 echo "Tip: create an admin user with:"
 echo "  docker compose exec web sh -c 'cd amsapp && python manage.py createsuperuser'"

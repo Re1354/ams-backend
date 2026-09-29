@@ -20,60 +20,26 @@ jobs:
           debug: true
 
           script: |
-            cd /home/ubuntu/ams-diu-backend
+            if [ -d "$HOME/ams-diu-backend" ]; then
+              cd "$HOME/ams-diu-backend"
+            elif [ -d "/home/ubuntu/ams-diu-backend" ]; then
+              cd /home/ubuntu/ams-diu-backend
+            else
+              cd "$(find /home -maxdepth 2 -name ams-diu-backend -type d 2>/dev/null | head -n 1)"
+            fi
 
+            echo ">> Deploying in directory: $(pwd)"
             git fetch origin main
             git checkout main
             git pull origin main
 
-            # 1. Virtual Environment detection & setup
-            if [ -f ".venv/bin/activate" ]; then
-              source .venv/bin/activate
-            elif [ -f "venv/bin/activate" ]; then
-              source venv/bin/activate
-            elif [ -f "../.venv/bin/activate" ]; then
-              source ../.venv/bin/activate
-            elif [ -f "../venv/bin/activate" ]; then
-              source ../venv/bin/activate
+            echo ">> Deploying with Docker Compose..."
+            if [ -f "./deploy.sh" ]; then
+              chmod +x ./deploy.sh
+              ./deploy.sh
             else
-              echo ">> Creating .venv..."
-              python3 -m venv .venv
-              source .venv/bin/activate
+              docker network inspect web >/dev/null 2>&1 || docker network create web
+              docker compose --env-file .env up -d --build
             fi
 
-            pip install -r requirements.txt
-
-            cd amsapp
-
-            python3 manage.py migrate --noinput
-            python3 manage.py seed_menus || true
-            python3 manage.py collectstatic --noinput || true
-
-            # 2. Restart services (Docker or systemd)
-            if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "ams-backend"; then
-              echo ">> Restarting ams-backend docker container..."
-              docker restart ams-backend || true
-            elif [ -f "../deploy.sh" ] && command -v docker >/dev/null 2>&1; then
-              echo ">> Running deploy.sh..."
-              cd .. && chmod +x ./deploy.sh && ./deploy.sh || true
-            fi
-
-            # Check and restart systemd service if present
-            for svc in ams ams-backend backend amsapp django gunicorn; do
-              if sudo systemctl is-active --quiet "$svc" 2>/dev/null || sudo systemctl list-unit-files 2>/dev/null | grep -q "^$svc\.service"; then
-                echo ">> Restarting systemd service: $svc"
-                sudo systemctl restart "$svc" || true
-                sudo systemctl status "$svc" --no-pager || true
-                break
-              fi
-            done
-
-            # Gracefully reload gunicorn workers if running as a process
-            if pgrep -f "gunicorn.*amsapp" >/dev/null 2>&1; then
-              echo ">> Reloading running gunicorn processes..."
-              pkill -HUP -f "gunicorn.*amsapp" || true
-            fi
-
-            echo ">> Deployment script completed successfully."
-
-         
+            echo ">> Deployment completed successfully."
