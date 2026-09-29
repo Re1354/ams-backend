@@ -26,18 +26,54 @@ jobs:
             git checkout main
             git pull origin main
 
-            source venv/bin/activate
+            # 1. Virtual Environment detection & setup
+            if [ -f ".venv/bin/activate" ]; then
+              source .venv/bin/activate
+            elif [ -f "venv/bin/activate" ]; then
+              source venv/bin/activate
+            elif [ -f "../.venv/bin/activate" ]; then
+              source ../.venv/bin/activate
+            elif [ -f "../venv/bin/activate" ]; then
+              source ../venv/bin/activate
+            else
+              echo ">> Creating .venv..."
+              python3 -m venv .venv
+              source .venv/bin/activate
+            fi
 
             pip install -r requirements.txt
 
             cd amsapp
 
-            python manage.py migrate --noinput
+            python3 manage.py migrate --noinput
+            python3 manage.py seed_menus || true
+            python3 manage.py collectstatic --noinput || true
 
-            python manage.py collectstatic --noinput || true
+            # 2. Restart services (Docker or systemd)
+            if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "ams-backend"; then
+              echo ">> Restarting ams-backend docker container..."
+              docker restart ams-backend || true
+            elif [ -f "../deploy.sh" ] && command -v docker >/dev/null 2>&1; then
+              echo ">> Running deploy.sh..."
+              cd .. && chmod +x ./deploy.sh && ./deploy.sh || true
+            fi
 
-            sudo systemctl restart ams
+            # Check and restart systemd service if present
+            for svc in ams ams-backend backend amsapp django gunicorn; do
+              if sudo systemctl is-active --quiet "$svc" 2>/dev/null || sudo systemctl list-unit-files 2>/dev/null | grep -q "^$svc\.service"; then
+                echo ">> Restarting systemd service: $svc"
+                sudo systemctl restart "$svc" || true
+                sudo systemctl status "$svc" --no-pager || true
+                break
+              fi
+            done
 
-            sudo systemctl status ams --no-pager  
+            # Gracefully reload gunicorn workers if running as a process
+            if pgrep -f "gunicorn.*amsapp" >/dev/null 2>&1; then
+              echo ">> Reloading running gunicorn processes..."
+              pkill -HUP -f "gunicorn.*amsapp" || true
+            fi
+
+            echo ">> Deployment script completed successfully."
 
          
