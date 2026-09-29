@@ -24,6 +24,15 @@ from .views.departments import (
     get_all_departments, create_department, get_department_by_id, 
     update_department_full, update_department_partial, delete_department
 )
+from .views.faculty import (
+    get_all_faculties, create_faculty, get_faculty_by_id,
+    update_faculty_full, update_faculty_partial, delete_faculty
+)
+from .views.faculty_departments import (
+    get_all_faculty_departments, create_faculty_department, get_faculty_department_by_id,
+    get_departments_by_faculty, update_faculty_department, add_departments_to_faculty,
+    remove_departments_from_faculty, delete_faculty_department
+)
 from .views.subjects import (
     get_all_subjects, create_subject, get_subject_by_id,
     update_subject, delete_subject
@@ -166,6 +175,24 @@ urlpatterns = [
     path('api/departments/<int:department_id>/update/', update_department_full, name='update-department-full'),
     path('api/departments/<int:department_id>/update/', update_department_partial, name='update-department-partial'),
     path('api/departments/<int:department_id>/delete/', delete_department, name='delete-department'),
+    
+    # Faculty Management API
+    path('api/faculties/', get_all_faculties, name='get-all-faculties'),
+    path('api/faculties/create/', create_faculty, name='create-faculty'),
+    path('api/faculties/<int:faculty_id>/', get_faculty_by_id, name='get-faculty-by-id'),
+    path('api/faculties/<int:faculty_id>/update/', update_faculty_full, name='update-faculty-full'),
+    path('api/faculties/<int:faculty_id>/update/', update_faculty_partial, name='update-faculty-partial'),
+    path('api/faculties/<int:faculty_id>/delete/', delete_faculty, name='delete-faculty'),
+    
+    # Faculty-Department Mapping API
+    path('api/faculty-departments/', get_all_faculty_departments, name='get-all-faculty-departments'),
+    path('api/faculty-departments/create/', create_faculty_department, name='create-faculty-department'),
+    path('api/faculty-departments/<int:mapping_id>/', get_faculty_department_by_id, name='get-faculty-department-by-id'),
+    path('api/faculty-departments/faculty/<int:faculty_id>/', get_departments_by_faculty, name='get-departments-by-faculty'),
+    path('api/faculty-departments/<int:mapping_id>/update/', update_faculty_department, name='update-faculty-department'),
+    path('api/faculty-departments/<int:mapping_id>/add-departments/', add_departments_to_faculty, name='add-departments-to-faculty'),
+    path('api/faculty-departments/<int:mapping_id>/remove-departments/', remove_departments_from_faculty, name='remove-departments-from-faculty'),
+    path('api/faculty-departments/<int:mapping_id>/delete/', delete_faculty_department, name='delete-faculty-department'),
     
     # Subject Management API
     path('api/subjects/', get_all_subjects, name='get-all-subjects'),

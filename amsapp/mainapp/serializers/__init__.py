@@ -13,6 +13,18 @@ from .departments import (
     DepartmentDetailSerializer
 )
 
+# Faculty Management
+from .faculty import (
+    FacultySerializer,
+    FacultyCreateSerializer
+)
+
+# Faculty Department Mapping
+from .faculty_department import (
+    FacultyDepartmentSerializer,
+    FacultyDepartmentCreateSerializer
+)
+
 # Menu Management
 from .menu import (
     MenuSerializer,
@@ -99,6 +111,14 @@ __all__ = [
     'DepartmentSerializer',
     'DepartmentCreateSerializer',
     'DepartmentDetailSerializer',
+    
+    # Faculty
+    'FacultySerializer',
+    'FacultyCreateSerializer',
+    
+    # Faculty Department Mapping
+    'FacultyDepartmentSerializer',
+    'FacultyDepartmentCreateSerializer',
     
     # Menu
     'MenuSerializer',
