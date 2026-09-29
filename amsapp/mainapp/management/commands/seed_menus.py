@@ -71,10 +71,22 @@ class Command(BaseCommand):
                     'component': 'MenuAccessManagement'
                 },
                 {
+                    'label': 'Faculty Management',
+                    'icon': 'Landmark',
+                    'link': '/faculty-management',
+                    'component': 'FacultyManagement'
+                },
+                {
                     'label': 'Department Management',
                     'icon': 'Building',
                     'link': '/department-management',
                     'component': 'DepartmentManagement'
+                },
+                {
+                    'label': 'Faculty Department Mapping',
+                    'icon': 'Layers',
+                    'link': '/faculty-department-mapping',
+                    'component': 'FacultyDepartmentMapping'
                 },
                 {
                     'label': 'Subject Management',

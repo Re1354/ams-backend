@@ -612,13 +612,24 @@ def get_admission_results(request):
     results = results.annotate(exam_taken_at=Subquery(latest_submission))
 
     exam_taken_date = request.query_params.get("exam_taken_date")
-    if exam_taken_date:
+    start_date = request.query_params.get("start_date") or request.query_params.get("exam_taken_date_from")
+    end_date = request.query_params.get("end_date") or request.query_params.get("exam_taken_date_to")
+
+    local_tz = timezone.get_current_timezone()
+    if start_date or end_date:
+        if start_date:
+            parsed_start = parse_date(start_date)
+            if parsed_start:
+                day_start = datetime.combine(parsed_start, time.min, tzinfo=local_tz)
+                results = results.filter(exam_taken_at__gte=day_start)
+        if end_date:
+            parsed_end = parse_date(end_date)
+            if parsed_end:
+                day_end = datetime.combine(parsed_end + timedelta(days=1), time.min, tzinfo=local_tz)
+                results = results.filter(exam_taken_at__lt=day_end)
+    elif exam_taken_date:
         parsed_date = parse_date(exam_taken_date)
         if parsed_date:
-            # submitted_at is stored UTC; the frontend sends a LOCAL calendar day.
-            # Map that local day to a UTC range so "today"/custom-date match the
-            # day admins mean. Uses the project TIME_ZONE (Asia/Dhaka).
-            local_tz = timezone.get_current_timezone()
             day_start = datetime.combine(parsed_date, time.min, tzinfo=local_tz)
             results = results.filter(
                 exam_taken_at__gte=day_start,
@@ -648,12 +659,19 @@ def get_admission_results(request):
 
     order_prefix = "" if order == "asc" else "-"
     sort_mapping = {
-        "name": f"{order_prefix}student__full_name",
         "score": f"{order_prefix}weighted_total_marks",
         "form_id": f"{order_prefix}student__f_id",
         "serial": f"{order_prefix}id",
     }
-    if sort_by == "date":
+    if sort_by in ("exams_taken", "exam_count", "exams"):
+        results = results.annotate(
+            exams_taken_count=Count("student__submissions__exam", distinct=True)
+        )
+        exam_count_order = (
+            F("exams_taken_count").asc() if order == "asc" else F("exams_taken_count").desc()
+        )
+        results = results.order_by(exam_count_order, "-weighted_total_marks", "-created_at")
+    elif sort_by == "date":
         date_order = (
             F("exam_taken_at").asc(nulls_last=True)
             if order == "asc"

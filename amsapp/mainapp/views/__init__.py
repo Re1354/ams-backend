@@ -21,6 +21,15 @@ from .student_app import (
 from .auth import login_view, refresh_token_view, verify_token_view
 from .roles import get_all_roles, create_role, get_role_by_id, update_role, delete_role
 from .users import get_all_users, create_user, get_user_by_id, update_user, delete_user, get_all_teachers
+from .faculty import (
+    get_all_faculties, create_faculty, get_faculty_by_id,
+    update_faculty_full, update_faculty_partial, delete_faculty
+)
+from .faculty_departments import (
+    get_all_faculty_departments, create_faculty_department, get_faculty_department_by_id,
+    get_departments_by_faculty, update_faculty_department, add_departments_to_faculty,
+    remove_departments_from_faculty, delete_faculty_department
+)
 from .student_assign_teacher_exam import (
     assign_students_bulk, assign_student_single, get_all_assignments, 
     delete_assignment, delete_assignments_bulk, get_available_schedules
@@ -81,6 +90,15 @@ __all__ = [
     
     # Users
     'get_all_users', 'create_user', 'get_user_by_id', 'update_user', 'delete_user', 'get_all_teachers',
+    
+    # Faculties
+    'get_all_faculties', 'create_faculty', 'get_faculty_by_id',
+    'update_faculty_full', 'update_faculty_partial', 'delete_faculty',
+    
+    # Faculty-Department Mappings
+    'get_all_faculty_departments', 'create_faculty_department', 'get_faculty_department_by_id',
+    'get_departments_by_faculty', 'update_faculty_department', 'add_departments_to_faculty',
+    'remove_departments_from_faculty', 'delete_faculty_department',
     
     # Student Assignments
     'assign_students_bulk', 'assign_student_single', 'get_all_assignments', 

@@ -22,6 +22,8 @@ from .viva_assign import VivaAssignment
 from .department_threshold import DepartmentThreshold
 from .admission_configuration import AdmissionConfiguration
 from .admission_result import AdmissionResult
+from .faculty import Faculty
+from .faculties_departments import FacultyDepartment
 
 
 
@@ -50,5 +52,7 @@ __all__ = [
     'DepartmentThreshold',
     'AdmissionConfiguration',
     'AdmissionResult',
+    'Faculty',
+    'FacultyDepartment',
 
 ]
