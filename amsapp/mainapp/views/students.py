@@ -20,6 +20,7 @@ STUDENT_RESULT_RECALCULATION_FIELDS = {
     'hsc',
     'diploma',
     'department_shortname',
+    'faculty_id',
 }
 
 
@@ -78,7 +79,7 @@ def recalculate_existing_student_results(student):
 def get_all_students(request):
     """Get all students with optional filtering"""
     
-    base_students = Students.objects.all()
+    base_students = Students.objects.select_related('faculty').all()
     students = base_students
     
     # Apply filters

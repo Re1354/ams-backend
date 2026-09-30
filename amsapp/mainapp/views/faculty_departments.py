@@ -140,11 +140,23 @@ def get_faculty_department_by_id(request, mapping_id):
 @permission_classes([IsAuthenticated])
 def get_departments_by_faculty(request, faculty_id):
     """Get departments by faculty ID"""
-    mapping = get_object_or_404(FacultyDepartment, faculty_id=faculty_id)
-    serializer = FacultyDepartmentSerializer(mapping)
+    try:
+        mapping = FacultyDepartment.objects.get(faculty_id=faculty_id)
+        serializer = FacultyDepartmentSerializer(mapping)
+        data = serializer.data
+    except FacultyDepartment.DoesNotExist:
+        faculty = get_object_or_404(Faculty, id=faculty_id)
+        data = {
+            'id': None,
+            'faculty': faculty.id,
+            'faculty_name': faculty.faculty_name,
+            'department_ids': [],
+            'departments': [],
+            'departments_count': 0,
+        }
     return Response({
         'success': True,
-        'data': serializer.data,
+        'data': data,
         'message': 'Departments for faculty retrieved successfully'
     })
 

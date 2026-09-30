@@ -30,6 +30,24 @@ class Students(models.Model):
     hsc = models.FloatField(default=0)
     diploma = models.FloatField(default=0)
 
+    # Faculty / department choices (admission preference flow)
+    faculty = models.ForeignKey(
+        'mainapp.Faculty',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='applicants',
+        help_text="Faculty the student is applying under",
+    )
+    department_choices = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Ordered list of up to 3 department preferences. "
+            'Each entry: {"department_id": <int>, "priority": <int>}'
+        ),
+    )
+
     class Meta:
         db_table = 'students'
         indexes = [
