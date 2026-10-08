@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
+# pyrefly: ignore [missing-import]
 from ..models.departments import Department
+# pyrefly: ignore [missing-import]
 from ..models.faculties_departments import FacultyDepartment
 from .departments import DepartmentSerializer
 

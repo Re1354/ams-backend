@@ -584,6 +584,8 @@ def build_student_admission_detail_report_data(exam_id: int, student_id: int):
 
     viva_rubric_rows = build_viva_rubric_rows(viva_assignment)
     viva_teacher = viva_assignment.teacher.username if viva_assignment and viva_assignment.teacher_id else None
+    viva_rubric_total = round(sum(float(r.get("max_marks", 0) or 0) for r in viva_rubric_rows), 2)
+    viva_total_marks = viva_rubric_total if viva_rubric_total > 0 else 20.0
 
     report_data = {
         "student": {
@@ -634,7 +636,7 @@ def build_student_admission_detail_report_data(exam_id: int, student_id: int):
                 if viva_assignment and viva_assignment.scheduled_at
                 else (viva_assignment.time.isoformat() if viva_assignment else None)
             ),
-            "total_marks": round(float(viva_assignment.total_marks or 0), 2) if viva_assignment else 0.0,
+            "total_marks": viva_total_marks,
             "remarks": viva_assignment.remarks if viva_assignment else None,
             "rubric_rows": viva_rubric_rows,
         },
