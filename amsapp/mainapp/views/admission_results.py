@@ -36,6 +36,8 @@ from ..services.admission_calculator import (
     recalculate_single_student_result,
     resolve_department_for_exam,
     summarize_status_counts,
+    build_candidate_tiebreak_key,
+    get_priority_subject_names_for_department,
 )
 from ..utils import normalize_semester_filter, semester_sort_key
 
@@ -678,6 +680,32 @@ def get_admission_results(request):
             else F("exam_taken_at").desc(nulls_last=True)
         )
         results = results.order_by(date_order, "-created_at")
+    elif sort_by in ("score", None, ""):
+        results = results.order_by(
+            f"{order_prefix}weighted_total_marks",
+            "-written_viva_total" if order != "asc" else "written_viva_total",
+            "-mcq_marks" if order != "asc" else "mcq_marks",
+            "-created_at",
+        )
+        results_list = list(results)
+        dept_priorities_cache = {}
+
+        def get_cached_priority_subjects(item):
+            dept = item.department or getattr(item.configuration, "department", None)
+            dept_id = dept.id if dept else None
+            if dept_id not in dept_priorities_cache:
+                dept_priorities_cache[dept_id] = (
+                    get_priority_subject_names_for_department(dept) if dept else []
+                )
+            return dept_priorities_cache[dept_id]
+
+        results_list.sort(
+            key=lambda item: build_candidate_tiebreak_key(
+                item, get_cached_priority_subjects(item)
+            ),
+            reverse=(order == "asc"),
+        )
+        results = results_list
     else:
         results = results.order_by(sort_mapping.get(sort_by, "-weighted_total_marks"), "-created_at")
 

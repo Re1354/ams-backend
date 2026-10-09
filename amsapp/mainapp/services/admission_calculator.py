@@ -23,6 +23,7 @@ from ..models import (
     MarksDistribution,
     StudentAssignTeacherExam,
     Students,
+    SubjectPriority,
     Submission,
 )
 from ..models.viva_marks import VivaMarks
@@ -126,6 +127,110 @@ def get_student_department(student):
     return Department.objects.filter(
         department_name__iexact=student.department_shortname
     ).first()
+
+
+def extract_subject_mark(subject_wise_marks, subject_name):
+    """
+    Extract the marks obtained for a subject from subject_wise_marks JSON.
+    Handles various structures:
+    - {"marks_obtained": 85, ...}
+    - {"marks": 85, ...}
+    - 85 (numeric direct value)
+    Matches subject name case-insensitively as fallback.
+    """
+    if not isinstance(subject_wise_marks, dict) or not subject_name:
+        return 0.0
+
+    # 1. Direct key lookup
+    val = subject_wise_marks.get(subject_name)
+
+    # 2. Case-insensitive lookup if direct key not found
+    if val is None:
+        target = str(subject_name).strip().lower()
+        for k, v in subject_wise_marks.items():
+            if str(k).strip().lower() == target:
+                val = v
+                break
+
+    if val is None:
+        return 0.0
+
+    if isinstance(val, dict):
+        mark = val.get("marks_obtained", val.get("marks", val.get("score", 0.0)))
+        try:
+            return float(mark)
+        except (ValueError, TypeError):
+            return 0.0
+    elif isinstance(val, (int, float)):
+        return float(val)
+    elif isinstance(val, str):
+        try:
+            return float(val)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def get_priority_subject_names_for_department(department):
+    """
+    Returns ordered list of subject names for the given department,
+    from highest priority (priority 1) to lowest priority.
+    """
+    if not department:
+        return []
+
+    dept_id = None
+    if isinstance(department, Department):
+        dept_id = department.id
+    elif isinstance(department, int):
+        dept_id = department
+    elif isinstance(department, str):
+        if department.isdigit():
+            dept_id = int(department)
+        else:
+            dept = Department.objects.filter(
+                Q(department_shortname__iexact=department)
+                | Q(department_name__iexact=department)
+            ).first()
+            if dept:
+                dept_id = dept.id
+
+    if not dept_id:
+        return []
+
+    priorities = (
+        SubjectPriority.objects.filter(department_id=dept_id)
+        .select_related("subject")
+        .order_by("priority")
+    )
+    return [p.subject.subject_name for p in priorities if p.subject]
+
+
+def build_candidate_tiebreak_key(candidate, priority_subject_names=None):
+    """
+    Constructs a deterministic tuple key for candidate ranking and tie-breaking.
+    1. weighted_total_marks (descending): Higher total marks always ranks higher.
+    2. Sequential subject priority comparison:
+       Compare subject marks in priority order (1st priority, 2nd, 3rd, ...).
+       The candidate with higher marks in the first subject where marks differ ranks higher.
+    3. Fallback tie-breaking:
+       If total marks and all priority subject marks are identical,
+       fall back to written_viva_total (descending), then mcq_marks (descending),
+       and finally student_id (ascending deterministic).
+    """
+    priority_subject_names = priority_subject_names or []
+    subject_scores = tuple(
+        -round(extract_subject_mark(candidate.subject_wise_marks, s_name), 4)
+        for s_name in priority_subject_names
+    )
+
+    return (
+        -round(float(candidate.weighted_total_marks or 0.0), 4),
+        *subject_scores,
+        -round(float(candidate.written_viva_total or 0.0), 4),
+        -round(float(candidate.mcq_marks or 0.0), 4),
+        int(candidate.student_id or candidate.id or 0),
+    )
 
 
 def get_or_create_admission_configuration(exam, department):
@@ -672,18 +777,19 @@ def apply_semester_result_statuses(
     non_override.filter(attended_exam=False).update(result_status="ABSENT")
     non_override.filter(attended_exam=True).update(result_status="REJECTED")
 
-    qualified = non_override.filter(
+    priority_subject_names = get_priority_subject_names_for_department(department)
+
+    qualified_qs = non_override.filter(
         attended_exam=True,
         weighted_total_marks__gte=threshold_value - THRESHOLD_EPSILON,
-    ).order_by(
-        "-weighted_total_marks",
-        "-written_viva_total",
-        "-mcq_marks",
-        "student_id",
+    )
+    qualified_candidates = list(qualified_qs)
+    qualified_candidates.sort(
+        key=lambda c: build_candidate_tiebreak_key(c, priority_subject_names)
     )
 
     remaining_seats = max(seat_limit - protected_count, 0)
-    accepted_ids = list(qualified.values_list("id", flat=True)[:remaining_seats])
+    accepted_ids = [c.id for c in qualified_candidates[:remaining_seats]]
 
     if accepted_ids:
         non_override.filter(id__in=accepted_ids).update(
@@ -693,17 +799,17 @@ def apply_semester_result_statuses(
 
     # Waiting list honours the same threshold as selection: below-threshold
     # candidates are never promoted to WAITING.
-    waiting_candidates = non_override.filter(
+    waiting_candidates_qs = non_override.filter(
         attended_exam=True,
         weighted_total_marks__gte=threshold_value - THRESHOLD_EPSILON,
-    ).exclude(id__in=accepted_ids).order_by(
-        "-weighted_total_marks",
-        "-written_viva_total",
-        "-mcq_marks",
-        "student_id",
+    ).exclude(id__in=accepted_ids)
+
+    waiting_candidates = list(waiting_candidates_qs)
+    waiting_candidates.sort(
+        key=lambda c: build_candidate_tiebreak_key(c, priority_subject_names)
     )
     waiting_limit = max(int(waiting_student_limit or 0), 0)
-    waiting_ids = list(waiting_candidates.values_list("id", flat=True)[:waiting_limit])
+    waiting_ids = [c.id for c in waiting_candidates[:waiting_limit]]
 
     if waiting_ids:
         non_override.filter(id__in=waiting_ids).update(

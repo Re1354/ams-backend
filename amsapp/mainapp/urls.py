@@ -42,6 +42,12 @@ from .views.subject_departments import (
     get_subjects_by_department, update_subject_department, add_subjects_to_department,
     remove_subjects_from_department, delete_subject_department
 )
+from .views.subject_priority import (
+    get_all_subject_priorities,
+    get_department_subject_priority,
+    save_department_subject_priority,
+    delete_department_subject_priority,
+)
 from .views.exam_generation import generate_exam, regenerate_question, save_generated_exam
 from .views.student_assign_teacher_exam import (
     assign_students_bulk, assign_student_single, get_all_assignments,
@@ -210,6 +216,12 @@ urlpatterns = [
     path('api/subject-departments/<int:mapping_id>/add-subjects/', add_subjects_to_department, name='add-subjects-to-department'),
     path('api/subject-departments/<int:mapping_id>/remove-subjects/', remove_subjects_from_department, name='remove-subjects-from-department'),
     path('api/subject-departments/<int:mapping_id>/delete/', delete_subject_department, name='delete-subject-department'),
+    
+    # Subject Priority Mapping API
+    path('api/subject-priorities/', get_all_subject_priorities, name='get-all-subject-priorities'),
+    path('api/subject-priorities/save/', save_department_subject_priority, name='save-department-subject-priority'),
+    path('api/subject-priorities/department/<int:department_id>/', get_department_subject_priority, name='get-department-subject-priority'),
+    path('api/subject-priorities/department/<int:department_id>/delete/', delete_department_subject_priority, name='delete-department-subject-priority'),
     
     # Exam Generation API
     path('api/exams/generate/', generate_exam, name='generate-exam'),

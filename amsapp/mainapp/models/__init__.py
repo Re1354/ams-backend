@@ -24,6 +24,7 @@ from .admission_configuration import AdmissionConfiguration
 from .admission_result import AdmissionResult
 from .faculty import Faculty
 from .faculties_departments import FacultyDepartment
+from .subject_priority import SubjectPriority, SubjectPriorityMapping
 
 
 
@@ -54,5 +55,6 @@ __all__ = [
     'AdmissionResult',
     'Faculty',
     'FacultyDepartment',
-
+    'SubjectPriority',
+    'SubjectPriorityMapping',
 ]
