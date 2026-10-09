@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth.hashers import check_password, make_password
-from ..models import User, Role, Department
+from ..models import User, Role, Department, Faculty
 from .departments import DepartmentSerializer
+from .faculty import FacultySerializer
 
 
 class RoleSerializer(serializers.ModelSerializer):
@@ -31,11 +32,13 @@ class UserSerializer(serializers.ModelSerializer):
     role_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     department_name = serializers.CharField(source='department.department_name', read_only=True)
     department_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    faculty_name = serializers.CharField(source='faculty.faculty_name', read_only=True)
+    faculty_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password', 'role_id', 'role_name', 'department_id', 'department_name', 'created_at']
-        read_only_fields = ['id', 'created_at', 'role_name', 'department_name']
+        fields = ['id', 'username', 'email', 'password', 'role_id', 'role_name', 'department_id', 'department_name', 'faculty_id', 'faculty_name', 'access_type', 'is_global_access', 'created_at']
+        read_only_fields = ['id', 'created_at', 'role_name', 'department_name', 'faculty_name']
         extra_kwargs = {
             'password': {'write_only': True}
         }
@@ -81,11 +84,21 @@ class UserSerializer(serializers.ModelSerializer):
             except Department.DoesNotExist:
                 raise serializers.ValidationError("Department does not exist")
         return value
+        
+    def validate_faculty_id(self, value):
+        """Validate faculty exists"""
+        if value is not None:
+            try:
+                Faculty.objects.get(id=value)
+            except Faculty.DoesNotExist:
+                raise serializers.ValidationError("Faculty does not exist")
+        return value
     
     def create(self, validated_data):
         """Create user with hashed password"""
         role_id = validated_data.pop('role_id', None)
         department_id = validated_data.pop('department_id', None)
+        faculty_id = validated_data.pop('faculty_id', None)
         password = validated_data.pop('password')
         
         # Hash password
@@ -103,8 +116,13 @@ class UserSerializer(serializers.ModelSerializer):
         if department_id:
             department = Department.objects.get(id=department_id)
             user.department = department
+            
+        # Set faculty if provided
+        if faculty_id:
+            faculty = Faculty.objects.get(id=faculty_id)
+            user.faculty = faculty
         
-        if role_id or department_id:
+        if role_id or department_id or faculty_id:
             user.save()
         
         return user
@@ -113,6 +131,7 @@ class UserSerializer(serializers.ModelSerializer):
         """Update user with hashed password if provided"""
         role_id = validated_data.pop('role_id', None)
         department_id = validated_data.pop('department_id', None)
+        faculty_id = validated_data.pop('faculty_id', None)
         password = validated_data.pop('password', None)
         
         # Update basic fields
@@ -138,6 +157,14 @@ class UserSerializer(serializers.ModelSerializer):
             else:
                 department = Department.objects.get(id=department_id)
                 instance.department = department
+                
+        # Update faculty if provided
+        if faculty_id is not None:
+            if faculty_id == 0:
+                instance.faculty = None
+            else:
+                faculty = Faculty.objects.get(id=faculty_id)
+                instance.faculty = faculty
         
         instance.save()
         return instance
@@ -177,8 +204,9 @@ class UserDetailSerializer(serializers.ModelSerializer):
     
     role_details = RoleSerializer(source='role', read_only=True)
     department_details = DepartmentSerializer(source='department', read_only=True)
+    faculty_details = FacultySerializer(source='faculty', read_only=True)
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'created_at', 'role_details', 'department_details']
+        fields = ['id', 'username', 'email', 'created_at', 'role_details', 'department_details', 'faculty_details', 'access_type', 'is_global_access']
         read_only_fields = ['id', 'username', 'email', 'created_at']

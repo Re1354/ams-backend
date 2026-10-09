@@ -45,7 +45,20 @@ from ..serializers.departments import DepartmentSerializer, DepartmentCreateSeri
 @permission_classes([IsAuthenticated])
 def get_all_departments(request):
     """Get all departments"""
-    departments = Department.objects.all().order_by('department_name')
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+    
+    if scope['is_global']:
+        departments = Department.objects.all().order_by('department_name')
+    else:
+        if scope['department_ids']:
+            departments = Department.objects.filter(id__in=scope['department_ids']).order_by('department_name')
+        else:
+            departments = Department.objects.none()
+            
     serializer = DepartmentSerializer(departments, many=True)
     return Response({
         'success': True,

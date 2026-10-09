@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 
 from ..authentication import CustomJWTAuthentication
+from ..services.access_control import get_user_access_scope
 from ..models import AdmissionConfiguration, AdmissionResult, Department, DepartmentThreshold, Exam
 from ..models import StudentAssignTeacherExam, Submission
 from ..serializers.admission_result import (
@@ -268,8 +269,16 @@ def ensure_semester_admission_results(department=None, semester=None):
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def admission_configurations(request):
+    scope = get_user_access_scope(request.user)
+
     if request.method == "GET":
         queryset = AdmissionConfiguration.objects.select_related("department", "exam").all()
+        
+        if not scope['is_global']:
+            if not scope['department_ids']:
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(department_id__in=scope['department_ids'])
         semester = request.query_params.get("semester")
         department_id = request.query_params.get("department_id")
         exam_id = request.query_params.get("exam_id")
@@ -296,6 +305,24 @@ def admission_configurations(request):
             {"success": False, "message": "Invalid request data", "errors": serializer.errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    if not scope['is_global']:
+        target_department_id = None
+        exam_id = serializer.validated_data.get("exam_id")
+        if exam_id:
+            exam = Exam.objects.filter(id=exam_id).first()
+            if exam:
+                dept = resolve_department_for_exam(exam)
+                if dept:
+                    target_department_id = dept.id
+        else:
+            target_department_id = serializer.validated_data.get("department_id")
+            
+        if not target_department_id or target_department_id not in scope['department_ids']:
+            return Response(
+                {"success": False, "message": "You do not have access to this department."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
     configuration, _, error = resolve_configuration_from_payload(serializer.validated_data)
     if error:
@@ -397,19 +424,37 @@ def admission_configuration_detail(request, config_id):
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def admission_semester_options(request):
+    scope = get_user_access_scope(request.user)
     department_id = request.query_params.get("department_id")
     department = None
 
     if department_id:
+        if not scope['is_global'] and int(department_id) not in scope['department_ids']:
+            return Response({"success": True, "semesters": []})
         department = Department.objects.filter(id=department_id).first()
         if not department:
             return Response(
                 {"success": False, "message": "Department not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
+    else:
+        # If no specific department is requested but the user is restricted,
+        # we shouldn't return all semesters globally.
+        if not scope['is_global'] and not scope['department_ids']:
+            return Response({"success": True, "semesters": []})
+
+    exam_queryset = get_exam_queryset_for_department_semester(department=department)
+    if not department and not scope['is_global']:
+        # Filter exams to only those belonging to permitted departments
+        from django.db.models import Q
+        q_objs = Q()
+        valid_departments = Department.objects.filter(id__in=scope['department_ids'])
+        for valid_dept in valid_departments:
+            q_objs |= Q(department__iexact=valid_dept.department_name) | Q(department__iexact=valid_dept.department_shortname)
+        exam_queryset = exam_queryset.filter(q_objs)
 
     exam_semesters = list(
-        get_exam_queryset_for_department_semester(department=department)
+        exam_queryset
         .order_by("semester")
         .values_list("semester", flat=True)
         .distinct()
@@ -441,6 +486,19 @@ def calculate_results(request):
         )
 
     exam_id = serializer.validated_data["exam_id"]
+    
+    scope = get_user_access_scope(request.user)
+    if not scope['is_global']:
+        exam = Exam.objects.filter(id=exam_id).first()
+        if not exam:
+            return Response({"success": False, "message": "Exam not found"}, status=status.HTTP_404_NOT_FOUND)
+        dept = resolve_department_for_exam(exam)
+        if not dept or dept.id not in scope['department_ids']:
+            return Response(
+                {"success": False, "message": "You do not have access to this department."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
     result = calculate_admission_results(exam_id)
 
     if not result["success"]:
@@ -500,6 +558,8 @@ def calculate_results(request):
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def get_admission_results(request):
+    scope = get_user_access_scope(request.user)
+    
     results = AdmissionResult.objects.select_related(
         "exam",
         "student",
@@ -508,6 +568,12 @@ def get_admission_results(request):
         "configuration__department",
         "configuration__exam",
     ).all()
+    
+    if not scope['is_global']:
+        if not scope['department_ids']:
+            results = results.none()
+        else:
+            results = results.filter(department_id__in=scope['department_ids'])
 
     exam_id = request.query_params.get("exam_id")
     configuration_id = request.query_params.get("configuration_id")
@@ -580,6 +646,13 @@ def get_admission_results(request):
         results = results.filter(
             Q(configuration__semester__iexact=semester) | Q(exam__semester__iexact=semester)
         )
+        
+    if not scope['is_global']:
+        if not scope['department_ids']:
+            results = results.none()
+        else:
+            results = results.filter(department_id__in=scope['department_ids'])
+
     if is_selected is not None:
         results = results.filter(is_selected=is_selected.lower() in {"true", "1", "yes"})
     if attended_exam is not None:

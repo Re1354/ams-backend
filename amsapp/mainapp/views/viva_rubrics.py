@@ -81,7 +81,18 @@ def create_viva_rubrics(request):
 def get_all_viva_rubrics(request):
     """Get all viva rubrics with optional filtering"""
     
-    viva_rubrics = VivaRubrics.objects.select_related('department').all()
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+    
+    if scope['is_global']:
+        viva_rubrics = VivaRubrics.objects.select_related('department').all()
+    else:
+        if scope['department_ids']:
+            viva_rubrics = VivaRubrics.objects.select_related('department').filter(department_id__in=scope['department_ids'])
+        else:
+            viva_rubrics = VivaRubrics.objects.none()
     
     # Apply filters
     department_id = request.query_params.get('department_id')
@@ -126,6 +137,19 @@ def get_viva_rubrics_by_id(request, rubrics_id):
     
     try:
         viva_rubrics = VivaRubrics.objects.select_related('department').get(id=rubrics_id)
+        
+        user = request.user
+        custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+        from ..services.access_control import get_user_access_scope
+        scope = get_user_access_scope(custom_user)
+        
+        if not scope['is_global']:
+            if not scope['department_ids'] or viva_rubrics.department_id not in scope['department_ids']:
+                return Response(
+                    {"success": False, "message": "You do not have access to this department's rubrics."},
+                    status=403
+                )
+
         serializer = VivaRubricsSerializer(viva_rubrics)
         return Response({
             'success': True,
@@ -161,6 +185,18 @@ def get_viva_rubrics_by_department(request, department_id):
     try:
         # Verify department exists
         department = Department.objects.get(id=department_id)
+        
+        user = request.user
+        custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+        from ..services.access_control import get_user_access_scope
+        scope = get_user_access_scope(custom_user)
+        
+        if not scope['is_global']:
+            if not scope['department_ids'] or department_id not in scope['department_ids']:
+                return Response(
+                    {"success": False, "message": "You do not have access to this department."},
+                    status=403
+                )
     except Department.DoesNotExist:
         return Response({
             'success': False,

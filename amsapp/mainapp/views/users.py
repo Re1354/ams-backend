@@ -74,38 +74,24 @@ from ..authentication import CustomJWTAuthentication
 def get_all_users(request):
     """
     Retrieve users with role-based filtering:
-    - superadmin: All users
-    - Other users: Only users from their department
+    - Global: All users
+    - Others: Only users from their department(s)
     """
     user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
     
-    # Get the custom user and role information
-    if hasattr(user, 'custom_user'):
-        custom_user = user.custom_user
-        
-        # Check if user has a role
-        if custom_user.role:
-            role_name = custom_user.role.role_name.lower()
-            
-            # Check if superadmin - return all users
-            if role_name == 'superadmin':
-                users = User.objects.all().select_related('role', 'department').order_by('id')
-            else:
-                # For non-superadmin users, filter by department
-                if custom_user.department:
-                    user_dept_shortname = custom_user.department.department_shortname
-                    users = User.objects.filter(
-                        department__department_shortname=user_dept_shortname
-                    ).select_related('role', 'department').order_by('id')
-                else:
-                    # If user has no department assigned, return empty queryset
-                    users = User.objects.none()
-        else:
-            # If user has no role, return empty queryset
-            users = User.objects.none()
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+    
+    if scope['is_global']:
+        users = User.objects.all().select_related('role', 'department', 'faculty').order_by('id')
     else:
-        # If no custom_user, return empty queryset for security
-        users = User.objects.none()
+        if scope['department_ids']:
+            users = User.objects.filter(
+                department_id__in=scope['department_ids']
+            ).select_related('role', 'department', 'faculty').order_by('id')
+        else:
+            users = User.objects.none()
     
     serializer = UserDetailSerializer(users, many=True)
     

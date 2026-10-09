@@ -40,7 +40,18 @@ def get_all_subject_priorities(request):
     if denied:
         return denied
 
-    departments = Department.objects.all().order_by("department_name")
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+
+    if scope['is_global']:
+        departments = Department.objects.all().order_by("department_name")
+    else:
+        if scope['department_ids']:
+            departments = Department.objects.filter(id__in=scope['department_ids']).order_by("department_name")
+        else:
+            departments = Department.objects.none()
     priorities = SubjectPriority.objects.select_related("subject", "department").order_by(
         "department_id", "priority"
     )
@@ -93,6 +104,18 @@ def get_department_subject_priority(request, department_id):
     )
     if denied:
         return denied
+
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+
+    if not scope['is_global']:
+        if not scope['department_ids'] or department_id not in scope['department_ids']:
+            return Response(
+                {"success": False, "message": "You do not have access to this department."},
+                status=403
+            )
 
     department = get_object_or_404(Department, id=department_id)
     priorities = (
@@ -170,6 +193,18 @@ def save_department_subject_priority(request):
     department_id = serializer.validated_data["department_id"]
     subject_ids = serializer.validated_data["subject_ids"]
 
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+
+    if not scope['is_global']:
+        if not scope['department_ids'] or department_id not in scope['department_ids']:
+            return Response(
+                {"success": False, "message": "You do not have access to this department."},
+                status=403
+            )
+
     department = get_object_or_404(Department, id=department_id)
 
     with transaction.atomic():
@@ -233,6 +268,18 @@ def delete_department_subject_priority(request, department_id):
     )
     if denied:
         return denied
+
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+
+    if not scope['is_global']:
+        if not scope['department_ids'] or department_id not in scope['department_ids']:
+            return Response(
+                {"success": False, "message": "You do not have access to this department."},
+                status=403
+            )
 
     department = get_object_or_404(Department, id=department_id)
     count, _ = SubjectPriority.objects.filter(department=department).delete()

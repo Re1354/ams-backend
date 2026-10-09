@@ -79,7 +79,22 @@ def recalculate_existing_student_results(student):
 def get_all_students(request):
     """Get all students with optional filtering"""
     
+    from ..services.access_control import get_user_access_scope
+    from ..models import Department
+    
+    user = getattr(request.user, 'custom_user', None)
+    scope = get_user_access_scope(user)
+    
     base_students = Students.objects.select_related('faculty').all()
+    
+    if not scope['is_global']:
+        if not scope['department_ids']:
+            base_students = Students.objects.none()
+        else:
+            valid_depts = Department.objects.filter(id__in=scope['department_ids'])
+            dept_shortnames = [d.department_shortname for d in valid_depts]
+            base_students = base_students.filter(department_shortname__in=dept_shortnames)
+            
     students = base_students
     
     # Apply filters
@@ -165,6 +180,25 @@ def get_all_students(request):
 @authentication_classes([CustomJWTAuthentication])
 def create_student(request):
     """Create new student"""
+    from ..services.access_control import get_user_access_scope
+    from ..models import Department
+    
+    user = getattr(request.user, 'custom_user', None)
+    scope = get_user_access_scope(user)
+    
+    if not scope['is_global']:
+        dept_shortname = request.data.get('department_shortname')
+        if not dept_shortname:
+            return Response(
+                {"success": False, "message": "department_shortname is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        dept = Department.objects.filter(department_shortname__iexact=dept_shortname).first()
+        if not dept or dept.id not in scope['department_ids']:
+            return Response(
+                {"success": False, "message": "You do not have access to create a student for this department."},
+                status=status.HTTP_403_FORBIDDEN
+            )
     
     serializer = StudentCreateSerializer(data=request.data)
     if not serializer.is_valid():
@@ -209,9 +243,23 @@ def create_student(request):
 @authentication_classes([CustomJWTAuthentication])
 def get_student_by_id(request, student_id):
     """Get student by ID"""
+    from ..services.access_control import get_user_access_scope
+    from ..models import Department
     
     try:
         student = Students.objects.get(id=student_id)
+        
+        user = getattr(request.user, 'custom_user', None)
+        scope = get_user_access_scope(user)
+        
+        if not scope['is_global']:
+            dept = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
+            if not dept or dept.id not in (scope['department_ids'] or []):
+                return Response(
+                    {"success": False, "message": "You do not have access to view this student."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+                
         serializer = StudentsSerializer(student)
         return Response({
             'success': True,
@@ -245,6 +293,8 @@ def get_student_by_id(request, student_id):
 @authentication_classes([CustomJWTAuthentication])
 def update_student(request, student_id):
     """Update student by ID"""
+    from ..services.access_control import get_user_access_scope
+    from ..models import Department
     
     try:
         student = Students.objects.get(id=student_id)
@@ -253,6 +303,28 @@ def update_student(request, student_id):
             'success': False,
             'message': 'Student not found'
         }, status=status.HTTP_404_NOT_FOUND)
+        
+    user = getattr(request.user, 'custom_user', None)
+    scope = get_user_access_scope(user)
+    
+    if not scope['is_global']:
+        # Check current student dept
+        current_dept = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
+        if not current_dept or current_dept.id not in (scope['department_ids'] or []):
+            return Response(
+                {"success": False, "message": "You do not have access to update this student."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        # Check new dept if they are changing it
+        new_dept_shortname = request.data.get('department_shortname')
+        if new_dept_shortname and new_dept_shortname != student.department_shortname:
+            new_dept = Department.objects.filter(department_shortname__iexact=new_dept_shortname).first()
+            if not new_dept or new_dept.id not in (scope['department_ids'] or []):
+                return Response(
+                    {"success": False, "message": "You do not have access to move a student to this department."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
     
     serializer = StudentUpdateSerializer(student, data=request.data, partial=True)
     if not serializer.is_valid():
@@ -325,9 +397,22 @@ def update_student(request, student_id):
 @authentication_classes([CustomJWTAuthentication])
 def delete_student(request, student_id):
     """Delete student by ID"""
+    from ..services.access_control import get_user_access_scope
+    from ..models import Department
     
     try:
         student = Students.objects.get(id=student_id)
+        
+        user = getattr(request.user, 'custom_user', None)
+        scope = get_user_access_scope(user)
+        
+        if not scope['is_global']:
+            dept = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
+            if not dept or dept.id not in (scope['department_ids'] or []):
+                return Response(
+                    {"success": False, "message": "You do not have access to delete this student."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
         student_info = {
             'id': student.id,

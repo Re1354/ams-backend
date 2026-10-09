@@ -55,6 +55,22 @@ class CreateExamAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        from ..services.access_control import get_user_access_scope
+        from ..models import Department
+        
+        user = getattr(request.user, 'custom_user', None)
+        scope = get_user_access_scope(user)
+        
+        if not scope['is_global']:
+            dept = Department.objects.filter(
+                Q(department_name__iexact=data['department']) | Q(department_shortname__iexact=data['department'])
+            ).first()
+            if not dept or dept.id not in scope['department_ids']:
+                return Response(
+                    {"error": "You do not have access to create an exam for this department."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         with transaction.atomic():
             exam = Exam.objects.create(
                 department=data['department'],
@@ -141,41 +157,39 @@ class AllExamsView(generics.ListAPIView):
 
     def get_queryset(self):
         """
-        Filter exams based on user role and department:
-        - superadmin: All exams
-        - Other users: Only exams that have questions matching their department_shortname
+        Filter exams based on user access scope:
+        - Global: All exams
+        - Others: Only exams that have questions matching their permitted departments
         """
         user = self.request.user
+        custom_user = user.custom_user if hasattr(user, 'custom_user') else None
         
-        # Get the custom user and role information
-        queryset = Exam.objects.none()
-        scoped_queryset_set = False
-
-        if hasattr(user, 'custom_user'):
-            custom_user = user.custom_user
-            
-            # Check if user has a role
-            if custom_user.role:
-                role_name = custom_user.role.role_name.lower()
+        from ..services.access_control import get_user_access_scope
+        from ..models import Department, ExamQuestion
+        
+        scope = get_user_access_scope(custom_user)
+        
+        if scope['is_global']:
+            queryset = Exam.objects.all()
+        else:
+            if not scope['department_ids']:
+                queryset = Exam.objects.none()
+            else:
+                valid_depts = Department.objects.filter(id__in=scope['department_ids'])
+                dept_shortnames = [d.department_shortname for d in valid_depts]
                 
-                # Check if superadmin - return all exams
-                if role_name == 'superadmin':
-                    queryset = Exam.objects.all()
-                    scoped_queryset_set = True
-            
-            # For non-superadmin users, filter by department_shortname
-            if not scoped_queryset_set and custom_user.department:
-                user_dept_shortname = custom_user.department.department_shortname
-                
-                # Get exams that have questions matching user's department shortname
+                # Get exams that have questions matching permitted department shortnames
                 exam_ids_with_matching_questions = ExamQuestion.objects.filter(
-                    department_shortname=user_dept_shortname
+                    department_shortname__in=dept_shortnames
                 ).values_list('exam_id', flat=True).distinct()
                 
-                queryset = Exam.objects.filter(
-                    id__in=exam_ids_with_matching_questions
-                )
-                scoped_queryset_set = True
+                # Also include exams whose primary department string matches (fallback)
+                q_objs = Q(id__in=exam_ids_with_matching_questions)
+                for dept in valid_depts:
+                    q_objs |= Q(department__iexact=dept.department_name) | Q(department__iexact=dept.department_shortname)
+                
+                queryset = Exam.objects.filter(q_objs).distinct()
+
 
         params = self.request.query_params
         search = params.get('search')
