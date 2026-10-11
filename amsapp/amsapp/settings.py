@@ -86,9 +86,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': config('DB_NAME', default='amsdiudb'),
-        'USER': config('DB_USER', default='admin'),
-        'PASSWORD': config('DB_PASSWORD', default='NewStrongPassword123!'),
-        'HOST': config('DB_HOST', default='localhost'),
+        'USER': config('DB_USER', default='amsadmin'),
+        'PASSWORD': config('DB_PASSWORD', default='local_dev_password_123'),
+        'HOST': config('DB_HOST', default='127.0.0.1'),
         'PORT': config('DB_PORT', default='5432'),
     }
 }
@@ -96,7 +96,7 @@ DATABASES = {
 # Override with DATABASE_URL if provided.
 DATABASE_URL = config(
     'DATABASE_URL',
-    default='postgresql://admin:NewStrongPassword123!@localhost:5432/amsdiudb'
+    default='postgresql://amsadmin:local_dev_password_123@127.0.0.1:5432/amsdiudb'
 )
 if DATABASE_URL:
     DATABASES['default'] = dj_database_url.parse(DATABASE_URL, conn_max_age=600)

@@ -26,7 +26,8 @@ from .faculty import Faculty
 from .faculties_departments import FacultyDepartment
 from .subject_priority import SubjectPriority, SubjectPriorityMapping
 
-
+# Ergonomic alias for Students
+Student = Students
 
 __all__ = [
     'Role',
@@ -36,6 +37,7 @@ __all__ = [
     'ExamQuestion',
     'ExamSchedule',
     'Students',
+    'Student',
     'Submission',
     'ExamDraft',
     'Menu',
