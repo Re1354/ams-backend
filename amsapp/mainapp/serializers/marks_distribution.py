@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from ..models import MarksDistribution, Department
+from ..models import MarksDistribution, Department, Faculty
 
 
 def validate_percentage(value, label):
@@ -41,40 +41,32 @@ class MarksDistributionSerializer(serializers.ModelSerializer):
     """Serializer for MarksDistribution model"""
     department_name = serializers.CharField(source='department.department_name', read_only=True)
     department_shortname = serializers.CharField(source='department.department_shortname', read_only=True)
+    faculty_name = serializers.CharField(source='faculty.faculty_name', read_only=True)
+    faculty_code = serializers.CharField(source='faculty.faculty_code', read_only=True)
     
     class Meta:
         model = MarksDistribution
         fields = [
-            'id', 'department', 'department_name', 'department_shortname', 
+            'id', 'department', 'department_name', 'department_shortname',
+            'faculty', 'faculty_name', 'faculty_code',
             'ssc', 'hsc', 'diploma', 'main_marks', 'viva_marks'
         ]
         read_only_fields = ['id']
 
     def validate_ssc(self, value):
-        """Validate that SSC percentage is within range"""
         return validate_percentage(value, "SSC marks")
 
     def validate_hsc(self, value):
-        """Validate that HSC/Diploma percentage is within range"""
         return validate_percentage(value, "HSC/Diploma marks")
 
     def validate_diploma(self, value):
-        """Validate that HSC/Diploma percentage is within range"""
         return validate_percentage(value, "HSC/Diploma marks")
 
     def validate_main_marks(self, value):
-        """Validate that Main Marks percentage is within range"""
         return validate_percentage(value, "Main Marks")
 
     def validate_viva_marks(self, value):
-        """Validate that Viva marks percentage is within range"""
         return validate_percentage(value, "Viva marks")
-    
-    def validate_department(self, value):
-        """Validate that the department exists"""
-        if not Department.objects.filter(id=value.id).exists():
-            raise serializers.ValidationError("Department does not exist")
-        return value
 
 
 class MarksDistributionCreateSerializer(serializers.ModelSerializer):
@@ -82,30 +74,32 @@ class MarksDistributionCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = MarksDistribution
-        fields = ['department', 'ssc', 'hsc', 'diploma', 'main_marks', 'viva_marks']
+        fields = ['faculty', 'department', 'ssc', 'hsc', 'diploma', 'main_marks', 'viva_marks']
+        extra_kwargs = {
+            'faculty': {'required': False, 'allow_null': True},
+            'department': {'required': False, 'allow_null': True},
+        }
 
     def validate_ssc(self, value):
-        """Validate that SSC percentage is within range"""
         return validate_percentage(value, "SSC marks")
 
     def validate_hsc(self, value):
-        """Validate that HSC/Diploma percentage is within range"""
         return validate_percentage(value, "HSC/Diploma marks")
 
     def validate_diploma(self, value):
-        """Validate that HSC/Diploma percentage is within range"""
         return validate_percentage(value, "HSC/Diploma marks")
 
     def validate_main_marks(self, value):
-        """Validate that Main Marks percentage is within range"""
         return validate_percentage(value, "Main Marks")
 
     def validate_viva_marks(self, value):
-        """Validate that Viva marks percentage is within range"""
         return validate_percentage(value, "Viva marks")
 
     def validate(self, data):
-        """Normalize HSC and Diploma to one shared academic weight"""
+        faculty = data.get('faculty')
+        department = data.get('department')
+        if not faculty and not department:
+            raise serializers.ValidationError("Either faculty or department must be specified.")
         return normalize_shared_academic_weight(self, data)
 
 
@@ -114,28 +108,31 @@ class MarksDistributionUpdateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = MarksDistribution
-        fields = ['ssc', 'hsc', 'diploma', 'main_marks', 'viva_marks']
+        fields = ['faculty', 'department', 'ssc', 'hsc', 'diploma', 'main_marks', 'viva_marks']
+        extra_kwargs = {
+            'faculty': {'required': False, 'allow_null': True},
+            'department': {'required': False, 'allow_null': True},
+            'ssc': {'required': False},
+            'hsc': {'required': False},
+            'diploma': {'required': False},
+            'main_marks': {'required': False},
+            'viva_marks': {'required': False},
+        }
         
     def validate_ssc(self, value):
-        """Validate that SSC percentage is within range"""
         return validate_percentage(value, "SSC marks")
 
     def validate_hsc(self, value):
-        """Validate that HSC/Diploma percentage is within range"""
         return validate_percentage(value, "HSC/Diploma marks")
 
     def validate_diploma(self, value):
-        """Validate that HSC/Diploma percentage is within range"""
         return validate_percentage(value, "HSC/Diploma marks")
 
     def validate_main_marks(self, value):   
-        """Validate that Main Marks percentage is within range"""
         return validate_percentage(value, "Main Marks")
 
     def validate_viva_marks(self, value):   
-        """Validate that Viva marks percentage is within range"""
         return validate_percentage(value, "Viva marks")
 
     def validate(self, data):
-        """Normalize HSC and Diploma to one shared academic weight"""
         return normalize_shared_academic_weight(self, data)

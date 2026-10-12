@@ -176,13 +176,41 @@ def get_subjects_by_department(request, department_id):
                 status=403
             )
 
-    mapping = get_object_or_404(SubjectDepartment, department_id=department_id)
-    serializer = SubjectDepartmentSerializer(mapping)
+    mapping = SubjectDepartment.objects.filter(department_id=department_id).first()
+    if mapping:
+        serializer = SubjectDepartmentSerializer(mapping)
+        return Response({
+            'success': True,
+            'data': serializer.data,
+            'message': 'Subjects for department retrieved successfully'
+        })
+
+    # Inherit from parent faculty mapping
+    from ..services.access_control import get_faculty_for_department
+    from ..models.subject_faculty import SubjectFaculty
+    dept = get_object_or_404(Department, id=department_id)
+    faculty = get_faculty_for_department(department_id)
+    if faculty:
+        faculty_mapping = SubjectFaculty.objects.filter(faculty=faculty).first()
+        if faculty_mapping:
+            subjects = Subject.objects.filter(id__in=faculty_mapping.subject_ids)
+            from ..serializers.subject import SubjectSerializer
+            return Response({
+                'success': True,
+                'data': {
+                    'id': None,
+                    'department_id': dept.id,
+                    'department_name': dept.department_name,
+                    'subject_ids': faculty_mapping.subject_ids,
+                    'subjects': SubjectSerializer(subjects, many=True).data
+                },
+                'message': f'Subjects for department inherited from faculty "{faculty.faculty_name}" retrieved successfully'
+            })
+
     return Response({
-        'success': True,
-        'data': serializer.data,
-        'message': f'Subjects for department retrieved successfully'
-    })
+        'success': False,
+        'message': 'No subject mapping found for this department'
+    }, status=status.HTTP_404_NOT_FOUND)
 
 
 @extend_schema(

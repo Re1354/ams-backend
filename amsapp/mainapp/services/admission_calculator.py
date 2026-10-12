@@ -362,6 +362,16 @@ def get_academic_score(student):
 
 
 def get_distribution_for_department(department):
+    if not department:
+        return None
+    from .access_control import get_faculty_for_department
+    dept_id = department.id if isinstance(department, Department) else (int(department) if str(department).isdigit() else None)
+    if dept_id:
+        faculty = get_faculty_for_department(dept_id)
+        if faculty:
+            faculty_dist = MarksDistribution.objects.filter(faculty=faculty).first()
+            if faculty_dist:
+                return faculty_dist
     return MarksDistribution.objects.filter(department=department).first()
 
 

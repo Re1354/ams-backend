@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from ..models import Department, Subject, SubjectDepartment, SubjectPriority
 from ..permissions import require_menu_permission
+from ..services.access_control import get_subjects_for_department
 from ..serializers.subject_priority import (
     DepartmentSubjectPrioritySerializer,
     SubjectPriorityItemSerializer,
@@ -124,9 +125,8 @@ def get_department_subject_priority(request, department_id):
         .order_by("priority")
     )
 
-    # Get department-associated subjects if mapped, or all subjects
-    subject_dept = SubjectDepartment.objects.filter(department=department).first()
-    dept_subject_ids = set(subject_dept.subject_ids) if subject_dept and subject_dept.subject_ids else set()
+    # Get faculty- or department-associated subjects if mapped
+    dept_subject_ids = set(get_subjects_for_department(department.id))
 
     all_subjects = Subject.objects.all().order_by("subject_name")
     available_subjects = []

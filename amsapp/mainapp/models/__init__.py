@@ -24,6 +24,7 @@ from .admission_configuration import AdmissionConfiguration
 from .admission_result import AdmissionResult
 from .faculty import Faculty
 from .faculties_departments import FacultyDepartment
+from .subject_faculty import SubjectFaculty
 from .subject_priority import SubjectPriority, SubjectPriorityMapping
 
 # Ergonomic alias for Students
@@ -44,6 +45,7 @@ __all__ = [
     'RoleMenu',
     'Department',
     'SubjectDepartment',
+    'SubjectFaculty',
     'Subject',
     'BlocklistQuestion',
     'StudentAssignTeacherExam',

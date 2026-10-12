@@ -101,6 +101,13 @@ class UserSerializer(serializers.ModelSerializer):
         faculty_id = validated_data.pop('faculty_id', None)
         password = validated_data.pop('password')
         
+        # Normalize access_type
+        if 'access_type' in validated_data and validated_data['access_type']:
+            norm_type = str(validated_data['access_type']).strip().upper()
+            validated_data['access_type'] = norm_type
+            if norm_type == 'GLOBAL':
+                validated_data['is_global_access'] = True
+
         # Hash password
         validated_data['password'] = make_password(password)
         
@@ -134,6 +141,15 @@ class UserSerializer(serializers.ModelSerializer):
         faculty_id = validated_data.pop('faculty_id', None)
         password = validated_data.pop('password', None)
         
+        # Normalize access_type
+        if 'access_type' in validated_data and validated_data['access_type']:
+            norm_type = str(validated_data['access_type']).strip().upper()
+            validated_data['access_type'] = norm_type
+            if norm_type == 'GLOBAL':
+                validated_data['is_global_access'] = True
+            elif norm_type in ('FACULTY', 'DEPARTMENT'):
+                validated_data['is_global_access'] = False
+
         # Update basic fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
