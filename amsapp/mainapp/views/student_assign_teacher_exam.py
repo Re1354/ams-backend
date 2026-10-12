@@ -28,6 +28,7 @@ def apply_assignment_filters(assignments, request):
     semester_filter = request.query_params.get('semester')
     registration_semester_filter = request.query_params.get('registration_semester')
     date_filter = request.query_params.get('date_filter')
+    exam_type = request.query_params.get('exam_type')
 
     if search:
         normalized_search_semester = normalize_semester_filter(search)
@@ -53,6 +54,8 @@ def apply_assignment_filters(assignments, request):
         assignments = assignments.filter(exam_id=exam_id)
     if schedule_id:
         assignments = assignments.filter(schedule_id=schedule_id)
+    if exam_type and exam_type != 'all':
+        assignments = assignments.filter(exam__exam_type__iexact=exam_type)
     if department_filter:
         assignments = assignments.filter(exam__department__icontains=department_filter)
     if semester_filter:

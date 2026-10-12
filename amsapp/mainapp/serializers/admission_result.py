@@ -119,6 +119,9 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
     # Populated from the queryset annotation in get_admission_results; null when
     # the student never submitted (absent).
     exam_taken_at = serializers.DateTimeField(read_only=True)
+    student_department_choices = serializers.SerializerMethodField()
+    eligible_departments = serializers.SerializerMethodField()
+    waiting_for = serializers.SerializerMethodField()
 
     class Meta:
         model = AdmissionResult
@@ -166,6 +169,9 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "viva_contribution",
             "exam_details",
             "exam_taken_at",
+            "student_department_choices",
+            "eligible_departments",
+            "waiting_for",
             "created_at",
             "updated_at",
         ]
@@ -222,6 +228,46 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
         from ..services.admission_calculator import get_viva_total_marks_for_student_exam
 
         return get_viva_total_marks_for_student_exam(obj.student, obj.exam)
+
+    @extend_schema_field(serializers.ListField())
+    def get_student_department_choices(self, obj):
+        if not obj.student or not obj.student.department_choices:
+            return []
+        
+        choices = obj.student.department_choices
+        if not isinstance(choices, list):
+            return []
+        
+        dept_ids = [c.get('department_id') for c in choices if isinstance(c, dict) and c.get('department_id')]
+        from ..models import Department
+        dept_map = {d.id: d.department_shortname for d in Department.objects.filter(id__in=dept_ids)}
+        
+        result = []
+        for c in sorted(choices, key=lambda x: x.get('priority', 99) if isinstance(x, dict) else 99):
+            if isinstance(c, dict):
+                d_id = c.get('department_id')
+                result.append({
+                    'department_id': d_id,
+                    'department_shortname': dept_map.get(d_id, f"Dept #{d_id}"),
+                    'priority': c.get('priority', 1)
+                })
+        return result
+
+    @extend_schema_field(serializers.ListField())
+    def get_eligible_departments(self, obj):
+        if not obj.attended_exam or not obj.is_selected:
+            return []
+        if obj.department:
+            return [obj.department.department_shortname]
+        return []
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_waiting_for(self, obj):
+        if obj.result_status == 'WAITING':
+            if obj.department:
+                return obj.department.department_shortname
+            return "Waiting List"
+        return None
 
 
 class CalculateAdmissionResultsSerializer(serializers.Serializer):

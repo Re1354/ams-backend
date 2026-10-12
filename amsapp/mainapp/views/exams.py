@@ -196,6 +196,9 @@ class AllExamsView(generics.ListAPIView):
         department = params.get('department')
         semester = params.get('semester')
         date_filter = params.get('date_filter')
+        exam_type = params.get('exam_type')
+        faculty = params.get('faculty')
+        marks = params.get('marks')
 
         if search:
             normalized_search_semester = normalize_semester_filter(search)
@@ -206,10 +209,22 @@ class AllExamsView(generics.ListAPIView):
             if str(search).isdigit():
                 search_query |= Q(id=int(search))
             queryset = queryset.filter(search_query)
-        if department:
+        if department and department != 'all':
             queryset = queryset.filter(department__icontains=department)
-        if semester:
+        if semester and semester != 'all':
             queryset = queryset.filter(semester__icontains=normalize_semester_filter(semester))
+        if exam_type and exam_type != 'all':
+            queryset = queryset.filter(exam_type__iexact=exam_type)
+        if faculty and faculty != 'all':
+            if str(faculty).isdigit():
+                queryset = queryset.filter(
+                    Q(faculty_ref_id=int(faculty)) |
+                    Q(faculty__icontains=faculty)
+                )
+            else:
+                queryset = queryset.filter(faculty__icontains=faculty)
+        if marks and marks != 'all' and str(marks).isdigit():
+            queryset = queryset.filter(total_marks=int(marks))
         if date_filter == 'today':
             queryset = queryset.filter(created_at__date=timezone.localdate())
 

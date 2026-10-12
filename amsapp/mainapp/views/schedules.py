@@ -79,6 +79,9 @@ class AllSchedulesView(generics.ListCreateAPIView):
         department = params.get('department')
         semester = params.get('semester')
         date_filter = params.get('date_filter')
+        exam_type = params.get('exam_type')
+        faculty = params.get('faculty')
+        marks = params.get('marks')
 
         if search:
             normalized_search_semester = normalize_semester_filter(search)
@@ -89,14 +92,26 @@ class AllSchedulesView(generics.ListCreateAPIView):
             if str(search).isdigit():
                 search_query |= Q(id=int(search)) | Q(exam_id=int(search))
             queryset = queryset.filter(search_query)
-        if department:
+        if department and department != 'all':
             queryset = queryset.filter(exam__department__icontains=department)
-        if semester:
+        if semester and semester != 'all':
             queryset = queryset.filter(exam__semester__icontains=normalize_semester_filter(semester))
+        if exam_type and exam_type != 'all':
+            queryset = queryset.filter(exam__exam_type__iexact=exam_type)
+        if faculty and faculty != 'all':
+            if str(faculty).isdigit():
+                queryset = queryset.filter(
+                    Q(exam__faculty_ref_id=int(faculty)) |
+                    Q(exam__faculty__icontains=faculty)
+                )
+            else:
+                queryset = queryset.filter(exam__faculty__icontains=faculty)
+        if marks and marks != 'all' and str(marks).isdigit():
+            queryset = queryset.filter(exam__total_marks=int(marks))
         if date_filter == 'today':
             queryset = queryset.filter(start_time__date=timezone.localdate())
 
-        return queryset.select_related('exam').prefetch_related('exam__exam_questions').order_by('-id')
+        return queryset.select_related('exam', 'exam__faculty_ref').prefetch_related('exam__exam_questions').order_by('-id')
 
 
 @extend_schema(
