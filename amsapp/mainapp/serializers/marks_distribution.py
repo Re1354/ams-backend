@@ -97,9 +97,14 @@ class MarksDistributionCreateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         faculty = data.get('faculty')
-        department = data.get('department')
-        if not faculty and not department:
-            raise serializers.ValidationError("Either faculty or department must be specified.")
+        if not faculty and not data.get('department'):
+            raise serializers.ValidationError("Faculty must be specified.")
+        if faculty:
+            existing = MarksDistribution.objects.filter(faculty=faculty)
+            if self.instance:
+                existing = existing.exclude(id=self.instance.id)
+            if existing.exists():
+                raise serializers.ValidationError(f"Marks distribution for faculty '{faculty.faculty_name}' already exists.")
         return normalize_shared_academic_weight(self, data)
 
 

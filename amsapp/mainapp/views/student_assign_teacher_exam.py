@@ -174,6 +174,79 @@ def build_duplicate_semester_response(duplicated, exam_semester):
     }, status=status.HTTP_400_BAD_REQUEST)
 
 
+def get_faculty_and_department_mismatches(students, exam):
+    """
+    Validates faculty-level eligibility for both CENTRAL and SCHEDULED exams,
+    and department match for SCHEDULED exams.
+    """
+    from ..services.access_control import get_faculty_for_department, get_departments_for_faculty
+    from ..models import Department, Faculty
+
+    applicable_faculty = getattr(exam, 'faculty_ref', None)
+    if not applicable_faculty and exam.faculty:
+        applicable_faculty = Faculty.objects.filter(
+            Q(faculty_shortname__iexact=exam.faculty) | Q(faculty_name__iexact=exam.faculty)
+        ).first()
+
+    exam_dept = None
+    if exam.department and not exam.department.startswith('Central'):
+        exam_dept = Department.objects.filter(
+            Q(department_name__iexact=exam.department) | Q(department_shortname__iexact=exam.department)
+        ).first()
+        if not applicable_faculty and exam_dept:
+            applicable_faculty = get_faculty_for_department(exam_dept.id)
+
+    faculty_dept_ids = set()
+    if applicable_faculty:
+        faculty_dept_ids = set(get_departments_for_faculty(applicable_faculty.id))
+
+    mismatched = []
+    for student in students:
+        s_dept = None
+        if student.department_shortname:
+            s_dept = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
+
+        if applicable_faculty:
+            student_faculty_id = getattr(student, 'faculty_id', None)
+            dept_matches_faculty = s_dept and s_dept.id in faculty_dept_ids
+            faculty_matches = (student_faculty_id == applicable_faculty.id) or dept_matches_faculty
+
+            if not faculty_matches:
+                mismatched.append({
+                    'id': student.id,
+                    'username': student.username,
+                    'f_id': student.f_id,
+                    'full_name': student.full_name,
+                    'reason': f"Student does not belong to faculty {applicable_faculty.faculty_name} ({applicable_faculty.faculty_shortname})"
+                })
+                continue
+
+        # For SCHEDULED exams: department-specific constraint
+        if (getattr(exam, 'exam_type', '') or '').upper() == 'SCHEDULED' and exam_dept:
+            if not s_dept or s_dept.id != exam_dept.id:
+                mismatched.append({
+                    'id': student.id,
+                    'username': student.username,
+                    'f_id': student.f_id,
+                    'full_name': student.full_name,
+                    'reason': f"Scheduled exam requires student from department {exam_dept.department_shortname}"
+                })
+
+    return mismatched
+
+
+def build_faculty_mismatch_response(mismatches):
+    return Response({
+        'success': False,
+        'message': (
+            f'{len(mismatches)} student(s) do not meet the faculty or department eligibility '
+            'conditions for this exam schedule. No assignments were created.'
+        ),
+        'error_code': 'FACULTY_ELIGIBILITY_MISMATCH',
+        'mismatched_students': mismatches,
+    }, status=status.HTTP_400_BAD_REQUEST)
+
+
 @extend_schema(
     operation_id='assign_students_bulk',
     tags=['Student Assignment'],
@@ -227,6 +300,10 @@ def assign_students_bulk(request):
             duplicated, exam_semester = get_duplicate_semester_assignments(students, exam)
             if duplicated:
                 return build_duplicate_semester_response(duplicated, exam_semester)
+
+            faculty_mismatches = get_faculty_and_department_mismatches(students, exam)
+            if faculty_mismatches:
+                return build_faculty_mismatch_response(faculty_mismatches)
 
             # Track results
             created_assignments = []
@@ -321,6 +398,10 @@ def assign_student_single(request):
         if duplicated:
             return build_duplicate_semester_response(duplicated, exam_semester)
 
+        faculty_mismatches = get_faculty_and_department_mismatches([student], exam)
+        if faculty_mismatches:
+            return build_faculty_mismatch_response(faculty_mismatches)
+
         # Create or get assignment
         assignment, created = StudentAssignTeacherExam.objects.get_or_create(
             student=student,
@@ -393,38 +474,32 @@ def get_all_assignments(request):
     """Get all student assignments with role-based filtering"""
     
     user = request.user
-    
-    # Get the custom user and role information
-    if hasattr(user, 'custom_user'):
-        custom_user = user.custom_user
-        
-        # Check if user has a role
-        if custom_user.role:
-            role_name = custom_user.role.role_name.lower()
-            
-            # Check if superadmin - return all assignments
-            if role_name == 'superadmin':
-                assignments = StudentAssignTeacherExam.objects.all().select_related(
-                    'student', 'teacher', 'exam', 'schedule'
-                ).order_by('-created_at')
-            else:
-                # For non-superadmin users, filter by department_shortname
-                if custom_user.department:
-                    user_dept_shortname = custom_user.department.department_shortname
-                    
-                    # Get assignments where student's department matches user's department
-                    assignments = StudentAssignTeacherExam.objects.filter(
-                        student__department_shortname=user_dept_shortname
-                    ).select_related('student', 'teacher', 'exam', 'schedule').order_by('-created_at')
-                else:
-                    # If user has no department assigned, return empty queryset
-                    assignments = StudentAssignTeacherExam.objects.none()
-        else:
-            # If user has no role, return empty queryset
-            assignments = StudentAssignTeacherExam.objects.none()
+    custom_user = getattr(user, 'custom_user', None)
+
+    from ..services.access_control import get_user_access_scope
+    from ..models import Department
+    scope = get_user_access_scope(custom_user)
+
+    if scope['is_global']:
+        assignments = StudentAssignTeacherExam.objects.all().select_related(
+            'student', 'teacher', 'exam', 'schedule'
+        ).order_by('-created_at')
     else:
-        # If no custom_user, return empty queryset for security
-        assignments = StudentAssignTeacherExam.objects.none()
+        dept_ids = scope['department_ids'] or []
+        valid_depts = Department.objects.filter(id__in=dept_ids)
+        dept_shortnames = [d.department_shortname for d in valid_depts]
+
+        allowed_faculty_ids = set()
+        if getattr(custom_user, 'faculty_id', None):
+            allowed_faculty_ids.add(custom_user.faculty_id)
+
+        q_assign = Q(student__department_shortname__in=dept_shortnames)
+        if allowed_faculty_ids:
+            q_assign |= Q(student__faculty_id__in=allowed_faculty_ids)
+
+        assignments = StudentAssignTeacherExam.objects.filter(q_assign).select_related(
+            'student', 'teacher', 'exam', 'schedule'
+        ).order_by('-created_at')
 
     filter_options = build_assignment_filter_options(assignments)
     assignments = apply_assignment_filters(assignments, request)
@@ -622,44 +697,52 @@ def get_available_schedules(request):
     """Get all available exam schedules for assignment"""
     
     user = request.user
-    
-    # Get the custom user and role information
-    if hasattr(user, 'custom_user'):
-        custom_user = user.custom_user
-        
-        # Check if user has a role
-        if custom_user.role:
-            role_name = custom_user.role.role_name.lower()
-            
-            # Check if superadmin - return all schedules
-            if role_name == 'superadmin':
-                schedules = ExamSchedule.objects.filter(
-                    is_active=True
-                ).select_related('exam').order_by('-created_at')
-            else:
-                # For non-superadmin users, filter by department_shortname
-                if custom_user.department:
-                    user_dept_shortname = custom_user.department.department_shortname
-                    
-                    # Get schedules where exam's department matches user's department
-                    from ..models.exam_question import ExamQuestion
-                    exam_ids = ExamQuestion.objects.filter(
-                        department_shortname__icontains=user_dept_shortname
-                    ).values_list('exam_id', flat=True).distinct()
-                    
-                    schedules = ExamSchedule.objects.filter(
-                        is_active=True,
-                        exam_id__in=exam_ids
-                    ).select_related('exam').order_by('-created_at')
-                else:
-                    # If user has no department assigned, return empty queryset
-                    schedules = ExamSchedule.objects.none()
-        else:
-            # If user has no role, return empty queryset
-            schedules = ExamSchedule.objects.none()
+    custom_user = getattr(user, 'custom_user', None)
+
+    from ..services.access_control import get_user_access_scope, get_faculty_for_department
+    from ..models import Department, ExamQuestion
+
+    scope = get_user_access_scope(custom_user)
+    exam_type = request.query_params.get('exam_type')
+
+    if scope['is_global']:
+        schedules = ExamSchedule.objects.filter(is_active=True)
     else:
-        # If no custom_user, return empty queryset for security
-        schedules = ExamSchedule.objects.none()
+        dept_ids = scope['department_ids'] or []
+        user_faculty_id = getattr(custom_user, 'faculty_id', None)
+
+        if not dept_ids and not user_faculty_id:
+            schedules = ExamSchedule.objects.none()
+        else:
+            valid_depts = Department.objects.filter(id__in=dept_ids)
+            dept_shortnames = [d.department_shortname for d in valid_depts]
+
+            allowed_faculty_ids = set()
+            if user_faculty_id:
+                allowed_faculty_ids.add(user_faculty_id)
+            for dept in valid_depts:
+                parent_fac = get_faculty_for_department(dept.id)
+                if parent_fac:
+                    allowed_faculty_ids.add(parent_fac.id)
+
+            exam_ids_with_matching_questions = ExamQuestion.objects.filter(
+                department_shortname__in=dept_shortnames
+            ).values_list('exam_id', flat=True).distinct()
+
+            q_schedules = (
+                Q(exam_id__in=exam_ids_with_matching_questions) |
+                Q(exam__department__in=[d.department_name for d in valid_depts]) |
+                Q(exam__department__in=dept_shortnames)
+            )
+            if allowed_faculty_ids:
+                q_schedules |= Q(exam__exam_type__iexact='CENTRAL', exam__faculty_ref_id__in=allowed_faculty_ids)
+
+            schedules = ExamSchedule.objects.filter(is_active=True).filter(q_schedules).distinct()
+
+    if exam_type and exam_type != 'all':
+        schedules = schedules.filter(exam__exam_type__iexact=exam_type)
+
+    schedules = schedules.select_related('exam', 'exam__faculty_ref').prefetch_related('exam__exam_questions').order_by('-created_at')
     
     serializer = ExamScheduleSerializer(schedules, many=True)
     return Response({

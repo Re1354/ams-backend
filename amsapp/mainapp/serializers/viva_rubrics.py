@@ -50,9 +50,8 @@ class VivaRubricsCreateSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         faculty = attrs.get('faculty')
-        department = attrs.get('department')
-        if not faculty and not department:
-            raise serializers.ValidationError("Either faculty or department must be specified.")
+        if not faculty and not attrs.get('department'):
+            raise serializers.ValidationError("Faculty must be specified.")
         return attrs
 
 

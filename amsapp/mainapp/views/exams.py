@@ -172,10 +172,12 @@ class AllExamsView(generics.ListAPIView):
         if scope['is_global']:
             queryset = Exam.objects.all()
         else:
-            if not scope['department_ids']:
+            if not scope['department_ids'] and not getattr(custom_user, 'faculty_id', None):
                 queryset = Exam.objects.none()
             else:
-                valid_depts = Department.objects.filter(id__in=scope['department_ids'])
+                from ..services.access_control import get_faculty_for_department
+                dept_ids = scope['department_ids'] or []
+                valid_depts = Department.objects.filter(id__in=dept_ids)
                 dept_shortnames = [d.department_shortname for d in valid_depts]
                 
                 # Get exams that have questions matching permitted department shortnames
@@ -188,6 +190,18 @@ class AllExamsView(generics.ListAPIView):
                 for dept in valid_depts:
                     q_objs |= Q(department__iexact=dept.department_name) | Q(department__iexact=dept.department_shortname)
                 
+                # Include central exams for user's faculty or parent faculty of user's departments
+                allowed_faculty_ids = set()
+                if getattr(custom_user, 'faculty_id', None):
+                    allowed_faculty_ids.add(custom_user.faculty_id)
+                for dept in valid_depts:
+                    parent_fac = get_faculty_for_department(dept.id)
+                    if parent_fac:
+                        allowed_faculty_ids.add(parent_fac.id)
+                
+                if allowed_faculty_ids:
+                    q_objs |= Q(exam_type__iexact='CENTRAL', faculty_ref_id__in=allowed_faculty_ids)
+
                 queryset = Exam.objects.filter(q_objs).distinct()
 
 

@@ -7,6 +7,7 @@ from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 import random
 
+from django.db.models import Q
 from ..models import ScrappedQuestion, Exam, ExamQuestion, BlocklistQuestion, Department
 from ..authentication import CustomJWTAuthentication
 from ..serializers.exam_generation import (
@@ -116,9 +117,9 @@ def generate_exam(request):
         # For central exam without department_id, pick the first department in the faculty or fallback dummy
         if faculty_obj:
             from ..models import FacultyDepartment
-            fd = FacultyDepartment.objects.filter(faculty=faculty_obj).select_related('department').first()
-            if fd:
-                department = fd.department
+            fd = FacultyDepartment.objects.filter(faculty=faculty_obj).first()
+            if fd and fd.department_ids:
+                department = Department.objects.filter(id__in=fd.department_ids).first()
         if not department:
             department = Department.objects.first()
     else:
@@ -339,14 +340,14 @@ def save_generated_exam(request):
                 faculty_ref = Faculty.objects.filter(id=validated_data['faculty_id']).first()
             elif validated_data.get('faculty'):
                 faculty_ref = Faculty.objects.filter(
-                    Q(faculty_code__iexact=validated_data['faculty']) |
+                    Q(faculty_shortname__iexact=validated_data['faculty']) |
                     Q(faculty_name__iexact=validated_data['faculty'])
                 ).first()
 
             exam_type = validated_data.get('exam_type', 'SCHEDULED')
             dept_name = validated_data['department']
             if exam_type == 'CENTRAL' and faculty_ref and not dept_name:
-                dept_name = f"Central ({faculty_ref.faculty_code})"
+                dept_name = f"Central ({faculty_ref.faculty_shortname})"
 
             # Create exam with all fields matching the Exam model
             exam = Exam.objects.create(
@@ -358,7 +359,7 @@ def save_generated_exam(request):
                 duration_minutes=validated_data['duration_minutes'],
                 except_semesters=validated_data.get('except_semesters', []),
                 language=validated_data.get('language', 'English'),
-                faculty=validated_data.get('faculty', faculty_ref.faculty_code if faculty_ref else ''),
+                faculty=validated_data.get('faculty', faculty_ref.faculty_shortname if faculty_ref else ''),
                 exam_type=exam_type,
                 faculty_ref=faculty_ref
             )

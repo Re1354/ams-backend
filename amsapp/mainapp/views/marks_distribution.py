@@ -179,20 +179,23 @@ def get_marks_distribution_by_department(request, department_id):
             'message': 'Department not found'
         }, status=status.HTTP_404_NOT_FOUND)
     
-    # 1. Department-specific distribution
-    marks_distribution = MarksDistribution.objects.filter(
-        department=department
-    ).select_related('department', 'faculty').order_by('id')
-    
-    # 2. Inherit from parent faculty if not individually overridden
+    parent_faculty = get_faculty_for_department(department.id)
+    marks_distribution = MarksDistribution.objects.none()
     inherited_from_faculty = False
-    if not marks_distribution.exists():
-        parent_faculty = get_faculty_for_department(department.id)
-        if parent_faculty:
-            marks_distribution = MarksDistribution.objects.filter(
-                faculty=parent_faculty
-            ).select_related('department', 'faculty').order_by('id')
+
+    # 1. Resolve parent faculty distribution
+    if parent_faculty:
+        marks_distribution = MarksDistribution.objects.filter(
+            faculty=parent_faculty
+        ).select_related('department', 'faculty').order_by('id')
+        if marks_distribution.exists():
             inherited_from_faculty = True
+
+    # 2. Fallback to legacy department-specific distribution if faculty has none
+    if not marks_distribution.exists():
+        marks_distribution = MarksDistribution.objects.filter(
+            department=department
+        ).select_related('department', 'faculty').order_by('id')
 
     serializer = MarksDistributionSerializer(marks_distribution, many=True)
     return Response({

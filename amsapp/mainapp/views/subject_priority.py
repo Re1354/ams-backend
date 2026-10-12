@@ -125,6 +125,9 @@ def get_department_subject_priority(request, department_id):
         .order_by("priority")
     )
 
+    from ..services.access_control import get_faculty_for_department
+    parent_faculty = get_faculty_for_department(department.id)
+
     # Get faculty- or department-associated subjects if mapped
     dept_subject_ids = set(get_subjects_for_department(department.id))
 
@@ -138,6 +141,8 @@ def get_department_subject_priority(request, department_id):
                 "is_department_subject": sub.id in dept_subject_ids,
             }
         )
+    # Sort mapped faculty subjects first
+    available_subjects.sort(key=lambda s: (not s["is_department_subject"], s["subject_name"]))
 
     return Response(
         {
@@ -146,6 +151,11 @@ def get_department_subject_priority(request, department_id):
                 "department_id": department.id,
                 "department_name": department.department_name,
                 "department_shortname": department.department_shortname,
+                "parent_faculty": {
+                    "id": parent_faculty.id,
+                    "name": parent_faculty.faculty_name,
+                    "code": parent_faculty.faculty_shortname,
+                } if parent_faculty else None,
                 "priorities": SubjectPriorityItemSerializer(priorities, many=True).data,
                 "available_subjects": available_subjects,
             },

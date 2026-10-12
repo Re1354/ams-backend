@@ -179,20 +179,23 @@ def get_viva_rubrics_by_department(request, department_id):
             'message': 'Department not found'
         }, status=status.HTTP_404_NOT_FOUND)
     
-    # 1. Check department-specific rubrics
-    viva_rubrics = VivaRubrics.objects.filter(
-        department=department
-    ).select_related('department', 'faculty').order_by('id')
-    
-    # 2. If none, inherit from parent faculty
+    parent_faculty = get_faculty_for_department(department.id)
+    viva_rubrics = VivaRubrics.objects.none()
     inherited_from_faculty = False
-    if not viva_rubrics.exists():
-        parent_faculty = get_faculty_for_department(department.id)
-        if parent_faculty:
-            viva_rubrics = VivaRubrics.objects.filter(
-                faculty=parent_faculty
-            ).select_related('department', 'faculty').order_by('id')
+
+    # 1. Resolve parent faculty rubrics
+    if parent_faculty:
+        viva_rubrics = VivaRubrics.objects.filter(
+            faculty=parent_faculty
+        ).select_related('department', 'faculty').order_by('id')
+        if viva_rubrics.exists():
             inherited_from_faculty = True
+
+    # 2. Fallback to legacy department-specific rubrics if faculty has none
+    if not viva_rubrics.exists():
+        viva_rubrics = VivaRubrics.objects.filter(
+            department=department
+        ).select_related('department', 'faculty').order_by('id')
 
     serializer = VivaRubricsSerializer(viva_rubrics, many=True)
     return Response({
