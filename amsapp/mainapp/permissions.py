@@ -7,7 +7,7 @@ from .models import RoleMenu
 def is_superadmin(user):
     role = getattr(user, "role", None)
     role_name = getattr(role, "role_name", "")
-    return role_name.lower() == "superadmin"
+    return role_name.lower().startswith("superadmin")
 
 
 def has_menu_permission(user, menu_link, permission):

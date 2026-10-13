@@ -116,12 +116,21 @@ class SubjectFacultyCreateSerializer(serializers.ModelSerializer):
         return value
         
     def validate_subject_ids(self, value):
-        """Validate that all subject IDs exist"""
+        """Validate that all subject IDs exist and deduplicate"""
         if value:
-            existing_subjects = Subject.objects.filter(id__in=value)
-            existing_ids = list(existing_subjects.values_list('id', flat=True))
+            # Deduplicate while preserving order
+            seen = set()
+            deduped = []
+            for item in value:
+                if item not in seen:
+                    seen.add(item)
+                    deduped.append(item)
             
-            for subject_id in value:
+            existing_subjects = Subject.objects.filter(id__in=deduped)
+            existing_ids = set(existing_subjects.values_list('id', flat=True))
+            
+            for subject_id in deduped:
                 if subject_id not in existing_ids:
                     raise serializers.ValidationError(f"Subject with ID {subject_id} does not exist")
-        return value
+            return deduped
+        return value or []

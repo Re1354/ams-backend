@@ -182,20 +182,33 @@ def delete_subject(request, subject_id):
     subject = get_object_or_404(Subject, id=subject_id)
     subject_name = subject.subject_name
     
-    # Check if subject is used in department mappings
+    # Clean and unassign subject from faculty mappings
+    from ..models.subject_faculty import SubjectFaculty
+    faculties_using_subject = SubjectFaculty.objects.filter(
+        subject_ids__contains=[subject_id]
+    )
+    affected_faculty_names = []
+    for sf in faculties_using_subject:
+        sf.subject_ids = [sid for sid in (sf.subject_ids or []) if sid != subject_id]
+        sf.save()
+        affected_faculty_names.append(sf.faculty.faculty_name)
+
+    # Clean and unassign subject from legacy department mappings
     from ..models import SubjectDepartment
     departments_using_subject = SubjectDepartment.objects.filter(
         subject_ids__contains=[subject_id]
     )
-    
+    for sd in departments_using_subject:
+        sd.subject_ids = [sid for sid in (sd.subject_ids or []) if sid != subject_id]
+        sd.save()
+
     # Delete the subject
     subject.delete()
-    
+
     message = f'Subject "{subject_name}" deleted successfully'
-    if departments_using_subject.exists():
-        dept_names = list(departments_using_subject.values_list('department_name', flat=True))
-        message += f'. Note: This subject was removed from departments: {", ".join(dept_names)}'
-    
+    if affected_faculty_names:
+        message += f'. Note: Removed from faculties: {", ".join(affected_faculty_names)}'
+
     return Response({
         'success': True,
         'message': message

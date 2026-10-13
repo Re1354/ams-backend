@@ -97,6 +97,16 @@ def create_subject_department(request):
     serializer = SubjectDepartmentCreateSerializer(data=request.data)
     if serializer.is_valid():
         mapping = serializer.save()
+        # Authoritative sync: ensure parent faculty also has these subjects mapped
+        from ..services.access_control import get_faculty_for_department
+        from ..models.subject_faculty import SubjectFaculty
+        parent_faculty = get_faculty_for_department(mapping.department_id)
+        if parent_faculty and mapping.subject_ids:
+            sf, _ = SubjectFaculty.objects.get_or_create(faculty=parent_faculty)
+            merged = sorted(list(set(sf.subject_ids or []) | set(mapping.subject_ids)))
+            sf.subject_ids = merged
+            sf.save()
+
         response_serializer = SubjectDepartmentSerializer(mapping)
         return Response({
             'success': True,
@@ -176,36 +186,41 @@ def get_subjects_by_department(request, department_id):
                 status=403
             )
 
+    dept = get_object_or_404(Department, id=department_id)
+
+    # 1. Authoritative resolution: Parent faculty SubjectFaculty mapping
+    from ..services.access_control import get_faculty_for_department
+    from ..models.subject_faculty import SubjectFaculty
+    from ..serializers.subject import SubjectSerializer
+
+    faculty = get_faculty_for_department(department_id)
+    if faculty:
+        faculty_mapping = SubjectFaculty.objects.filter(faculty=faculty).first()
+        if faculty_mapping and faculty_mapping.subject_ids:
+            subjects = Subject.objects.filter(id__in=faculty_mapping.subject_ids).order_by('subject_name')
+            return Response({
+                'success': True,
+                'data': {
+                    'id': faculty_mapping.id,
+                    'department_id': dept.id,
+                    'department_name': dept.department_name,
+                    'faculty_id': faculty.id,
+                    'faculty_name': faculty.faculty_name,
+                    'subject_ids': faculty_mapping.subject_ids,
+                    'subjects': SubjectSerializer(subjects, many=True).data
+                },
+                'message': f'Subjects for department inherited from faculty "{faculty.faculty_name}" retrieved successfully'
+            })
+
+    # 2. Fallback to legacy department-level mapping if faculty mapping not configured
     mapping = SubjectDepartment.objects.filter(department_id=department_id).first()
-    if mapping:
+    if mapping and mapping.subject_ids:
         serializer = SubjectDepartmentSerializer(mapping)
         return Response({
             'success': True,
             'data': serializer.data,
             'message': 'Subjects for department retrieved successfully'
         })
-
-    # Inherit from parent faculty mapping
-    from ..services.access_control import get_faculty_for_department
-    from ..models.subject_faculty import SubjectFaculty
-    dept = get_object_or_404(Department, id=department_id)
-    faculty = get_faculty_for_department(department_id)
-    if faculty:
-        faculty_mapping = SubjectFaculty.objects.filter(faculty=faculty).first()
-        if faculty_mapping:
-            subjects = Subject.objects.filter(id__in=faculty_mapping.subject_ids)
-            from ..serializers.subject import SubjectSerializer
-            return Response({
-                'success': True,
-                'data': {
-                    'id': None,
-                    'department_id': dept.id,
-                    'department_name': dept.department_name,
-                    'subject_ids': faculty_mapping.subject_ids,
-                    'subjects': SubjectSerializer(subjects, many=True).data
-                },
-                'message': f'Subjects for department inherited from faculty "{faculty.faculty_name}" retrieved successfully'
-            })
 
     return Response({
         'success': False,
@@ -266,6 +281,16 @@ def update_subject_department(request, mapping_id):
     
     if serializer.is_valid():
         mapping = serializer.save()
+        # Authoritative sync: ensure parent faculty also has these subjects mapped
+        from ..services.access_control import get_faculty_for_department
+        from ..models.subject_faculty import SubjectFaculty
+        parent_faculty = get_faculty_for_department(mapping.department_id)
+        if parent_faculty and mapping.subject_ids:
+            sf, _ = SubjectFaculty.objects.get_or_create(faculty=parent_faculty)
+            merged = sorted(list(set(sf.subject_ids or []) | set(mapping.subject_ids)))
+            sf.subject_ids = merged
+            sf.save()
+
         response_serializer = SubjectDepartmentSerializer(mapping)
         return Response({
             'success': True,
