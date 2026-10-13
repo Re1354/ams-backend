@@ -52,6 +52,62 @@ def recalculate_existing_student_results(student):
     }
 
 
+def build_student_department_scope_query(department_ids, dept_shortnames, user_faculty_id=None):
+    """
+    Builds a Q filter for students whose complete Choice List contains
+    any of the user's authorized departments. For legacy students with
+    no choices (department_choices is empty/null), falls back to department_shortname.
+    Also covers applicants under user_faculty_id if provided.
+    """
+    q_choices = Q()
+    for d_id in department_ids:
+        q_choices |= Q(department_choices__contains=[{'department_id': d_id}])
+
+    q_legacy = (
+        Q(department_choices=[]) | Q(department_choices__isnull=True)
+    ) & Q(department_shortname__in=dept_shortnames)
+
+    q_scope = q_choices | q_legacy
+    if user_faculty_id:
+        q_scope |= Q(faculty_id=user_faculty_id)
+    return q_scope
+
+
+def check_student_scope_access(student, scope, user=None):
+    """
+    Validates whether a user has scope access to view, update, or delete a student.
+    Matches if any department in student's complete choice list is authorized,
+    or falls back to department_shortname for legacy records without choices.
+    """
+    if scope.get('is_global'):
+        return True
+
+    user_dept_ids = set(scope.get('department_ids') or [])
+    user_faculty_id = getattr(user, 'faculty_id', None)
+
+    # 1. Check department_choices
+    student_choice_ids = set(
+        c['department_id']
+        for c in (student.department_choices or [])
+        if isinstance(c, dict) and 'department_id' in c
+    )
+    if student_choice_ids:
+        if bool(student_choice_ids & user_dept_ids):
+            return True
+    else:
+        # 2. Legacy fallback: check department_shortname
+        from ..models import Department
+        dept = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
+        if dept and dept.id in user_dept_ids:
+            return True
+
+    # 3. Faculty-level access match
+    if user_faculty_id and getattr(student, 'faculty_id', None) == user_faculty_id:
+        return True
+
+    return False
+
+
 @extend_schema(
     operation_id='get_all_students',
     tags=['Student Management'],
@@ -77,7 +133,7 @@ def recalculate_existing_student_results(student):
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def get_all_students(request):
-    """Get all students with optional filtering"""
+    """Get all students with optional filtering based on complete department choice list"""
     
     from ..services.access_control import get_user_access_scope
     from ..models import Department
@@ -87,13 +143,17 @@ def get_all_students(request):
     
     base_students = Students.objects.select_related('faculty').all()
     
+    dept_shortnames = []
     if not scope['is_global']:
-        if not scope['department_ids']:
+        dept_ids = scope.get('department_ids') or []
+        user_faculty_id = getattr(user, 'faculty_id', None)
+        if not dept_ids and not user_faculty_id:
             base_students = Students.objects.none()
         else:
-            valid_depts = Department.objects.filter(id__in=scope['department_ids'])
+            valid_depts = Department.objects.filter(id__in=dept_ids)
             dept_shortnames = [d.department_shortname for d in valid_depts]
-            base_students = base_students.filter(department_shortname__in=dept_shortnames)
+            q_scope = build_student_department_scope_query(dept_ids, dept_shortnames, user_faculty_id)
+            base_students = base_students.filter(q_scope).distinct()
             
     students = base_students
     
@@ -105,7 +165,16 @@ def get_all_students(request):
     date_filter = request.query_params.get('date_filter')
     
     if department_filter:
-        students = students.filter(department_shortname__icontains=department_filter)
+        matching_dept_ids = list(
+            Department.objects.filter(
+                Q(department_shortname__icontains=department_filter)
+                | Q(department_name__icontains=department_filter)
+            ).values_list('id', flat=True)
+        )
+        q_dept_filter = Q(department_shortname__icontains=department_filter)
+        for m_id in matching_dept_ids:
+            q_dept_filter |= Q(department_choices__contains=[{'department_id': m_id}])
+        students = students.filter(q_dept_filter)
 
     if registration_semester_filter:
         students = students.filter(
@@ -119,7 +188,13 @@ def get_all_students(request):
 
     if search:
         normalized_search_semester = normalize_semester_filter(search)
-        students = students.filter(
+        search_dept_ids = list(
+            Department.objects.filter(
+                Q(department_shortname__icontains=search)
+                | Q(department_name__icontains=search)
+            ).values_list('id', flat=True)
+        )
+        q_search = (
             Q(username__icontains=search)
             | Q(full_name__icontains=search)
             | Q(f_id__icontains=search)
@@ -127,27 +202,33 @@ def get_all_students(request):
             | Q(department_shortname__icontains=search)
             | Q(registration_semester__icontains=normalized_search_semester)
         )
+        for s_id in search_dept_ids:
+            q_search |= Q(department_choices__contains=[{'department_id': s_id}])
+        students = students.filter(q_search)
 
     if date_filter == 'today':
         students = students.filter(created_at__date=timezone.localdate())
     
-    # Order by creation date
-    students = students.order_by('-created_at')
+    # Order by creation date with deduplication
+    students = students.distinct().order_by('-created_at')
     
     page_students, pagination = paginate_queryset(students, request)
     serializer = StudentsSerializer(page_students, many=True)
+
+    filter_dept_names = set(
+        base_students.exclude(department_shortname__isnull=True)
+        .exclude(department_shortname='')
+        .values_list('department_shortname', flat=True)
+    )
+    if dept_shortnames:
+        filter_dept_names.update(dept_shortnames)
+
     return Response({
         'success': True,
         'count': pagination['count'],
         'pagination': pagination,
         'filter_options': {
-            'departments': list(
-                base_students.exclude(department_shortname__isnull=True)
-                .exclude(department_shortname='')
-                .order_by('department_shortname')
-                .values_list('department_shortname', flat=True)
-                .distinct()
-            ),
+            'departments': sorted(list(filter_dept_names)),
             'registration_semesters': list(
                 base_students.exclude(registration_semester__isnull=True)
                 .exclude(registration_semester='')
@@ -252,13 +333,11 @@ def get_student_by_id(request, student_id):
         user = getattr(request.user, 'custom_user', None)
         scope = get_user_access_scope(user)
         
-        if not scope['is_global']:
-            dept = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
-            if not dept or dept.id not in (scope['department_ids'] or []):
-                return Response(
-                    {"success": False, "message": "You do not have access to view this student."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
+        if not check_student_scope_access(student, scope, user):
+            return Response(
+                {"success": False, "message": "You do not have access to view this student."},
+                status=status.HTTP_403_FORBIDDEN
+            )
                 
         serializer = StudentsSerializer(student)
         return Response({
@@ -308,9 +387,8 @@ def update_student(request, student_id):
     scope = get_user_access_scope(user)
     
     if not scope['is_global']:
-        # Check current student dept
-        current_dept = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
-        if not current_dept or current_dept.id not in (scope['department_ids'] or []):
+        # Check access to current student
+        if not check_student_scope_access(student, scope, user):
             return Response(
                 {"success": False, "message": "You do not have access to update this student."},
                 status=status.HTTP_403_FORBIDDEN
@@ -406,13 +484,11 @@ def delete_student(request, student_id):
         user = getattr(request.user, 'custom_user', None)
         scope = get_user_access_scope(user)
         
-        if not scope['is_global']:
-            dept = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
-            if not dept or dept.id not in (scope['department_ids'] or []):
-                return Response(
-                    {"success": False, "message": "You do not have access to delete this student."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
+        if not check_student_scope_access(student, scope, user):
+            return Response(
+                {"success": False, "message": "You do not have access to delete this student."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         student_info = {
             'id': student.id,

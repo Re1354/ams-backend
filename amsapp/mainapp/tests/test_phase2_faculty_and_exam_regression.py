@@ -18,6 +18,7 @@ from ..models import (
     SubjectFaculty,
     MarksDistribution,
     VivaRubrics,
+    ScrappedQuestion,
 )
 from ..tokens import get_tokens_for_user
 from ..views.student_assign_teacher_exam import get_faculty_and_department_mismatches
@@ -378,3 +379,265 @@ class Phase2RegressionTestCase(APITestCase):
         pri_sub_item = next((s for s in avail if s["id"] == sub_pri.id), None)
         self.assertIsNotNone(pri_sub_item)
         self.assertTrue(pri_sub_item["is_department_subject"])
+
+    def _create_question(self, subject, dept_shortname, text="Sample Question", marks=5):
+        return ScrappedQuestion.objects.create(
+            subject=subject,
+            questions={"english": text, "both": f"{text} / বাংলা"},
+            type="option",
+            options={
+                "english": {"A": "Choice A", "B": "Choice B"},
+                "both": {"A": "Choice A", "B": "Choice B"},
+            },
+            answer={"english": "A", "both": "A"},
+            marks=marks,
+            semester="Spring 2026",
+            department_shortname=dept_shortname,
+        )
+
+    def test_central_exam_generation_retrieves_questions_across_faculty_departments(self):
+        """Test A: FSIT exam retrieves questions from CSE and SWE but strictly excludes outside FE (EEE)"""
+        sub_name = f"Physics_{uuid4().hex[:6]}"
+        q_cse = self._create_question(sub_name, "CSE", "CSE Physics Q", marks=5)
+        q_swe = self._create_question(sub_name, "SWE", "SWE Physics Q", marks=5)
+        q_eee = self._create_question(sub_name, "EEE", "EEE Physics Q", marks=5)
+
+        # Generate Central exam for FSIT (which contains CSE and SWE)
+        response = self.client.post(
+            "/api/exams/generate/",
+            {
+                "exam_type": "CENTRAL",
+                "faculty_id": self.faculty_fsit.id,
+                "semester": "Spring 2026",
+                "duration_minutes": 60,
+                "language": "english",
+                "faculty": "FSIT",
+                "subjects": [{"subject": sub_name, "marks": 10}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_questions = response.data["data"]["questions"]
+        returned_ids = [q["id"] for q in returned_questions]
+        
+        # Must include FSIT department questions
+        self.assertIn(q_cse.id, returned_ids)
+        self.assertIn(q_swe.id, returned_ids)
+        # Must strictly exclude outside faculty questions
+        self.assertNotIn(q_eee.id, returned_ids)
+
+    def test_central_exam_generation_faculty_isolation(self):
+        """Test B: FE exam retrieves only EEE questions and strictly excludes FSIT (CSE/SWE) questions"""
+        sub_name = f"Math_{uuid4().hex[:6]}"
+        q_cse = self._create_question(sub_name, "CSE", "CSE Math Q", marks=5)
+        q_eee = self._create_question(sub_name, "EEE", "EEE Math Q", marks=5)
+
+        # Generate Central exam for FE (which only contains EEE)
+        response = self.client.post(
+            "/api/exams/generate/",
+            {
+                "exam_type": "CENTRAL",
+                "faculty_id": self.faculty_fe.id,
+                "semester": "Spring 2026",
+                "duration_minutes": 60,
+                "language": "english",
+                "faculty": "FE",
+                "subjects": [{"subject": sub_name, "marks": 5}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_questions = response.data["data"]["questions"]
+        returned_ids = [q["id"] for q in returned_questions]
+
+        self.assertIn(q_eee.id, returned_ids)
+        self.assertNotIn(q_cse.id, returned_ids)
+
+    def test_central_exam_generation_empty_faculty_returns_404(self):
+        """Test C: Faculty with no eligible questions returns 404 without silent fallback to all questions"""
+        suffix = uuid4().hex[:6]
+        empty_faculty = Faculty.objects.create(
+            faculty_name=f"Empty Faculty {suffix}",
+            faculty_shortname=f"EF_{suffix}",
+        )
+        empty_dept = Department.objects.create(
+            department_name=f"Empty Dept {suffix}",
+            department_shortname=f"ED_{suffix}",
+        )
+        FacultyDepartment.objects.create(
+            faculty=empty_faculty,
+            department_ids=[empty_dept.id],
+        )
+
+        sub_name = f"AnySubject_{uuid4().hex[:6]}"
+        # Existing question exists for another faculty
+        self._create_question(sub_name, "CSE", "Other Q", marks=5)
+
+        response = self.client.post(
+            "/api/exams/generate/",
+            {
+                "exam_type": "CENTRAL",
+                "faculty_id": empty_faculty.id,
+                "semester": "Spring 2026",
+                "duration_minutes": 60,
+                "language": "english",
+                "faculty": empty_faculty.faculty_shortname,
+                "subjects": [{"subject": sub_name, "marks": 5}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("No questions available", response.data["message"])
+
+    def test_central_exam_regenerate_question_respects_faculty_scope(self):
+        """Test D: Single question regeneration for Central exam only picks replacement from faculty scope"""
+        sub_name = f"GK_{uuid4().hex[:6]}"
+        q_current = self._create_question(sub_name, "CSE", "Current GK Q", marks=5)
+        q_fsit_rep = self._create_question(sub_name, "SWE", "SWE GK Replacement", marks=5)
+        q_fe_outside = self._create_question(sub_name, "EEE", "EEE GK Outside", marks=5)
+
+        response = self.client.post(
+            "/api/exams/regenerate-question/",
+            {
+                "exam_type": "CENTRAL",
+                "faculty_id": self.faculty_fsit.id,
+                "subject": sub_name,
+                "marks": 5,
+                "language": "english",
+                "exclude_question_ids": [q_current.id],
+                "exclude_question_texts": ["Current GK Q"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        question = response.data["data"]["question"]
+        self.assertEqual(question["id"], q_fsit_rep.id)
+        self.assertNotEqual(question["id"], q_fe_outside.id)
+
+    def test_central_exam_save_rejects_outside_faculty_questions(self):
+        """Test E: API security rejects saving Central exam containing outside faculty question"""
+        sub_name = f"SecuritySub_{uuid4().hex[:6]}"
+        q_fsit = self._create_question(sub_name, "CSE", "Valid FSIT Q", marks=5)
+        q_fe = self._create_question(sub_name, "EEE", "Outside FE Q", marks=5)
+
+        # Attempt to save FSIT Central exam containing q_fe
+        response = self.client.post(
+            "/api/exams/save-generated/",
+            {
+                "exam_type": "CENTRAL",
+                "faculty_id": self.faculty_fsit.id,
+                "faculty": "FSIT",
+                "department": "Central (FSIT)",
+                "semester": "Spring 2026",
+                "duration_minutes": 60,
+                "total_questions": 2,
+                "total_marks": 10,
+                "language": "English",
+                "questions": [
+                    {
+                        "id": q_fsit.id,
+                        "subject": sub_name,
+                        "questions": "Valid FSIT Q",
+                        "type": "option",
+                        "marks": 5,
+                        "department_shortname": "CSE",
+                    },
+                    {
+                        "id": q_fe.id,
+                        "subject": sub_name,
+                        "questions": "Outside FE Q",
+                        "type": "option",
+                        "marks": 5,
+                        "department_shortname": "EEE",
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("outside", response.data["message"].lower())
+
+    def test_central_exam_save_success_and_preserves_question_departments(self):
+        """Test F: Valid Central exam saves successfully with faculty association and per-question departments"""
+        sub_name = f"SaveSub_{uuid4().hex[:6]}"
+        q_cse = self._create_question(sub_name, "CSE", "CSE Q", marks=5)
+        q_swe = self._create_question(sub_name, "SWE", "SWE Q", marks=5)
+
+        response = self.client.post(
+            "/api/exams/save-generated/",
+            {
+                "exam_type": "CENTRAL",
+                "faculty_id": self.faculty_fsit.id,
+                "faculty": "FSIT",
+                "department": "Central (FSIT)",
+                "semester": "Spring 2026",
+                "duration_minutes": 60,
+                "total_questions": 2,
+                "total_marks": 10,
+                "language": "English",
+                "questions": [
+                    {
+                        "id": q_cse.id,
+                        "subject": sub_name,
+                        "questions": "CSE Q",
+                        "type": "option",
+                        "marks": 5,
+                        "department_shortname": "CSE",
+                    },
+                    {
+                        "id": q_swe.id,
+                        "subject": sub_name,
+                        "questions": "SWE Q",
+                        "type": "option",
+                        "marks": 5,
+                        "department_shortname": "SWE",
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        exam_id = response.data["data"]["exam_id"]
+        saved_exam = Exam.objects.get(id=exam_id)
+        self.assertEqual(saved_exam.exam_type, "CENTRAL")
+        self.assertEqual(saved_exam.faculty_ref, self.faculty_fsit)
+        self.assertEqual(saved_exam.faculty, "FSIT")
+
+        exam_questions = saved_exam.exam_questions.all()
+        self.assertEqual(exam_questions.count(), 2)
+        eq_depts = set(exam_questions.values_list("department_shortname", flat=True))
+        self.assertEqual(eq_depts, {"CSE", "SWE"})
+
+    def test_scheduled_exam_department_isolation_preserved(self):
+        """Test G: Scheduled exam creation preserves department-specific scoping"""
+        sub_name = f"SchedSub_{uuid4().hex[:6]}"
+        q_cse = self._create_question(sub_name, "CSE", "CSE Only Q", marks=5)
+        q_swe = self._create_question(sub_name, "SWE", "SWE Other Q", marks=5)
+
+        # Generate Scheduled exam for CSE
+        response = self.client.post(
+            "/api/exams/generate/",
+            {
+                "exam_type": "SCHEDULED",
+                "department_id": self.dept_cse.id,
+                "semester": "Spring 2026",
+                "duration_minutes": 60,
+                "language": "english",
+                "subjects": [{"subject": sub_name, "marks": 5}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_questions = response.data["data"]["questions"]
+        returned_ids = [q["id"] for q in returned_questions]
+
+        self.assertIn(q_cse.id, returned_ids)
+        self.assertNotIn(q_swe.id, returned_ids)
+

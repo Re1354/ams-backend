@@ -10,6 +10,7 @@ class StudentAssignTeacherExamSerializer(serializers.ModelSerializer):
     student_f_id = serializers.CharField(source='student.f_id', read_only=True)
     student_registration_semester = serializers.CharField(source='student.registration_semester', read_only=True)
     student_department_shortname = serializers.CharField(source='student.department_shortname', read_only=True)
+    student_department_choices = serializers.SerializerMethodField()
     student_email = serializers.CharField(source='student.email', read_only=True)
     teacher_username = serializers.CharField(source='teacher.username', read_only=True)
     exam_department = serializers.CharField(source='exam.department', read_only=True)
@@ -19,18 +20,24 @@ class StudentAssignTeacherExamSerializer(serializers.ModelSerializer):
     schedule_end_time = serializers.DateTimeField(source='schedule.end_time', read_only=True)
     schedule_is_active = serializers.BooleanField(source='schedule.is_active', read_only=True)
     
+    def get_student_department_choices(self, obj):
+        if not obj.student or not obj.student.department_choices:
+            return []
+        from .student import DepartmentChoiceField
+        return DepartmentChoiceField().to_representation(obj.student.department_choices)
+
     class Meta:
         model = StudentAssignTeacherExam
         fields = [
             'id', 'student', 'teacher', 'exam', 'schedule', 'created_at',
             'student_username', 'student_full_name', 'student_f_id', 'student_registration_semester',
-            'student_department_shortname', 'student_email',
+            'student_department_shortname', 'student_department_choices', 'student_email',
             'teacher_username', 'exam_department', 'exam_semester', 'exam_type',
             'schedule_start_time', 'schedule_end_time', 'schedule_is_active'
         ]
         read_only_fields = ['id', 'created_at', 'student_username', 'student_full_name', 
                            'student_f_id', 'student_registration_semester', 'teacher_username',
-                           'student_department_shortname', 'student_email',
+                           'student_department_shortname', 'student_department_choices', 'student_email',
                            'exam_department', 'exam_semester', 'exam_type',
                            'schedule_start_time', 'schedule_end_time', 'schedule_is_active']
 
