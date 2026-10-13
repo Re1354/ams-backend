@@ -8,7 +8,13 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 import random
 
 from django.db.models import Q
-from ..models import ScrappedQuestion, Exam, ExamQuestion, BlocklistQuestion, Department
+from ..models import (
+    ScrappedQuestion, Exam, ExamQuestion, BlocklistQuestion, Department,
+    Faculty, FacultyDepartment,
+)
+from ..services.access_control import (
+    get_user_access_scope, get_faculty_for_department, get_departments_for_faculty,
+)
 from ..authentication import CustomJWTAuthentication
 from ..serializers.exam_generation import (
     ExamGenerationRequestSerializer, ExamSaveRequestSerializer,
@@ -35,13 +41,124 @@ def normalize_question_text(value):
     return ' '.join(value.lower().split())
 
 
-def transform_generated_question(question_data, department, language):
+def get_faculty_department_identifiers(faculty_id):
+    """
+    Returns department IDs, Department instances, shortnames, and full names
+    for all departments belonging to the specified faculty.
+    """
+    if not faculty_id:
+        return {'department_ids': [], 'departments': [], 'shortnames': set(), 'names': set()}
+
+    dept_ids = []
+    for fd in FacultyDepartment.objects.filter(faculty_id=faculty_id):
+        if fd.department_ids:
+            dept_ids.extend(fd.department_ids)
+    dept_ids = list(dict.fromkeys(dept_ids))
+
+    depts = list(Department.objects.filter(id__in=dept_ids))
+    shortnames = {d.department_shortname for d in depts if d.department_shortname}
+    names = {d.department_name for d in depts if d.department_name}
+    return {
+        'department_ids': dept_ids,
+        'departments': depts,
+        'shortnames': shortnames,
+        'names': names,
+    }
+
+
+def get_outside_department_identifiers(current_faculty_id):
+    """
+    Returns shortnames and names of departments that belong to OTHER faculties
+    and NOT to current_faculty_id.
+    """
+    if not current_faculty_id:
+        return {'shortnames': set(), 'names': set()}
+
+    current_dept_ids = set()
+    for fd in FacultyDepartment.objects.filter(faculty_id=current_faculty_id):
+        if fd.department_ids:
+            current_dept_ids.update(fd.department_ids)
+
+    outside_dept_ids = set()
+    for fd in FacultyDepartment.objects.exclude(faculty_id=current_faculty_id):
+        if fd.department_ids:
+            outside_dept_ids.update(fd.department_ids)
+
+    pure_outside_ids = outside_dept_ids - current_dept_ids
+    outside_depts = list(Department.objects.filter(id__in=pure_outside_ids))
+    return {
+        'shortnames': {d.department_shortname for d in outside_depts if d.department_shortname},
+        'names': {d.department_name for d in outside_depts if d.department_name},
+    }
+
+
+def build_question_scope_query(exam_type, faculty_obj=None, department_obj=None):
+    """
+    Builds a Q object to scope question retrieval strictly to the eligible departments:
+    - CENTRAL: Only departments under the selected faculty; strictly excludes outside faculties.
+    - SCHEDULED: Only the selected department.
+    """
+    if exam_type == 'CENTRAL':
+        if not faculty_obj:
+            return Q(pk__in=[])
+
+        fac_info = get_faculty_department_identifiers(faculty_obj.id)
+        if not fac_info['department_ids']:
+            return Q(pk__in=[])
+
+        allowed_terms = set(fac_info['shortnames']) | set(fac_info['names'])
+        allowed_expanded = set()
+        for t in allowed_terms:
+            if t:
+                allowed_expanded.add(t)
+                allowed_expanded.add(t.upper())
+                allowed_expanded.add(t.lower())
+
+        outside_info = get_outside_department_identifiers(faculty_obj.id)
+        outside_terms = set(outside_info['shortnames']) | set(outside_info['names'])
+        outside_expanded = set()
+        for t in outside_terms:
+            if t:
+                outside_expanded.add(t)
+                outside_expanded.add(t.upper())
+                outside_expanded.add(t.lower())
+
+        allowed_q = Q(department_shortname__in=allowed_expanded)
+        if outside_expanded:
+            outside_q = ~Q(department_shortname__in=outside_expanded)
+            return allowed_q & outside_q
+        return allowed_q
+
+    elif exam_type == 'SCHEDULED':
+        if not department_obj:
+            return Q(pk__in=[])
+
+        dept_terms = {department_obj.department_shortname, department_obj.department_name}
+        dept_expanded = set()
+        for t in dept_terms:
+            if t:
+                dept_expanded.add(t)
+                dept_expanded.add(t.upper())
+                dept_expanded.add(t.lower())
+        return Q(department_shortname__in=dept_expanded)
+
+    return Q()
+
+
+def transform_generated_question(question_data, department, language, exam_type='SCHEDULED'):
     item = dict(question_data)
-    item['department_shortname'] = getattr(
-        department,
-        'department_shortname',
-        item.get('department_shortname', ''),
-    )
+    if exam_type == 'SCHEDULED' and department:
+        item['department_shortname'] = getattr(
+            department,
+            'department_shortname',
+            item.get('department_shortname', ''),
+        )
+    elif not item.get('department_shortname') and department:
+        item['department_shortname'] = getattr(
+            department,
+            'department_shortname',
+            '',
+        )
 
     lang = (language or '').lower()
     qfield = item.get('questions')
@@ -101,32 +218,70 @@ def generate_exam(request):
     department = None
     faculty_obj = None
 
-    if data.get('faculty_id'):
-        from ..models import Faculty
-        faculty_obj = Faculty.objects.filter(id=data['faculty_id']).first()
+    if exam_type == 'CENTRAL':
+        faculty_id = data.get('faculty_id')
+        faculty_name = data.get('faculty')
+        if faculty_id:
+            faculty_obj = Faculty.objects.filter(id=faculty_id).first()
+        elif faculty_name:
+            faculty_obj = Faculty.objects.filter(
+                Q(faculty_shortname__iexact=faculty_name) | Q(faculty_name__iexact=faculty_name)
+            ).first()
 
-    if data.get('department_id'):
+        if not faculty_obj:
+            return Response({
+                'success': False,
+                'message': 'A valid faculty is required for Central exam question generation'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Authorization check
+        access_scope = get_user_access_scope(request.user)
+        if not access_scope['is_global']:
+            user_fac_id = getattr(request.user, 'faculty_id', None)
+            if not user_fac_id or user_fac_id != faculty_obj.id:
+                return Response({
+                    'success': False,
+                    'message': 'You do not have permission to generate Central exams for this faculty.'
+                }, status=status.HTTP_403_FORBIDDEN)
+
+        fac_dept_info = get_faculty_department_identifiers(faculty_obj.id)
+        if not fac_dept_info['department_ids']:
+            return Response({
+                'success': False,
+                'message': f'No departments configured for faculty {faculty_obj.faculty_shortname}'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        department = fac_dept_info['departments'][0]
+        scope_q = build_question_scope_query('CENTRAL', faculty_obj=faculty_obj)
+
+    else:
+        dept_id = data.get('department_id')
+        if not dept_id:
+            return Response({
+                'success': False,
+                'message': 'Department ID is required for scheduled exams'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            department = Department.objects.get(id=data['department_id'])
+            department = Department.objects.get(id=dept_id)
         except Department.DoesNotExist:
             return Response({
                 'success': False,
                 'message': 'Department not found'
             }, status=status.HTTP_404_NOT_FOUND)
-    elif exam_type == 'CENTRAL':
-        # For central exam without department_id, pick the first department in the faculty or fallback dummy
-        if faculty_obj:
-            from ..models import FacultyDepartment
-            fd = FacultyDepartment.objects.filter(faculty=faculty_obj).first()
-            if fd and fd.department_ids:
-                department = Department.objects.filter(id__in=fd.department_ids).first()
-        if not department:
-            department = Department.objects.first()
-    else:
-        return Response({
-            'success': False,
-            'message': 'Department ID is required for scheduled exams'
-        }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Authorization check
+        access_scope = get_user_access_scope(request.user)
+        if not access_scope['is_global']:
+            allowed_dept_ids = access_scope.get('department_ids') or []
+            if department.id not in allowed_dept_ids:
+                return Response({
+                    'success': False,
+                    'message': 'You do not have permission to generate exams for this department.'
+                }, status=status.HTTP_403_FORBIDDEN)
+
+        faculty_obj = get_faculty_for_department(department.id)
+        scope_q = build_question_scope_query('SCHEDULED', department_obj=department)
     
     exclude_questions = data.get('exclude_questions', [])
     generated_questions = []
@@ -144,16 +299,18 @@ def generate_exam(request):
             issue_solved=False
         ).values_list('original_question_id', flat=True)
         
-        # Query available questions for this subject, excluding blocked and explicitly excluded ones
+        # Query available questions scoped to faculty/department, excluding blocked and explicitly excluded ones
         all_excluded = list(exclude_questions) + list(blocked_question_ids)
         available_questions = ScrappedQuestion.objects.filter(
+            scope_q,
             subject=subject
-        ).exclude(id__in=all_excluded)
+        ).exclude(id__in=all_excluded).distinct()
         
         if not available_questions.exists():
+            scope_name = faculty_obj.faculty_shortname if exam_type == 'CENTRAL' else department.department_shortname
             return Response({
                 'success': False,
-                'message': f'No questions available for subject: {subject}'
+                'message': f'No questions available for subject: {subject} in {scope_name}'
             }, status=status.HTTP_404_NOT_FOUND)
         
         # Select questions to meet the required marks
@@ -170,9 +327,10 @@ def generate_exam(request):
                     break
         
         if current_marks < required_marks:
+            scope_name = faculty_obj.faculty_shortname if exam_type == 'CENTRAL' else department.department_shortname
             return Response({
                 'success': False,
-                'message': f'Not enough questions to meet {required_marks} marks for {subject}. Only {current_marks} marks available.'
+                'message': f'Not enough questions to meet {required_marks} marks for {subject} in {scope_name}. Only {current_marks} marks available.'
             }, status=status.HTTP_404_NOT_FOUND)
         
         generated_questions.extend(selected_questions)
@@ -189,18 +347,20 @@ def generate_exam(request):
     raw_questions = questions_serializer.data
     req_language = data.get('language', 'english')
     transformed_questions = [
-        transform_generated_question(q, department, req_language)
+        transform_generated_question(q, department, req_language, exam_type=exam_type)
         for q in raw_questions
     ]
 
     # Prepare response data
     response_data = {
         'exam_id': None,  # Not saved yet
-        'department_id': data['department_id'],
+        'department_id': department.id if (department and exam_type == 'SCHEDULED') else None,
+        'faculty_id': faculty_obj.id if faculty_obj else None,
         'semester': data['semester'],
         'duration_minutes': data['duration_minutes'],
         'language': data['language'],
-        'faculty': data['faculty'],
+        'faculty': faculty_obj.faculty_shortname if faculty_obj else data.get('faculty', ''),
+        'exam_type': exam_type,
         'total_marks': total_marks,
         'subjects': subjects_info,
         'questions': transformed_questions
@@ -246,18 +406,64 @@ def regenerate_question(request):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     data = serializer.validated_data
-
+    exam_type = data.get('exam_type', 'SCHEDULED')
     department = None
-    if data.get('department_id'):
-        try:
-            department = Department.objects.get(id=data['department_id'])
-        except Department.DoesNotExist:
+    faculty_obj = None
+
+    if exam_type == 'CENTRAL':
+        faculty_id = data.get('faculty_id')
+        faculty_name = data.get('faculty')
+        if faculty_id:
+            faculty_obj = Faculty.objects.filter(id=faculty_id).first()
+        elif faculty_name:
+            faculty_obj = Faculty.objects.filter(
+                Q(faculty_shortname__iexact=faculty_name) | Q(faculty_name__iexact=faculty_name)
+            ).first()
+
+        if not faculty_obj:
             return Response({
                 'success': False,
-                'message': 'Department not found',
-            }, status=status.HTTP_404_NOT_FOUND)
-    if not department:
-        department = Department.objects.first()
+                'message': 'A valid faculty is required for Central question regeneration'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        access_scope = get_user_access_scope(request.user)
+        if not access_scope['is_global']:
+            user_fac_id = getattr(request.user, 'faculty_id', None)
+            if not user_fac_id or user_fac_id != faculty_obj.id:
+                return Response({
+                    'success': False,
+                    'message': 'You do not have permission to regenerate questions for this faculty.'
+                }, status=status.HTTP_403_FORBIDDEN)
+
+        fac_info = get_faculty_department_identifiers(faculty_obj.id)
+        if fac_info['departments']:
+            department = fac_info['departments'][0]
+        scope_q = build_question_scope_query('CENTRAL', faculty_obj=faculty_obj)
+
+    else:
+        dept_id = data.get('department_id')
+        if dept_id:
+            try:
+                department = Department.objects.get(id=dept_id)
+            except Department.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'message': 'Department not found',
+                }, status=status.HTTP_404_NOT_FOUND)
+        if not department:
+            department = Department.objects.first()
+
+        access_scope = get_user_access_scope(request.user)
+        if not access_scope['is_global']:
+            allowed_dept_ids = access_scope.get('department_ids') or []
+            if department.id not in allowed_dept_ids:
+                return Response({
+                    'success': False,
+                    'message': 'You do not have permission to regenerate questions for this department.'
+                }, status=status.HTTP_403_FORBIDDEN)
+
+        faculty_obj = get_faculty_for_department(department.id)
+        scope_q = build_question_scope_query('SCHEDULED', department_obj=department)
 
     blocked_question_ids = BlocklistQuestion.objects.filter(
         subject=data['subject'],
@@ -274,9 +480,10 @@ def regenerate_question(request):
 
     candidates = list(
         ScrappedQuestion.objects.filter(
+            scope_q,
             subject=data['subject'],
             marks=data['marks'],
-        ).exclude(id__in=excluded_ids)
+        ).exclude(id__in=excluded_ids).distinct()
     )
     random.shuffle(candidates)
 
@@ -286,6 +493,7 @@ def regenerate_question(request):
             serialized,
             department,
             data.get('language', 'english'),
+            exam_type=exam_type,
         )
         question_text = normalize_question_text(transformed.get('questions'))
         if question_text in excluded_texts:
@@ -334,20 +542,90 @@ def save_generated_exam(request):
     
     try:
         with transaction.atomic():
-            from ..models import Faculty
-            faculty_ref = None
-            if validated_data.get('faculty_id'):
-                faculty_ref = Faculty.objects.filter(id=validated_data['faculty_id']).first()
-            elif validated_data.get('faculty'):
-                faculty_ref = Faculty.objects.filter(
-                    Q(faculty_shortname__iexact=validated_data['faculty']) |
-                    Q(faculty_name__iexact=validated_data['faculty'])
-                ).first()
-
             exam_type = validated_data.get('exam_type', 'SCHEDULED')
-            dept_name = validated_data['department']
-            if exam_type == 'CENTRAL' and faculty_ref and not dept_name:
-                dept_name = f"Central ({faculty_ref.faculty_shortname})"
+            faculty_ref = None
+
+            if exam_type == 'CENTRAL':
+                if validated_data.get('faculty_id'):
+                    faculty_ref = Faculty.objects.filter(id=validated_data['faculty_id']).first()
+                elif validated_data.get('faculty'):
+                    faculty_ref = Faculty.objects.filter(
+                        Q(faculty_shortname__iexact=validated_data['faculty']) |
+                        Q(faculty_name__iexact=validated_data['faculty'])
+                    ).first()
+
+                if not faculty_ref:
+                    return Response({
+                        'success': False,
+                        'message': 'A valid faculty is required for Central exams.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # Authorization check
+                access_scope = get_user_access_scope(request.user)
+                if not access_scope['is_global']:
+                    user_fac_id = getattr(request.user, 'faculty_id', None)
+                    if not user_fac_id or user_fac_id != faculty_ref.id:
+                        return Response({
+                            'success': False,
+                            'message': 'You do not have permission to save Central exams for this faculty.'
+                        }, status=status.HTTP_403_FORBIDDEN)
+
+                # Faculty isolation validation on all submitted questions
+                fac_info = get_faculty_department_identifiers(faculty_ref.id)
+                outside_info = get_outside_department_identifiers(faculty_ref.id)
+                allowed_terms = {s.upper() for s in fac_info['shortnames']} | {n.upper() for n in fac_info['names']}
+                outside_terms = {s.upper() for s in outside_info['shortnames']} | {n.upper() for n in outside_info['names']}
+
+                for q_data in validated_data['questions']:
+                    q_id = q_data.get('id')
+                    q_dept = (q_data.get('department_shortname') or '').strip().upper()
+                    if q_id:
+                        orig = ScrappedQuestion.objects.filter(id=q_id).first()
+                        if orig:
+                            orig_dept = (orig.department_shortname or '').strip().upper()
+                            if orig_dept in outside_terms:
+                                return Response({
+                                    'success': False,
+                                    'message': f"Question ID {q_id} belongs to outside department '{orig.department_shortname}' and cannot be saved in a Central exam for {faculty_ref.faculty_shortname}."
+                                }, status=status.HTTP_400_BAD_REQUEST)
+                            if allowed_terms and orig_dept not in allowed_terms:
+                                return Response({
+                                    'success': False,
+                                    'message': f"Question ID {q_id} does not belong to any department under faculty {faculty_ref.faculty_shortname}."
+                                }, status=status.HTTP_400_BAD_REQUEST)
+                    if q_dept and q_dept in outside_terms:
+                        return Response({
+                            'success': False,
+                            'message': f"Question belongs to outside department '{q_data.get('department_shortname')}' and cannot be saved in a Central exam for {faculty_ref.faculty_shortname}."
+                        }, status=status.HTTP_400_BAD_REQUEST)
+
+                dept_name = validated_data.get('department')
+                if not dept_name or not str(dept_name).startswith('Central'):
+                    dept_name = f"Central ({faculty_ref.faculty_shortname})"
+
+            else:  # SCHEDULED
+                dept_name = validated_data['department']
+                dept_id = validated_data.get('department_id')
+                department = None
+                if dept_id:
+                    department = Department.objects.filter(id=dept_id).first()
+                if not department:
+                    department = Department.objects.filter(
+                        Q(department_name__iexact=dept_name) | Q(department_shortname__iexact=dept_name)
+                    ).first()
+
+                if department:
+                    access_scope = get_user_access_scope(request.user)
+                    if not access_scope['is_global']:
+                        allowed_depts = access_scope.get('department_ids') or []
+                        if department.id not in allowed_depts:
+                            return Response({
+                                'success': False,
+                                'message': 'You do not have permission to save exams for this department.'
+                            }, status=status.HTTP_403_FORBIDDEN)
+                    faculty_ref = get_faculty_for_department(department.id)
+                elif validated_data.get('faculty_id'):
+                    faculty_ref = Faculty.objects.filter(id=validated_data['faculty_id']).first()
 
             # Create exam with all fields matching the Exam model
             exam = Exam.objects.create(
@@ -359,7 +637,7 @@ def save_generated_exam(request):
                 duration_minutes=validated_data['duration_minutes'],
                 except_semesters=validated_data.get('except_semesters', []),
                 language=validated_data.get('language', 'English'),
-                faculty=validated_data.get('faculty', faculty_ref.faculty_shortname if faculty_ref else ''),
+                faculty=faculty_ref.faculty_shortname if faculty_ref else (validated_data.get('faculty') or ''),
                 exam_type=exam_type,
                 faculty_ref=faculty_ref
             )
@@ -396,7 +674,13 @@ def save_generated_exam(request):
 
                 # semester and department_shortname
                 semester_val = question_data.get('semester') or validated_data.get('semester', '')
-                dept_sn = question_data.get('department_shortname') or validated_data.get('department', '') or 'CSE'
+                dept_sn = question_data.get('department_shortname')
+                if not dept_sn and question_data.get('id'):
+                    orig_q = ScrappedQuestion.objects.filter(id=question_data['id']).first()
+                    if orig_q and orig_q.department_shortname:
+                        dept_sn = orig_q.department_shortname
+                if not dept_sn:
+                    dept_sn = faculty_ref.faculty_shortname if exam_type == 'CENTRAL' else (department.department_shortname if department else 'CSE')
 
                 ExamQuestion.objects.create(
                     exam=exam,

@@ -80,6 +80,26 @@ def create_subject_faculty(request):
     if denied:
         return denied
     
+    faculty_id = request.data.get('faculty')
+    existing_mapping = SubjectFaculty.objects.filter(faculty_id=faculty_id).first() if faculty_id else None
+    
+    if existing_mapping:
+        serializer = SubjectFacultyCreateSerializer(existing_mapping, data=request.data, partial=True)
+        if serializer.is_valid():
+            mapping = serializer.save()
+            response_serializer = SubjectFacultySerializer(mapping)
+            return Response({
+                'success': True,
+                'data': response_serializer.data,
+                'message': f'Faculty "{mapping.faculty.faculty_name}" mapping updated successfully'
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'success': False,
+                'message': 'Invalid data provided',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
     serializer = SubjectFacultyCreateSerializer(data=request.data)
     if serializer.is_valid():
         mapping = serializer.save()

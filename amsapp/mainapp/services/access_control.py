@@ -114,9 +114,11 @@ def get_subjects_for_faculty(faculty_id):
     # Fallback: inspect departments under this faculty
     dept_ids = get_departments_for_faculty(faculty_id)
     if dept_ids:
+        all_sub_ids = []
         for dept_id in dept_ids:
             dept_mapping = SubjectDepartment.objects.filter(department_id=dept_id).first()
             if dept_mapping and dept_mapping.subject_ids:
-                return list(dept_mapping.subject_ids)
+                all_sub_ids.extend(dept_mapping.subject_ids)
+        return list(dict.fromkeys(all_sub_ids))
 
     return []

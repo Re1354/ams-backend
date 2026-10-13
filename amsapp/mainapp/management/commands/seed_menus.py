@@ -95,7 +95,7 @@ class Command(BaseCommand):
                     'component': 'SubjectManagement'
                 },
                 {
-                    'label': 'Subject Department Mapping',
+                    'label': 'Subject Faculty Mapping',
                     'icon': 'Layers',
                     'link': '/subject-department-mapping',
                     'component': 'SubjectDepartmentMapping'

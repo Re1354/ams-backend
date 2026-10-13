@@ -49,6 +49,13 @@ class ExamGenerationRequestSerializer(serializers.Serializer):
 class RegenerateQuestionRequestSerializer(serializers.Serializer):
     """Serializer for replacing one generated draft question."""
     department_id = serializers.IntegerField(required=False, allow_null=True)
+    faculty_id = serializers.IntegerField(required=False, allow_null=True)
+    faculty = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    exam_type = serializers.ChoiceField(
+        choices=[('SCHEDULED', 'Scheduled'), ('CENTRAL', 'Central')],
+        default='SCHEDULED',
+        required=False
+    )
     subject = serializers.CharField(max_length=255)
     marks = serializers.IntegerField(min_value=1)
     language = serializers.CharField(max_length=50, default='english')
@@ -98,6 +105,7 @@ class ExamSaveRequestSerializer(serializers.Serializer):
     """Serializer for saving exam with questions"""
     # Exam model fields
     department = serializers.CharField(max_length=255, help_text="Department name (not ID)")
+    department_id = serializers.IntegerField(required=False, allow_null=True)
     semester = serializers.CharField(max_length=50)
     total_questions = serializers.IntegerField(min_value=1)
     total_marks = serializers.IntegerField(min_value=1)

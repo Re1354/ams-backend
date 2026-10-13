@@ -202,13 +202,20 @@ def get_faculty_and_department_mismatches(students, exam):
 
     mismatched = []
     for student in students:
-        s_dept = None
-        if student.department_shortname:
+        # Extract student's department IDs from complete department_choices
+        student_dept_ids = set(
+            c['department_id']
+            for c in (student.department_choices or [])
+            if isinstance(c, dict) and 'department_id' in c
+        )
+        if not student_dept_ids and student.department_shortname:
             s_dept = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
+            if s_dept:
+                student_dept_ids.add(s_dept.id)
 
         if applicable_faculty:
             student_faculty_id = getattr(student, 'faculty_id', None)
-            dept_matches_faculty = s_dept and s_dept.id in faculty_dept_ids
+            dept_matches_faculty = bool(student_dept_ids & faculty_dept_ids)
             faculty_matches = (student_faculty_id == applicable_faculty.id) or dept_matches_faculty
 
             if not faculty_matches:
@@ -223,13 +230,13 @@ def get_faculty_and_department_mismatches(students, exam):
 
         # For SCHEDULED exams: department-specific constraint
         if (getattr(exam, 'exam_type', '') or '').upper() == 'SCHEDULED' and exam_dept:
-            if not s_dept or s_dept.id != exam_dept.id:
+            if exam_dept.id not in student_dept_ids:
                 mismatched.append({
                     'id': student.id,
                     'username': student.username,
                     'f_id': student.f_id,
                     'full_name': student.full_name,
-                    'reason': f"Scheduled exam requires student from department {exam_dept.department_shortname}"
+                    'reason': f"Scheduled exam requires student with department {exam_dept.department_shortname} in their department choice list"
                 })
 
     return mismatched
@@ -304,6 +311,36 @@ def assign_students_bulk(request):
             faculty_mismatches = get_faculty_and_department_mismatches(students, exam)
             if faculty_mismatches:
                 return build_faculty_mismatch_response(faculty_mismatches)
+
+            # Access scope authorization check
+            custom_user = getattr(request.user, 'custom_user', None)
+            from ..services.access_control import get_user_access_scope
+            scope = get_user_access_scope(custom_user)
+            if not scope['is_global']:
+                user_dept_ids = set(scope.get('department_ids') or [])
+                user_faculty_id = getattr(custom_user, 'faculty_id', None)
+                unauthorized_students = []
+                for s in students:
+                    s_dept_ids = set(
+                        c['department_id']
+                        for c in (s.department_choices or [])
+                        if isinstance(c, dict) and 'department_id' in c
+                    )
+                    if not s_dept_ids and s.department_shortname:
+                        sd = Department.objects.filter(department_shortname__iexact=s.department_shortname).first()
+                        if sd:
+                            s_dept_ids.add(sd.id)
+                    has_access = bool(s_dept_ids & user_dept_ids)
+                    if not has_access and user_faculty_id and getattr(s, 'faculty_id', None) == user_faculty_id:
+                        has_access = True
+                    if not has_access:
+                        unauthorized_students.append(s.username)
+                if unauthorized_students:
+                    return Response({
+                        'success': False,
+                        'message': f"You do not have authorization to assign student(s): {', '.join(unauthorized_students)}",
+                        'error_code': 'UNAUTHORIZED_STUDENT_ASSIGNMENT'
+                    }, status=status.HTTP_403_FORBIDDEN)
 
             # Track results
             created_assignments = []
@@ -402,6 +439,32 @@ def assign_student_single(request):
         if faculty_mismatches:
             return build_faculty_mismatch_response(faculty_mismatches)
 
+        # Access scope authorization check
+        custom_user = getattr(request.user, 'custom_user', None)
+        from ..services.access_control import get_user_access_scope
+        scope = get_user_access_scope(custom_user)
+        if not scope['is_global']:
+            user_dept_ids = set(scope.get('department_ids') or [])
+            user_faculty_id = getattr(custom_user, 'faculty_id', None)
+            s_dept_ids = set(
+                c['department_id']
+                for c in (student.department_choices or [])
+                if isinstance(c, dict) and 'department_id' in c
+            )
+            if not s_dept_ids and student.department_shortname:
+                sd = Department.objects.filter(department_shortname__iexact=student.department_shortname).first()
+                if sd:
+                    s_dept_ids.add(sd.id)
+            has_access = bool(s_dept_ids & user_dept_ids)
+            if not has_access and user_faculty_id and getattr(student, 'faculty_id', None) == user_faculty_id:
+                has_access = True
+            if not has_access:
+                return Response({
+                    'success': False,
+                    'message': f"You do not have authorization to assign student {student.username}",
+                    'error_code': 'UNAUTHORIZED_STUDENT_ASSIGNMENT'
+                }, status=status.HTTP_403_FORBIDDEN)
+
         # Create or get assignment
         assignment, created = StudentAssignTeacherExam.objects.get_or_create(
             student=student,
@@ -493,13 +556,21 @@ def get_all_assignments(request):
         if getattr(custom_user, 'faculty_id', None):
             allowed_faculty_ids.add(custom_user.faculty_id)
 
-        q_assign = Q(student__department_shortname__in=dept_shortnames)
+        q_student_choices = Q()
+        for d_id in dept_ids:
+            q_student_choices |= Q(student__department_choices__contains=[{'department_id': d_id}])
+
+        q_student_legacy = (
+            Q(student__department_choices=[]) | Q(student__department_choices__isnull=True)
+        ) & Q(student__department_shortname__in=dept_shortnames)
+
+        q_assign = q_student_choices | q_student_legacy | Q(exam__department__in=dept_shortnames)
         if allowed_faculty_ids:
-            q_assign |= Q(student__faculty_id__in=allowed_faculty_ids)
+            q_assign |= Q(student__faculty_id__in=allowed_faculty_ids) | Q(exam__faculty_ref_id__in=allowed_faculty_ids)
 
         assignments = StudentAssignTeacherExam.objects.filter(q_assign).select_related(
             'student', 'teacher', 'exam', 'schedule'
-        ).order_by('-created_at')
+        ).distinct().order_by('-created_at')
 
     filter_options = build_assignment_filter_options(assignments)
     assignments = apply_assignment_filters(assignments, request)
