@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
-from ..models import StudentAssignTeacherExam, Students, User, Exam, ExamSchedule
+from ..models import StudentAssignTeacherExam, Students, User, Exam, ExamSchedule, Department
 from ..serializers.student_assign_teacher_exam import (
     StudentAssignTeacherExamSerializer, 
     StudentAssignBulkSerializer, 
@@ -144,6 +144,7 @@ def get_duplicate_semester_assignments(students, exam):
     for student in students:
         existing = (
             StudentAssignTeacherExam.objects.filter(student=student)
+            .exclude(exam=exam)
             .select_related('exam')
         )
         if any(

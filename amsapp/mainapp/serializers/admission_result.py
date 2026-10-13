@@ -255,17 +255,105 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField())
     def get_eligible_departments(self, obj):
-        if not obj.attended_exam or not obj.is_selected:
+        if not obj.attended_exam:
             return []
-        if obj.department:
-            return [obj.department.department_shortname]
-        return []
+
+        score = obj.weighted_total_marks if obj.weighted_total_marks is not None else obj.total_marks
+        if score is None:
+            return []
+        score = float(score)
+
+        semester = None
+        if obj.exam and obj.exam.semester:
+            semester = obj.exam.semester
+        elif obj.student and obj.student.registration_semester:
+            semester = obj.student.registration_semester
+
+        cache = self.context.setdefault("_dept_threshold_map", {})
+        if semester and semester not in cache:
+            from django.db.models import Q
+            from ..models import DepartmentThreshold
+
+            norm_sem = normalize_semester_value(semester) if semester else semester
+            thresholds = DepartmentThreshold.objects.filter(
+                Q(semester__iexact=semester) | Q(semester__iexact=norm_sem)
+            ).select_related("department")
+            sem_map = {}
+            for t in thresholds:
+                if t.department_id and t.min_threshold_mark is not None:
+                    sem_map[t.department_id] = float(t.min_threshold_mark)
+                    if t.department and t.department.department_shortname:
+                        sem_map[t.department.department_shortname.upper()] = float(t.min_threshold_mark)
+            cache[semester] = sem_map
+
+        sem_thresholds = cache.get(semester, {}) if semester else {}
+
+        eligible = []
+        choices = []
+        if obj.student and obj.student.department_choices and isinstance(obj.student.department_choices, list):
+            choices = sorted(
+                [c for c in obj.student.department_choices if isinstance(c, dict)],
+                key=lambda x: x.get("priority", 99),
+            )
+
+        dept_cache = self.context.setdefault("_all_depts_map", None)
+        if dept_cache is None:
+            from ..models import Department
+
+            dept_cache = {d.id: d.department_shortname for d in Department.objects.all()}
+            self.context["_all_depts_map"] = dept_cache
+
+        if choices:
+            for c in choices:
+                d_id = c.get("department_id")
+                d_short = dept_cache.get(d_id)
+                if not d_short and d_id:
+                    d_short = f"Dept #{d_id}"
+
+                min_mark = sem_thresholds.get(d_id)
+                if min_mark is None and d_short:
+                    min_mark = sem_thresholds.get(d_short.upper())
+
+                if min_mark is not None:
+                    if score >= min_mark - 0.0001:
+                        if d_short and d_short not in eligible:
+                            eligible.append(d_short)
+                else:
+                    applied = float(obj.threshold_applied) if obj.threshold_applied is not None else 0.0
+                    if score >= applied - 0.0001 and (obj.is_selected or obj.result_status in ("SELECTED", "WAITING")):
+                        if d_short and d_short not in eligible:
+                            eligible.append(d_short)
+        else:
+            target_short = None
+            target_id = None
+            if obj.department:
+                target_short = obj.department.department_shortname
+                target_id = obj.department.id
+            elif obj.student and obj.student.department_shortname:
+                target_short = obj.student.department_shortname
+
+            if target_short:
+                min_mark = sem_thresholds.get(target_id) or sem_thresholds.get(target_short.upper())
+                if min_mark is not None:
+                    if score >= min_mark - 0.0001:
+                        eligible.append(target_short)
+                elif obj.is_selected or (obj.threshold_applied and score >= float(obj.threshold_applied) - 0.0001):
+                    eligible.append(target_short)
+
+        if obj.is_selected and obj.department and obj.department.department_shortname:
+            if obj.department.department_shortname not in eligible:
+                eligible.insert(0, obj.department.department_shortname)
+
+        return eligible
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_waiting_for(self, obj):
-        if obj.result_status == 'WAITING':
-            if obj.department:
+        if obj.result_status == "WAITING":
+            if obj.department and obj.department.department_shortname:
                 return obj.department.department_shortname
+            eligible = self.get_eligible_departments(obj)
+            if eligible:
+                return eligible[0]
             return "Waiting List"
         return None
 

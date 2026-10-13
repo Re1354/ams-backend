@@ -15,7 +15,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from ..authentication import CustomJWTAuthentication
 from ..services.access_control import get_user_access_scope
 from ..models import AdmissionConfiguration, AdmissionResult, Department, DepartmentThreshold, Exam
-from ..models import StudentAssignTeacherExam, Submission
+from ..models import StudentAssignTeacherExam, Students, Submission
 from ..serializers.admission_result import (
     AdmissionConfigurationSerializer,
     AdmissionConfigurationUpsertSerializer,
@@ -212,7 +212,18 @@ def ensure_semester_admission_results(department=None, semester=None):
     AdmissionResult workflow but backfills missing rows from real exam
     participation data when a newer semester has not been calculated yet.
     """
-    if not department or not semester:
+    if not semester:
+        return
+
+    if not department:
+        norm_sem = normalize_semester_filter(semester)
+        configured_depts = Department.objects.filter(
+            thresholds__semester__iexact=norm_sem,
+            thresholds__min_threshold_mark__isnull=False,
+            thresholds__seat_limit__gt=0,
+        ).distinct()
+        for dept in configured_depts:
+            ensure_semester_admission_results(department=dept, semester=semester)
         return
 
     threshold_mapping = get_threshold_mapping_for_semester(department, semester)
@@ -426,40 +437,68 @@ def admission_configuration_detail(request, config_id):
 def admission_semester_options(request):
     scope = get_user_access_scope(request.user)
     department_id = request.query_params.get("department_id")
-    department = None
+    faculty_id = request.query_params.get("faculty_id")
 
+    allowed_dept_ids = None
     if department_id:
-        if not scope['is_global'] and int(department_id) not in scope['department_ids']:
+        if not scope["is_global"] and int(department_id) not in scope["department_ids"]:
             return Response({"success": True, "semesters": []})
-        department = Department.objects.filter(id=department_id).first()
-        if not department:
-            return Response(
-                {"success": False, "message": "Department not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-    else:
-        # If no specific department is requested but the user is restricted,
-        # we shouldn't return all semesters globally.
-        if not scope['is_global'] and not scope['department_ids']:
-            return Response({"success": True, "semesters": []})
+        allowed_dept_ids = [int(department_id)]
+    elif faculty_id:
+        fac_depts = list(Department.objects.filter(faculty_id=faculty_id).values_list("id", flat=True))
+        if not scope["is_global"]:
+            allowed_dept_ids = [d for d in fac_depts if d in scope["department_ids"]]
+        else:
+            allowed_dept_ids = fac_depts
+    elif not scope["is_global"]:
+        allowed_dept_ids = scope["department_ids"]
 
-    exam_queryset = get_exam_queryset_for_department_semester(department=department)
-    if not department and not scope['is_global']:
-        # Filter exams to only those belonging to permitted departments
-        from django.db.models import Q
-        q_objs = Q()
-        valid_departments = Department.objects.filter(id__in=scope['department_ids'])
-        for valid_dept in valid_departments:
-            q_objs |= Q(department__iexact=valid_dept.department_name) | Q(department__iexact=valid_dept.department_shortname)
-        exam_queryset = exam_queryset.filter(q_objs)
+    semesters_set = set()
 
-    exam_semesters = list(
-        exam_queryset
-        .order_by("semester")
-        .values_list("semester", flat=True)
-        .distinct()
-    )
-    semesters = sorted(set(exam_semesters), key=semester_sort_key)
+    # 1. From Exam
+    exam_qs = Exam.objects.all()
+    if allowed_dept_ids is not None:
+        valid_departments = Department.objects.filter(id__in=allowed_dept_ids)
+        q_exam = Q()
+        for vd in valid_departments:
+            q_exam |= Q(department__iexact=vd.department_name) | Q(department__iexact=vd.department_shortname)
+        if faculty_id:
+            q_exam |= Q(faculty_ref_id=faculty_id)
+        exam_qs = exam_qs.filter(q_exam)
+    for s in exam_qs.exclude(semester__isnull=True).exclude(semester="").values_list("semester", flat=True).distinct():
+        if s and s.strip():
+            semesters_set.add(s.strip())
+
+    # 2. From DepartmentThreshold
+    dt_qs = DepartmentThreshold.objects.all()
+    if allowed_dept_ids is not None:
+        dt_qs = dt_qs.filter(department_id__in=allowed_dept_ids)
+    for s in dt_qs.exclude(semester__isnull=True).exclude(semester="").values_list("semester", flat=True).distinct():
+        if s and s.strip():
+            semesters_set.add(s.strip())
+
+    # 3. From AdmissionConfiguration
+    ac_qs = AdmissionConfiguration.objects.all()
+    if allowed_dept_ids is not None:
+        ac_qs = ac_qs.filter(department_id__in=allowed_dept_ids)
+    for s in ac_qs.exclude(semester__isnull=True).exclude(semester="").values_list("semester", flat=True).distinct():
+        if s and s.strip():
+            semesters_set.add(s.strip())
+
+    # 4. From Students registration_semester
+    stu_qs = Students.objects.all()
+    if allowed_dept_ids is not None:
+        valid_departments = Department.objects.filter(id__in=allowed_dept_ids)
+        q_stu = Q()
+        for vd in valid_departments:
+            q_stu |= Q(department_shortname__iexact=vd.department_shortname)
+            q_stu |= Q(department_choices__contains=[{"department_id": vd.id}])
+        stu_qs = stu_qs.filter(q_stu)
+    for s in stu_qs.exclude(registration_semester__isnull=True).exclude(registration_semester="").values_list("registration_semester", flat=True).distinct():
+        if s and s.strip():
+            semesters_set.add(s.strip())
+
+    semesters = sorted(semesters_set, key=semester_sort_key)
     return Response({"success": True, "semesters": semesters})
 
 
@@ -537,6 +576,7 @@ def calculate_results(request):
         OpenApiParameter(name="exam_id", required=False, type=int),
         OpenApiParameter(name="configuration_id", required=False, type=int),
         OpenApiParameter(name="department_id", required=False, type=int),
+        OpenApiParameter(name="faculty_id", required=False, type=int),
         OpenApiParameter(name="student_id", required=False, type=int),
         OpenApiParameter(name="semester", required=False, type=str),
         OpenApiParameter(name="search", required=False, type=str),
@@ -559,25 +599,11 @@ def calculate_results(request):
 @authentication_classes([CustomJWTAuthentication])
 def get_admission_results(request):
     scope = get_user_access_scope(request.user)
-    
-    results = AdmissionResult.objects.select_related(
-        "exam",
-        "student",
-        "department",
-        "configuration",
-        "configuration__department",
-        "configuration__exam",
-    ).all()
-    
-    if not scope['is_global']:
-        if not scope['department_ids']:
-            results = results.none()
-        else:
-            results = results.filter(department_id__in=scope['department_ids'])
 
     exam_id = request.query_params.get("exam_id")
     configuration_id = request.query_params.get("configuration_id")
     department_id = request.query_params.get("department_id")
+    faculty_id = request.query_params.get("faculty_id")
     student_id = request.query_params.get("student_id")
     semester = request.query_params.get("semester")
     search = request.query_params.get("search")
@@ -592,16 +618,8 @@ def get_admission_results(request):
     configuration_missing = False
     unconfigured_exam_semesters = []
 
-    if exam_id:
-        results = results.filter(exam_id=exam_id)
-    if configuration_id:
-        results = results.filter(configuration_id=configuration_id)
-    if department_id:
-        results = results.filter(department_id=department_id)
-    if student_id:
-        results = results.filter(student_id=student_id)
     if semester:
-        semester = normalize_semester_filter(semester)
+        norm_sem = normalize_semester_filter(semester)
         resolved_department = (
             Department.objects.filter(id=department_id).first() if department_id else None
         )
@@ -627,31 +645,84 @@ def get_admission_results(request):
                 },
                 key=semester_sort_key,
             )
-        results = AdmissionResult.objects.select_related(
-            "exam",
-            "student",
-            "department",
-            "configuration",
-            "configuration__department",
-            "configuration__exam",
-        ).all()
-        if exam_id:
-            results = results.filter(exam_id=exam_id)
-        if configuration_id:
-            results = results.filter(configuration_id=configuration_id)
-        if department_id:
-            results = results.filter(department_id=department_id)
-        if student_id:
-            results = results.filter(student_id=student_id)
-        results = results.filter(
-            Q(configuration__semester__iexact=semester) | Q(exam__semester__iexact=semester)
-        )
-        
-    if not scope['is_global']:
-        if not scope['department_ids']:
+
+    results = AdmissionResult.objects.select_related(
+        "exam",
+        "student",
+        "department",
+        "configuration",
+        "configuration__department",
+        "configuration__exam",
+    ).all()
+
+    if not scope["is_global"]:
+        if not scope["department_ids"]:
             results = results.none()
         else:
-            results = results.filter(department_id__in=scope['department_ids'])
+            scope_depts = scope["department_ids"]
+            scope_q = Q(department_id__in=scope_depts)
+            for d_id in scope_depts:
+                scope_q |= Q(student__department_choices__contains=[{"department_id": d_id}])
+            scope_shortnames = list(
+                Department.objects.filter(id__in=scope_depts).values_list("department_shortname", flat=True)
+            )
+            scope_q |= (
+                (Q(student__department_choices=[]) | Q(student__department_choices__isnull=True))
+                & Q(student__department_shortname__in=scope_shortnames)
+            )
+            results = results.filter(scope_q).distinct()
+
+    if exam_id:
+        results = results.filter(exam_id=exam_id)
+    if configuration_id:
+        results = results.filter(configuration_id=configuration_id)
+    if department_id:
+        target_dept = Department.objects.filter(id=department_id).first()
+        if target_dept:
+            dept_q = (
+                Q(department_id=target_dept.id)
+                | Q(student__department_choices__contains=[{"department_id": target_dept.id}])
+            )
+            if target_dept.department_shortname:
+                dept_q |= (
+                    (Q(student__department_choices=[]) | Q(student__department_choices__isnull=True))
+                    & Q(student__department_shortname__iexact=target_dept.department_shortname)
+                )
+            results = results.filter(dept_q).distinct()
+        else:
+            results = results.filter(department_id=department_id)
+    if faculty_id:
+        fac_dept_ids = list(Department.objects.filter(faculty_id=faculty_id).values_list("id", flat=True))
+        fac_dept_shorts = list(
+            Department.objects.filter(faculty_id=faculty_id).values_list("department_shortname", flat=True)
+        )
+        fac_q = Q(department_id__in=fac_dept_ids)
+        for d_id in fac_dept_ids:
+            fac_q |= Q(student__department_choices__contains=[{"department_id": d_id}])
+        fac_q |= (
+            (Q(student__department_choices=[]) | Q(student__department_choices__isnull=True))
+            & Q(student__department_shortname__in=fac_dept_shorts)
+        )
+        fac_q |= Q(exam__faculty_ref_id=faculty_id)
+        results = results.filter(fac_q).distinct()
+    if student_id:
+        results = results.filter(student_id=student_id)
+    if semester:
+        norm_sem = normalize_semester_filter(semester)
+        results = results.filter(
+            Q(configuration__semester__iexact=semester)
+            | Q(configuration__semester__iexact=norm_sem)
+            | Q(exam__semester__iexact=semester)
+            | Q(exam__semester__iexact=norm_sem)
+            | (
+                Q(configuration__isnull=True)
+                & Q(exam__isnull=True)
+                & (
+                    Q(student__registration_semester__iexact=semester)
+                    | Q(student__registration_semester__iexact=norm_sem)
+                )
+            )
+        )
 
     if is_selected is not None:
         results = results.filter(is_selected=is_selected.lower() in {"true", "1", "yes"})

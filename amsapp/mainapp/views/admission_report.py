@@ -41,6 +41,7 @@ from ..services.admission_calculator import (
     calculate_mcq_marks_for_student,
     calculate_weighted_scores,
     get_student_department,
+    get_viva_total_marks_for_student_exam,
     resolve_department_for_exam,
 )
 from ..services.viva_assessment import (
@@ -210,7 +211,10 @@ def get_written_total_marks_from_report(report: dict) -> float:
 def get_viva_total_marks_from_report(report: dict) -> float:
     viva = report.get("viva") or {}
     rubric_rows = viva.get("rubric_rows") or []
-    return round(sum(float(row.get("max_marks") or 0) for row in rubric_rows), 2)
+    rubric_sum = round(sum(float(row.get("max_marks") or 0) for row in rubric_rows), 2)
+    if rubric_sum > 0:
+        return rubric_sum
+    return round(float(viva.get("max_marks") or 0), 2)
 
 
 def build_weighted_component_equation(
@@ -584,8 +588,8 @@ def build_student_admission_detail_report_data(exam_id: int, student_id: int):
 
     viva_rubric_rows = build_viva_rubric_rows(viva_assignment)
     viva_teacher = viva_assignment.teacher.username if viva_assignment and viva_assignment.teacher_id else None
-    viva_rubric_total = round(sum(float(r.get("max_marks", 0) or 0) for r in viva_rubric_rows), 2)
-    viva_total_marks = viva_rubric_total if viva_rubric_total > 0 else 20.0
+    viva_total_marks = get_viva_total_marks_for_student_exam(student, exam)
+    viva_obtained_marks = round(float(viva_assignment.total_marks or 0), 2) if viva_assignment else 0.0
 
     report_data = {
         "student": {
@@ -636,7 +640,9 @@ def build_student_admission_detail_report_data(exam_id: int, student_id: int):
                 if viva_assignment and viva_assignment.scheduled_at
                 else (viva_assignment.time.isoformat() if viva_assignment else None)
             ),
-            "total_marks": viva_total_marks,
+            "obtained_marks": viva_obtained_marks,
+            "total_marks": viva_obtained_marks if (viva_assignment and viva_assignment.total_marks is not None) else viva_total_marks,
+            "max_marks": viva_total_marks,
             "remarks": viva_assignment.remarks if viva_assignment else None,
             "rubric_rows": viva_rubric_rows,
         },

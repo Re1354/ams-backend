@@ -61,9 +61,18 @@ def get_exams_for_department_semester(department, semester):
 
     department_name = department.department_name.strip()
     department_shortname = department.department_shortname.strip()
-    return exams.filter(
+
+    from .access_control import get_faculty_for_department
+    dept_id = department.id if isinstance(department, Department) else (int(department) if str(department).isdigit() else None)
+    parent_faculty = get_faculty_for_department(dept_id) if dept_id else None
+
+    q_dept = (
         Q(department__iexact=department_name) | Q(department__iexact=department_shortname)
     )
+    if parent_faculty:
+        q_dept |= Q(faculty_ref=parent_faculty, exam_type__iexact="CENTRAL")
+
+    return exams.filter(q_dept)
 
 
 def get_threshold_mapping_for_semester(department, semester):
@@ -107,11 +116,17 @@ def round_weighted_value(value):
 def resolve_department_for_exam(exam):
     """
     Exams store department as text, so resolve it back to a Department row.
+    For Central exams without direct department text, resolve via faculty_ref departments.
     """
-    return Department.objects.filter(
+    dept = Department.objects.filter(
         Q(department_shortname__iexact=exam.department)
         | Q(department_name__iexact=exam.department)
     ).first()
+    if dept:
+        return dept
+    if getattr(exam, 'faculty_ref', None):
+        return exam.faculty_ref.departments.first()
+    return None
 
 
 def get_student_department(student):
@@ -369,9 +384,18 @@ def get_distribution_for_department(department):
     if dept_id:
         faculty = get_faculty_for_department(dept_id)
         if faculty:
-            faculty_dist = MarksDistribution.objects.filter(faculty=faculty).first()
+            # 1. Faculty-wide distribution (authoritative)
+            faculty_dist = MarksDistribution.objects.filter(faculty=faculty, department__isnull=True).first()
             if faculty_dist:
                 return faculty_dist
+            # 2. Faculty distribution scoped to this department
+            dept_under_faculty_dist = MarksDistribution.objects.filter(faculty=faculty, department_id=dept_id).first()
+            if dept_under_faculty_dist:
+                return dept_under_faculty_dist
+            # 3. Any distribution under this faculty
+            any_faculty_dist = MarksDistribution.objects.filter(faculty=faculty).first()
+            if any_faculty_dist:
+                return any_faculty_dist
     return MarksDistribution.objects.filter(department=department).first()
 
 
@@ -394,14 +418,32 @@ def get_written_total_marks_for_exam(exam):
 
 def get_viva_total_marks_for_student_exam(student, exam):
     viva_assignment = get_viva_assessment_for_student_exam(student, exam)
-    if not viva_assignment:
-        return 0.0
+    if viva_assignment:
+        rubric_snapshot = viva_assignment.rubric_snapshot or []
+        rubric_total = sum(float(rubric.get("max_marks") or 0) for rubric in rubric_snapshot)
+        if rubric_total > 0:
+            return rubric_total
 
-    rubric_snapshot = viva_assignment.rubric_snapshot or []
-    rubric_total = 0.0
-    for rubric in rubric_snapshot:
-        rubric_total += float(rubric.get("max_marks") or 0)
-    return rubric_total
+    # Fallback 1: Sum of VivaRubrics for student's department or parent faculty
+    from .access_control import get_faculty_for_department
+    from ..models.viva_rubrics import VivaRubrics
+    dept = get_student_department(student) or resolve_department_for_exam(exam)
+    if dept:
+        faculty = get_faculty_for_department(dept.id)
+        if faculty:
+            faculty_rubric_total = VivaRubrics.objects.filter(faculty=faculty).aggregate(total=Sum("marks"))["total"]
+            if faculty_rubric_total and faculty_rubric_total > 0:
+                return float(faculty_rubric_total)
+        dept_rubric_total = VivaRubrics.objects.filter(department=dept).aggregate(total=Sum("marks"))["total"]
+        if dept_rubric_total and dept_rubric_total > 0:
+            return float(dept_rubric_total)
+
+    # Fallback 2: Marks distribution viva component
+    distribution = get_distribution_for_department(dept) if dept else None
+    if distribution and distribution.viva_marks > 0:
+        return float(distribution.viva_marks)
+
+    return 20.0
 
 
 def calculate_weighted_scores(student, exam, department, mcq_marks, viva_marks):
@@ -430,7 +472,13 @@ def calculate_weighted_scores(student, exam, department, mcq_marks, viva_marks):
         }
 
     ssc_contribution = normalize_score(ssc_score, 5.0) * distribution.ssc
-    academic_weight = distribution.hsc if academic_source in {"HSC", "DIPLOMA"} else 0
+    if academic_source == "DIPLOMA":
+        academic_weight = getattr(distribution, "diploma", 0) or distribution.hsc
+    elif academic_source == "HSC":
+        academic_weight = distribution.hsc
+    else:
+        academic_weight = 0
+
     academic_contribution = normalize_score(
         academic_score,
         get_academic_max_score(academic_source),
