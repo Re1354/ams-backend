@@ -27,7 +27,7 @@ from ..models import (
     Submission,
 )
 from ..models.viva_marks import VivaMarks
-from ..utils import normalize_semester_filter
+from ..utils import normalize_semester_filter, normalize_semester_value
 from .viva_assessment import get_viva_assessment_for_student_exam
 
 
@@ -190,6 +190,8 @@ def get_priority_subject_names_for_department(department):
     """
     Returns ordered list of subject names for the given department,
     from highest priority (priority 1) to lowest priority.
+    Falls back to sibling departments under the same faculty if no
+    priorities are configured directly on this department.
     """
     if not department:
         return []
@@ -218,20 +220,55 @@ def get_priority_subject_names_for_department(department):
         .select_related("subject")
         .order_by("priority")
     )
-    return [p.subject.subject_name for p in priorities if p.subject]
+    direct_names = [p.subject.subject_name for p in priorities if p.subject]
+    if direct_names:
+        return direct_names
+
+    # Sibling fallback under the same faculty
+    from .access_control import get_faculty_for_department
+    faculty = get_faculty_for_department(dept_id)
+    if faculty:
+        sibling_priorities = (
+            SubjectPriority.objects.filter(department__faculty=faculty)
+            .select_related("subject")
+            .order_by("priority")
+        )
+        seen = set()
+        sibling_names = []
+        for p in sibling_priorities:
+            if p.subject and p.subject.subject_name not in seen:
+                seen.add(p.subject.subject_name)
+                sibling_names.append(p.subject.subject_name)
+        if sibling_names:
+            return sibling_names
+
+    return []
+
+
+def get_applicant_id_sort_key(candidate):
+    """
+    Returns a deterministic ascending sort key for Applicant ID.
+    Prefers student's f_id (form/applicant ID), falling back to student.id.
+    """
+    student = getattr(candidate, "student", None)
+    f_id = getattr(student, "f_id", None) if student else None
+    if f_id is not None:
+        f_id_str = str(f_id).strip()
+        if f_id_str.isdigit():
+            return (0, int(f_id_str), f_id_str)
+        elif f_id_str:
+            return (1, 0, f_id_str)
+
+    student_id = getattr(candidate, "student_id", None) or getattr(candidate, "id", 0)
+    return (2, int(student_id or 0), str(student_id or ""))
 
 
 def build_candidate_tiebreak_key(candidate, priority_subject_names=None):
     """
-    Constructs a deterministic tuple key for candidate ranking and tie-breaking.
-    1. weighted_total_marks (descending): Higher total marks always ranks higher.
-    2. Sequential subject priority comparison:
-       Compare subject marks in priority order (1st priority, 2nd, 3rd, ...).
-       The candidate with higher marks in the first subject where marks differ ranks higher.
-    3. Fallback tie-breaking:
-       If total marks and all priority subject marks are identical,
-       fall back to written_viva_total (descending), then mcq_marks (descending),
-       and finally student_id (ascending deterministic).
+    Constructs a deterministic tuple key for candidate ranking and tie-breaking:
+    1. Total Score (weighted_total_marks) descending.
+    2. Subject-priority marks in configured priority order, each descending.
+    3. Applicant ID ascending.
     """
     priority_subject_names = priority_subject_names or []
     subject_scores = tuple(
@@ -242,10 +279,9 @@ def build_candidate_tiebreak_key(candidate, priority_subject_names=None):
     return (
         -round(float(candidate.weighted_total_marks or 0.0), 4),
         *subject_scores,
-        -round(float(candidate.written_viva_total or 0.0), 4),
-        -round(float(candidate.mcq_marks or 0.0), 4),
-        int(candidate.student_id or candidate.id or 0),
+        get_applicant_id_sort_key(candidate),
     )
+
 
 
 def get_or_create_admission_configuration(exam, department):
@@ -787,7 +823,7 @@ def apply_semester_result_statuses(
     seat_limit,
     waiting_student_limit=0,
 ):
-    if threshold_value is None or seat_limit is None or seat_limit <= 0:
+    if threshold_value is None or seat_limit is None or seat_limit < 0:
         return {
             "success": False,
             "configuration_missing": True,
@@ -805,74 +841,184 @@ def apply_semester_result_statuses(
     threshold_value = float(threshold_value)
 
     # Collapse any duplicate rows to one per student BEFORE ranking, so a
-    # duplicate can never surface no matter how it was created (see
-    # collapse_duplicate_semester_results).
+    # duplicate can never surface no matter how it was created.
     collapse_duplicate_semester_results(exams)
 
     results = AdmissionResult.objects.filter(exam__in=exams)
-
     results.update(threshold_applied=threshold_value, is_selected=False)
 
-    # Admitted candidates hold their seats exactly like override-accepted ones:
-    # forced SELECTED and counted against seat_limit before natural selection.
+    # Load semester threshold & capacity configs for all departments in this semester
+    norm_sem = normalize_semester_value(semester) if semester else semester
+    threshold_records = DepartmentThreshold.objects.filter(
+        Q(semester__iexact=semester) | Q(semester__iexact=norm_sem)
+    ).select_related("department")
+
+    dept_thresholds = {}
+    dept_seat_limits = {}
+    dept_waiting_limits = {}
+    dept_map = {}
+
+    for tr in threshold_records:
+        d_id = tr.department_id
+        dept_thresholds[d_id] = float(tr.min_threshold_mark)
+        dept_seat_limits[d_id] = int(tr.seat_limit)
+        dept_waiting_limits[d_id] = int(tr.waiting_student_limit or 0)
+        dept_map[d_id] = tr.department
+
+    primary_dept_id = (
+        department.id
+        if isinstance(department, Department)
+        else (int(department) if str(department).isdigit() else None)
+    )
+    if not primary_dept_id and isinstance(department, Department):
+        primary_dept_id = department.id
+    if primary_dept_id:
+        dept_thresholds[primary_dept_id] = threshold_value
+        dept_seat_limits[primary_dept_id] = int(seat_limit or 0)
+        dept_waiting_limits[primary_dept_id] = int(waiting_student_limit or 0)
+        if isinstance(department, Department):
+            dept_map[primary_dept_id] = department
+
+    # Pre-seed available remaining seats per department
+    remaining_seats = {d_id: max(0, dept_seat_limits[d_id]) for d_id in dept_seat_limits}
+
+    # Admitted and override-accepted candidates hold their allocated seats:
+    # forced SELECTED and deducted from remaining seat capacity before merit selection.
     protected_qs = results.filter(Q(is_override_accepted=True) | Q(is_admitted=True))
     protected_qs.exclude(result_status="SELECTED").update(result_status="SELECTED")
     protected_qs.update(is_selected=True)
     protected_count = protected_qs.count()
 
+    for p_res in protected_qs:
+        p_dept_id = p_res.department_id or primary_dept_id
+        if p_dept_id in remaining_seats:
+            remaining_seats[p_dept_id] = max(0, remaining_seats[p_dept_id] - 1)
+
     non_override = results.filter(is_override_accepted=False, is_admitted=False)
 
     # One exam per student per semester: a non-attended row for a student who
-    # submitted a DIFFERENT exam this semester is a stray duplicate. Delete it
-    # (rather than stamping ABSENT) so the same student never appears twice, and
-    # a student who sat an exam is never wrongly shown as absent.
+    # submitted a DIFFERENT exam this semester is a stray duplicate. Delete it.
     semester_submitter_ids = student_ids_with_semester_submission(exams)
     non_override.filter(
         attended_exam=False,
         student_id__in=semester_submitter_ids,
     ).delete()
 
-    non_override.filter(attended_exam=False).update(result_status="ABSENT")
-    non_override.filter(attended_exam=True).update(result_status="REJECTED")
+    non_override.filter(attended_exam=False).update(
+        result_status="ABSENT",
+        is_selected=False,
+    )
+
+    attended_candidates = list(
+        non_override.filter(attended_exam=True).select_related("student", "department")
+    )
 
     priority_subject_names = get_priority_subject_names_for_department(department)
-
-    qualified_qs = non_override.filter(
-        attended_exam=True,
-        weighted_total_marks__gte=threshold_value - THRESHOLD_EPSILON,
-    )
-    qualified_candidates = list(qualified_qs)
-    qualified_candidates.sort(
+    attended_candidates.sort(
         key=lambda c: build_candidate_tiebreak_key(c, priority_subject_names)
     )
 
-    remaining_seats = max(seat_limit - protected_count, 0)
-    accepted_ids = [c.id for c in qualified_candidates[:remaining_seats]]
+    waiting_counts = defaultdict(int)
+    to_update = []
 
-    if accepted_ids:
-        non_override.filter(id__in=accepted_ids).update(
-            result_status="SELECTED",
-            is_selected=True,
-        )
+    for candidate in attended_candidates:
+        score = float(candidate.weighted_total_marks or 0.0)
 
-    # Waiting list honours the same threshold as selection: below-threshold
-    # candidates are never promoted to WAITING.
-    waiting_candidates_qs = non_override.filter(
-        attended_exam=True,
-        weighted_total_marks__gte=threshold_value - THRESHOLD_EPSILON,
-    ).exclude(id__in=accepted_ids)
+        # Parse preferences in configured priority order
+        student_choices = []
+        if (
+            candidate.student
+            and candidate.student.department_choices
+            and isinstance(candidate.student.department_choices, list)
+        ):
+            student_choices = sorted(
+                [
+                    c
+                    for c in candidate.student.department_choices
+                    if isinstance(c, dict) and c.get("department_id")
+                ],
+                key=lambda x: x.get("priority", 99),
+            )
 
-    waiting_candidates = list(waiting_candidates_qs)
-    waiting_candidates.sort(
-        key=lambda c: build_candidate_tiebreak_key(c, priority_subject_names)
-    )
-    waiting_limit = max(int(waiting_student_limit or 0), 0)
-    waiting_ids = [c.id for c in waiting_candidates[:waiting_limit]]
+        if not student_choices:
+            fallback_id = candidate.department_id or primary_dept_id
+            student_choices = [{"department_id": fallback_id, "priority": 1}]
 
-    if waiting_ids:
-        non_override.filter(id__in=waiting_ids).update(
-            result_status="WAITING",
-            is_selected=False,
+        allocated_dept_id = None
+        full_eligible_choices = []
+
+        for ch in student_choices:
+            ch_dept_id = ch["department_id"]
+            if ch_dept_id not in dept_thresholds:
+                t = DepartmentThreshold.objects.filter(
+                    department_id=ch_dept_id, semester__iexact=semester
+                ).first() or DepartmentThreshold.objects.filter(
+                    department_id=ch_dept_id, semester__iexact=norm_sem
+                ).first()
+                if t:
+                    dept_thresholds[ch_dept_id] = float(t.min_threshold_mark)
+                    dept_seat_limits[ch_dept_id] = int(t.seat_limit)
+                    dept_waiting_limits[ch_dept_id] = int(t.waiting_student_limit or 0)
+                    dept_map[ch_dept_id] = t.department
+                    remaining_seats[ch_dept_id] = int(t.seat_limit)
+
+            ch_min_mark = dept_thresholds.get(ch_dept_id)
+            if ch_min_mark is None:
+                continue
+
+            if score >= ch_min_mark - THRESHOLD_EPSILON:
+                # Candidate is eligible for this department
+                if remaining_seats.get(ch_dept_id, 0) > 0:
+                    allocated_dept_id = ch_dept_id
+                    remaining_seats[ch_dept_id] -= 1
+                    break
+                else:
+                    full_eligible_choices.append(ch_dept_id)
+
+        if allocated_dept_id is not None:
+            candidate.is_selected = True
+            candidate.result_status = "SELECTED"
+            if allocated_dept_id in dept_map:
+                candidate.department = dept_map[allocated_dept_id]
+            candidate.threshold_applied = dept_thresholds.get(
+                allocated_dept_id, threshold_value
+            )
+            to_update.append(candidate)
+        elif full_eligible_choices:
+            # Student was eligible for at least one choice, but all eligible choices were full.
+            # Place on waiting list for highest preference choice within configured limit.
+            top_dept_id = full_eligible_choices[0]
+            max_waiting = dept_waiting_limits.get(top_dept_id, 0)
+            if waiting_counts[top_dept_id] < max_waiting:
+                candidate.is_selected = False
+                candidate.result_status = "WAITING"
+                if top_dept_id in dept_map:
+                    candidate.department = dept_map[top_dept_id]
+                candidate.threshold_applied = dept_thresholds.get(
+                    top_dept_id, threshold_value
+                )
+                waiting_counts[top_dept_id] += 1
+            else:
+                candidate.is_selected = False
+                candidate.result_status = "REJECTED"
+                if top_dept_id in dept_map:
+                    candidate.department = dept_map[top_dept_id]
+                candidate.threshold_applied = dept_thresholds.get(
+                    top_dept_id, threshold_value
+                )
+            to_update.append(candidate)
+        else:
+            # Not eligible for any listed department
+            candidate.is_selected = False
+            candidate.result_status = "REJECTED"
+            candidate.threshold_applied = threshold_value
+            to_update.append(candidate)
+
+    if to_update:
+        AdmissionResult.objects.bulk_update(
+            to_update,
+            ["is_selected", "result_status", "department", "threshold_applied"],
+            batch_size=500,
         )
 
     return {

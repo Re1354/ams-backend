@@ -121,6 +121,7 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
     exam_taken_at = serializers.DateTimeField(read_only=True)
     student_department_choices = serializers.SerializerMethodField()
     eligible_departments = serializers.SerializerMethodField()
+    allocated_department = serializers.SerializerMethodField()
     waiting_for = serializers.SerializerMethodField()
 
     class Meta:
@@ -142,6 +143,7 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "department",
             "department_name",
             "department_shortname",
+            "allocated_department",
             "mcq_marks",
             "viva_marks",
             "viva_marks_entered",
@@ -347,7 +349,56 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
         return eligible
 
     @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_allocated_department(self, obj):
+        if obj.is_selected or obj.is_admitted or obj.result_status == "SELECTED":
+            return obj.department.department_shortname if obj.department else None
+        return None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_waiting_for(self, obj):
+        # 1. Candidate is selected / admitted for Choice 2 or lower:
+        # Check if they had a higher preference eligible choice that was full.
+        if obj.is_selected or obj.is_admitted or obj.result_status == "SELECTED":
+            if (
+                obj.student
+                and obj.student.department_choices
+                and isinstance(obj.student.department_choices, list)
+            ):
+                choices = sorted(
+                    [
+                        c
+                        for c in obj.student.department_choices
+                        if isinstance(c, dict) and c.get("department_id")
+                    ],
+                    key=lambda x: x.get("priority", 99),
+                )
+                allocated_id = obj.department_id
+                allocated_priority = None
+                for c in choices:
+                    if c.get("department_id") == allocated_id:
+                        allocated_priority = c.get("priority", 99)
+                        break
+
+                if allocated_priority is not None and allocated_priority > 1:
+                    eligible_depts = self.get_eligible_departments(obj)
+                    dept_cache = self.context.setdefault("_all_depts_map", None)
+                    if dept_cache is None:
+                        from ..models import Department
+
+                        dept_cache = {
+                            d.id: d.department_shortname for d in Department.objects.all()
+                        }
+                        self.context["_all_depts_map"] = dept_cache
+
+                    for c in choices:
+                        if c.get("priority", 99) < allocated_priority:
+                            c_id = c.get("department_id")
+                            c_short = dept_cache.get(c_id)
+                            if c_short and c_short in eligible_depts:
+                                return c_short
+            return None
+
+        # 2. Candidate is unselected and on the waiting list:
         if obj.result_status == "WAITING":
             if obj.department and obj.department.department_shortname:
                 return obj.department.department_shortname
@@ -355,6 +406,7 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             if eligible:
                 return eligible[0]
             return "Waiting List"
+
         return None
 
 
