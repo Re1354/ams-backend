@@ -64,6 +64,21 @@ def toggle_exam_publication(request):
     try:
         exam = Exam.objects.get(id=exam_id)
         
+        from ..services.access_control import get_user_access_scope
+        from ..models import Department
+        user = getattr(request.user, 'custom_user', None)
+        scope = get_user_access_scope(user)
+        
+        if not scope['is_global']:
+            dept = Department.objects.filter(
+                Q(department_name__iexact=exam.department) | Q(department_shortname__iexact=exam.department)
+            ).first()
+            if not dept or dept.id not in (scope['department_ids'] or []):
+                return Response(
+                    {"success": False, "message": "You do not have access to this exam."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
         # Get or create published exam record
         published_exam, created = PublishedExam.objects.get_or_create(
             exam=exam,
@@ -112,6 +127,21 @@ def get_student_exam_result_enhanced(request, exam_id, student_id):
     try:
         exam = Exam.objects.get(id=exam_id)
         student = Students.objects.get(id=student_id)
+        
+        from ..services.access_control import get_user_access_scope
+        from ..models import Department
+        user = getattr(request.user, 'custom_user', None)
+        scope = get_user_access_scope(user)
+        
+        if not scope['is_global']:
+            dept = Department.objects.filter(
+                Q(department_name__iexact=exam.department) | Q(department_shortname__iexact=exam.department)
+            ).first()
+            if not dept or dept.id not in (scope['department_ids'] or []):
+                return Response(
+                    {"success": False, "message": "You do not have access to this exam's results."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
         # Check if results are published
         try:
@@ -272,41 +302,41 @@ def _build_subject_result_rows_cached(question_rows, submissions):
 def get_all_results_by_teacher(request, teacher_id):
     """Get all exam results summary for a teacher with pagination and filtering"""
     
-    user = request.user
+    from ..services.access_control import get_user_access_scope
+    from ..models import Department
+    
+    user = getattr(request.user, 'custom_user', None)
+    scope = get_user_access_scope(user)
+    
     semester_filter = normalize_semester_filter(request.query_params.get('semester', None))
     search = request.query_params.get('search')
     department_filter = request.query_params.get('department')
     
-    # Check permissions
-    if hasattr(user, 'custom_user'):
-        custom_user = user.custom_user
-        
-        # Check if user has a role
-        if custom_user.role:
-            role_name = custom_user.role.role_name.lower()
-            
-            # If not superadmin, ensure they can only see their own results
-            if role_name != 'superadmin' and custom_user.id != teacher_id:
-                return Response({
-                    'success': False,
-                    'message': 'You can only view your own results'
-                }, status=status.HTTP_403_FORBIDDEN)
-        else:
-            return Response({
-                'success': False,
-                'message': 'Access denied'
-            }, status=status.HTTP_403_FORBIDDEN)
-    else:
-        return Response({
-            'success': False,
-            'message': 'Access denied'
-        }, status=status.HTTP_403_FORBIDDEN)
+    # Check permissions: if not global, they can only view their own OR we filter by their departments later
+    # Let's enforce that non-global users can only view their own results, unless they have department access.
+    # We will filter viva_assignments by department below.
     
     try:
         teacher = User.objects.get(id=teacher_id)
         viva_assignments = VivaAssignment.objects.filter(
             teacher=teacher
         ).select_related('student', 'exam')
+        
+        if not scope['is_global']:
+            # If they are viewing another teacher, restrict to their permitted departments
+            if user and user.id != teacher_id:
+                valid_depts = Department.objects.filter(id__in=(scope['department_ids'] or []))
+                dept_names = [d.department_name for d in valid_depts] + [d.department_shortname for d in valid_depts]
+                q_dept = Q()
+                for name in dept_names:
+                    q_dept |= Q(exam__department__iexact=name)
+                
+                # If they have no valid depts, q_dept is empty and will match nothing
+                if not scope['department_ids']:
+                    viva_assignments = VivaAssignment.objects.none()
+                else:
+                    viva_assignments = viva_assignments.filter(q_dept)
+                    
         if semester_filter:
             viva_assignments = viva_assignments.filter(exam__semester__icontains=semester_filter)
         if department_filter:

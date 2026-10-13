@@ -4,36 +4,36 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.db.models import Q
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 
-from ..models import MarksDistribution, Department
+from ..models import MarksDistribution, Department, Faculty
 from ..serializers.marks_distribution import (
     MarksDistributionSerializer, MarksDistributionCreateSerializer, MarksDistributionUpdateSerializer
 )
 from ..authentication import CustomJWTAuthentication
+from ..services.access_control import get_user_access_scope, get_faculty_for_department
 
 
 @extend_schema(
     operation_id='create_marks_distribution',
     tags=['Marks Distribution Management'],
     summary="Create new marks distribution",
-    description="Create new marks distribution for a department with SSC, shared HSC/Diploma, main, and viva weights",
+    description="Create new marks distribution for a faculty or department with SSC, shared HSC/Diploma, main, and viva weights",
     request=MarksDistributionCreateSerializer,
     responses={
         201: OpenApiResponse(
             response=MarksDistributionSerializer,
             description="Marks distribution created successfully"
         ),
-        400: OpenApiResponse(description="Invalid request data"),
-        404: OpenApiResponse(description="Department not found")
+        400: OpenApiResponse(description="Invalid request data")
     }
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def create_marks_distribution(request):
-    """Create new marks distribution"""
-    
+    """Create new marks distribution for faculty or department"""
     serializer = MarksDistributionCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response({
@@ -45,13 +45,11 @@ def create_marks_distribution(request):
     try:
         with transaction.atomic():
             marks_distribution = serializer.save()
-            
             return Response({
                 'success': True,
                 'message': 'Marks distribution created successfully',
                 'data': MarksDistributionSerializer(marks_distribution).data
             }, status=status.HTTP_201_CREATED)
-            
     except Exception as e:
         return Response({
             'success': False,
@@ -63,8 +61,9 @@ def create_marks_distribution(request):
     operation_id='get_all_marks_distribution',
     tags=['Marks Distribution Management'],
     summary="Get all marks distribution",
-    description="Retrieve all marks distribution with optional filtering by department",
+    description="Retrieve all marks distribution with optional filtering by faculty or department",
     parameters=[
+        OpenApiParameter(name='faculty_id', description='Filter by faculty ID', required=False, type=int),
         OpenApiParameter(name='department_id', description='Filter by department ID', required=False, type=int),
         OpenApiParameter(name='department_name', description='Filter by department name', required=False, type=str),
     ],
@@ -80,22 +79,38 @@ def create_marks_distribution(request):
 @authentication_classes([CustomJWTAuthentication])
 def get_all_marks_distribution(request):
     """Get all marks distribution with optional filtering"""
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    scope = get_user_access_scope(custom_user)
     
-    marks_distribution = MarksDistribution.objects.select_related('department').all()
+    if scope['is_global']:
+        marks_distribution = MarksDistribution.objects.select_related('department', 'faculty').all()
+    elif scope['access_type'] == 'FACULTY' and custom_user and custom_user.faculty_id:
+        marks_distribution = MarksDistribution.objects.select_related('department', 'faculty').filter(
+            Q(faculty_id=custom_user.faculty_id) | Q(department_id__in=scope['department_ids'] or [])
+        )
+    elif scope['access_type'] == 'DEPARTMENT' and custom_user and custom_user.department_id:
+        parent_faculty = get_faculty_for_department(custom_user.department_id)
+        faculty_q = Q(faculty=parent_faculty) if parent_faculty else Q()
+        marks_distribution = MarksDistribution.objects.select_related('department', 'faculty').filter(
+            Q(department_id=custom_user.department_id) | faculty_q
+        )
+    else:
+        marks_distribution = MarksDistribution.objects.none()
     
-    # Apply filters
+    # Apply query filters
+    faculty_id = request.query_params.get('faculty_id')
     department_id = request.query_params.get('department_id')
     department_name = request.query_params.get('department_name')
     
+    if faculty_id:
+        marks_distribution = marks_distribution.filter(faculty_id=faculty_id)
     if department_id:
         marks_distribution = marks_distribution.filter(department_id=department_id)
-    
     if department_name:
         marks_distribution = marks_distribution.filter(department__department_name__icontains=department_name)
     
-    # Order by department name
-    marks_distribution = marks_distribution.order_by('department__department_name', '-id')
-    
+    marks_distribution = marks_distribution.order_by('id')
     serializer = MarksDistributionSerializer(marks_distribution, many=True)
     return Response({
         'success': True,
@@ -123,9 +138,8 @@ def get_all_marks_distribution(request):
 @authentication_classes([CustomJWTAuthentication])
 def get_marks_distribution_by_id(request, marks_distribution_id):
     """Get marks distribution by ID"""
-    
     try:
-        marks_distribution = MarksDistribution.objects.select_related('department').get(id=marks_distribution_id)
+        marks_distribution = MarksDistribution.objects.select_related('department', 'faculty').get(id=marks_distribution_id)
         serializer = MarksDistributionSerializer(marks_distribution)
         return Response({
             'success': True,
@@ -143,7 +157,7 @@ def get_marks_distribution_by_id(request, marks_distribution_id):
     operation_id='get_marks_distribution_by_department',
     tags=['Marks Distribution Management'],
     summary="Get marks distribution by department",
-    description="Retrieve all marks distribution for a specific department",
+    description="Retrieve all marks distribution for a specific department (inherits from faculty if not overridden)",
     responses={
         200: OpenApiResponse(
             response=MarksDistributionSerializer(many=True),
@@ -156,10 +170,8 @@ def get_marks_distribution_by_id(request, marks_distribution_id):
 @permission_classes([IsAuthenticated])
 @authentication_classes([CustomJWTAuthentication])
 def get_marks_distribution_by_department(request, department_id):
-    """Get all marks distribution for a specific department"""
-    
+    """Get all marks distribution for a specific department (inherits from faculty if not overridden)"""
     try:
-        # Verify department exists
         department = Department.objects.get(id=department_id)
     except Department.DoesNotExist:
         return Response({
@@ -167,10 +179,24 @@ def get_marks_distribution_by_department(request, department_id):
             'message': 'Department not found'
         }, status=status.HTTP_404_NOT_FOUND)
     
-    marks_distribution = MarksDistribution.objects.filter(
-        department=department
-    ).select_related('department').order_by('-id')
-    
+    parent_faculty = get_faculty_for_department(department.id)
+    marks_distribution = MarksDistribution.objects.none()
+    inherited_from_faculty = False
+
+    # 1. Resolve parent faculty distribution
+    if parent_faculty:
+        marks_distribution = MarksDistribution.objects.filter(
+            faculty=parent_faculty
+        ).select_related('department', 'faculty').order_by('id')
+        if marks_distribution.exists():
+            inherited_from_faculty = True
+
+    # 2. Fallback to legacy department-specific distribution if faculty has none
+    if not marks_distribution.exists():
+        marks_distribution = MarksDistribution.objects.filter(
+            department=department
+        ).select_related('department', 'faculty').order_by('id')
+
     serializer = MarksDistributionSerializer(marks_distribution, many=True)
     return Response({
         'success': True,
@@ -179,9 +205,54 @@ def get_marks_distribution_by_department(request, department_id):
             'name': department.department_name,
             'shortname': department.department_shortname
         },
+        'inherited_from_faculty': inherited_from_faculty,
         'count': marks_distribution.count(),
         'marks_distribution': serializer.data,
         'message': f'Found {marks_distribution.count()} marks distribution records for {department.department_name}'
+    })
+
+
+@extend_schema(
+    operation_id='get_marks_distribution_by_faculty',
+    tags=['Marks Distribution Management'],
+    summary="Get marks distribution by faculty",
+    description="Retrieve marks distribution for a specific faculty",
+    responses={
+        200: OpenApiResponse(
+            response=MarksDistributionSerializer(many=True),
+            description="Faculty marks distribution retrieved successfully"
+        ),
+        404: OpenApiResponse(description="Faculty not found")
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+def get_marks_distribution_by_faculty(request, faculty_id):
+    """Get marks distribution for a specific faculty"""
+    try:
+        faculty = Faculty.objects.get(id=faculty_id)
+    except Faculty.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Faculty not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    marks_distribution = MarksDistribution.objects.filter(
+        faculty=faculty
+    ).select_related('department', 'faculty').order_by('id')
+
+    serializer = MarksDistributionSerializer(marks_distribution, many=True)
+    return Response({
+        'success': True,
+        'faculty_info': {
+            'id': faculty.id,
+            'name': faculty.faculty_name,
+            'code': faculty.faculty_code
+        },
+        'count': marks_distribution.count(),
+        'marks_distribution': serializer.data,
+        'message': f'Found {marks_distribution.count()} marks distribution records for {faculty.faculty_name}'
     })
 
 
@@ -205,7 +276,6 @@ def get_marks_distribution_by_department(request, department_id):
 @authentication_classes([CustomJWTAuthentication])
 def update_marks_distribution(request, marks_distribution_id):
     """Update marks distribution by ID"""
-    
     try:
         marks_distribution = MarksDistribution.objects.get(id=marks_distribution_id)
     except MarksDistribution.DoesNotExist:
@@ -225,13 +295,11 @@ def update_marks_distribution(request, marks_distribution_id):
     try:
         with transaction.atomic():
             updated_distribution = serializer.save()
-            
             return Response({
                 'success': True,
                 'message': 'Marks distribution updated successfully',
                 'data': MarksDistributionSerializer(updated_distribution).data
             })
-            
     except Exception as e:
         return Response({
             'success': False,
@@ -254,28 +322,24 @@ def update_marks_distribution(request, marks_distribution_id):
 @authentication_classes([CustomJWTAuthentication])
 def delete_marks_distribution(request, marks_distribution_id):
     """Delete marks distribution by ID"""
-    
     try:
         marks_distribution = MarksDistribution.objects.get(id=marks_distribution_id)
-        
+        target = marks_distribution.faculty.faculty_name if marks_distribution.faculty else (marks_distribution.department.department_name if marks_distribution.department else 'Unassigned')
         distribution_info = {
             'id': marks_distribution.id,
-            'department_name': marks_distribution.department.department_name,
+            'target': target,
             'ssc': marks_distribution.ssc,
             'hsc': marks_distribution.hsc,
             'diploma': marks_distribution.diploma,
             'main_marks': marks_distribution.main_marks,
             'viva_marks': marks_distribution.viva_marks
         }
-        
         marks_distribution.delete()
-        
         return Response({
             'success': True,
             'message': 'Marks distribution deleted successfully',
             'deleted_distribution': distribution_info
         })
-        
     except MarksDistribution.DoesNotExist:
         return Response({
             'success': False,

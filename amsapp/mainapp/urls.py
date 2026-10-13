@@ -42,6 +42,17 @@ from .views.subject_departments import (
     get_subjects_by_department, update_subject_department, add_subjects_to_department,
     remove_subjects_from_department, delete_subject_department
 )
+from .views.subject_faculties import (
+    get_all_subject_faculties, create_subject_faculty, get_subject_faculty_by_id,
+    get_subjects_by_faculty, update_subject_faculty, add_subjects_to_faculty,
+    remove_subjects_from_faculty, delete_subject_faculty
+)
+from .views.subject_priority import (
+    get_all_subject_priorities,
+    get_department_subject_priority,
+    save_department_subject_priority,
+    delete_department_subject_priority,
+)
 from .views.exam_generation import generate_exam, regenerate_question, save_generated_exam
 from .views.student_assign_teacher_exam import (
     assign_students_bulk, assign_student_single, get_all_assignments,
@@ -57,11 +68,13 @@ from .views.blocklist_question import (
 )
 from .views.viva_rubrics import (
     create_viva_rubrics, get_all_viva_rubrics, get_viva_rubrics_by_id,
-    get_viva_rubrics_by_department, update_viva_rubrics, delete_viva_rubrics
+    get_viva_rubrics_by_department, get_viva_rubrics_by_faculty,
+    update_viva_rubrics, delete_viva_rubrics
 )
 from .views.marks_distribution import (
     create_marks_distribution, get_all_marks_distribution, get_marks_distribution_by_id,
-    get_marks_distribution_by_department, update_marks_distribution, delete_marks_distribution
+    get_marks_distribution_by_department, get_marks_distribution_by_faculty,
+    update_marks_distribution, delete_marks_distribution
 )
 from .views.viva_assign import (
     create_viva_assignment, get_all_viva_assignments, delete_viva_assignment,
@@ -211,6 +224,22 @@ urlpatterns = [
     path('api/subject-departments/<int:mapping_id>/remove-subjects/', remove_subjects_from_department, name='remove-subjects-from-department'),
     path('api/subject-departments/<int:mapping_id>/delete/', delete_subject_department, name='delete-subject-department'),
     
+    # Subject-Faculty Mapping API
+    path('api/subject-faculties/', get_all_subject_faculties, name='get-all-subject-faculties'),
+    path('api/subject-faculties/create/', create_subject_faculty, name='create-subject-faculty'),
+    path('api/subject-faculties/<int:mapping_id>/', get_subject_faculty_by_id, name='get-subject-faculty-by-id'),
+    path('api/subject-faculties/faculty/<int:faculty_id>/', get_subjects_by_faculty, name='get-subjects-by-faculty'),
+    path('api/subject-faculties/<int:mapping_id>/update/', update_subject_faculty, name='update-subject-faculty'),
+    path('api/subject-faculties/<int:mapping_id>/add-subjects/', add_subjects_to_faculty, name='add-subjects-to-faculty'),
+    path('api/subject-faculties/<int:mapping_id>/remove-subjects/', remove_subjects_from_faculty, name='remove-subjects-from-faculty'),
+    path('api/subject-faculties/<int:mapping_id>/delete/', delete_subject_faculty, name='delete-subject-faculty'),
+    
+    # Subject Priority Mapping API
+    path('api/subject-priorities/', get_all_subject_priorities, name='get-all-subject-priorities'),
+    path('api/subject-priorities/save/', save_department_subject_priority, name='save-department-subject-priority'),
+    path('api/subject-priorities/department/<int:department_id>/', get_department_subject_priority, name='get-department-subject-priority'),
+    path('api/subject-priorities/department/<int:department_id>/delete/', delete_department_subject_priority, name='delete-department-subject-priority'),
+    
     # Exam Generation API
     path('api/exams/generate/', generate_exam, name='generate-exam'),
     path('api/exams/regenerate-question/', regenerate_question, name='regenerate-exam-question'),
@@ -243,6 +272,7 @@ urlpatterns = [
     path('api/all-rubrics/', get_all_viva_rubrics, name='get-all-viva-rubrics'),
     path('api/rubrics/<int:rubrics_id>/', get_viva_rubrics_by_id, name='get-viva-rubrics-by-id'),
     path('api/rubrics/department/<int:department_id>/', get_viva_rubrics_by_department, name='get-viva-rubrics-by-department'),
+    path('api/rubrics/faculty/<int:faculty_id>/', get_viva_rubrics_by_faculty, name='get-viva-rubrics-by-faculty'),
     path('api/rubrics/<int:rubrics_id>/update/', update_viva_rubrics, name='update-viva-rubrics'),
     path('api/rubrics/<int:rubrics_id>/delete/', delete_viva_rubrics, name='delete-viva-rubrics'),
     
@@ -251,6 +281,7 @@ urlpatterns = [
     path('api/all-marks-distribution/', get_all_marks_distribution, name='get-all-marks-distribution'),
     path('api/marks-distribution/<int:marks_distribution_id>/', get_marks_distribution_by_id, name='get-marks-distribution-by-id'),
     path('api/marks-distribution/department/<int:department_id>/', get_marks_distribution_by_department, name='get-marks-distribution-by-department'),
+    path('api/marks-distribution/faculty/<int:faculty_id>/', get_marks_distribution_by_faculty, name='get-marks-distribution-by-faculty'),
     path('api/marks-distribution/<int:marks_distribution_id>/update/', update_marks_distribution, name='update-marks-distribution'),
     path('api/marks-distribution/<int:marks_distribution_id>/delete/', delete_marks_distribution, name='delete-marks-distribution'),
 

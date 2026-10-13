@@ -7,6 +7,7 @@ from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 import random
 
+from django.db.models import Q
 from ..models import ScrappedQuestion, Exam, ExamQuestion, BlocklistQuestion, Department
 from ..authentication import CustomJWTAuthentication
 from ..serializers.exam_generation import (
@@ -96,14 +97,36 @@ def generate_exam(request):
     
     data = serializer.validated_data
     
-    # Validate department exists
-    try:
-        department = Department.objects.get(id=data['department_id'])
-    except Department.DoesNotExist:
+    exam_type = data.get('exam_type', 'SCHEDULED')
+    department = None
+    faculty_obj = None
+
+    if data.get('faculty_id'):
+        from ..models import Faculty
+        faculty_obj = Faculty.objects.filter(id=data['faculty_id']).first()
+
+    if data.get('department_id'):
+        try:
+            department = Department.objects.get(id=data['department_id'])
+        except Department.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Department not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+    elif exam_type == 'CENTRAL':
+        # For central exam without department_id, pick the first department in the faculty or fallback dummy
+        if faculty_obj:
+            from ..models import FacultyDepartment
+            fd = FacultyDepartment.objects.filter(faculty=faculty_obj).first()
+            if fd and fd.department_ids:
+                department = Department.objects.filter(id__in=fd.department_ids).first()
+        if not department:
+            department = Department.objects.first()
+    else:
         return Response({
             'success': False,
-            'message': 'Department not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+            'message': 'Department ID is required for scheduled exams'
+        }, status=status.HTTP_400_BAD_REQUEST)
     
     exclude_questions = data.get('exclude_questions', [])
     generated_questions = []
@@ -224,13 +247,17 @@ def regenerate_question(request):
 
     data = serializer.validated_data
 
-    try:
-        department = Department.objects.get(id=data['department_id'])
-    except Department.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': 'Department not found',
-        }, status=status.HTTP_404_NOT_FOUND)
+    department = None
+    if data.get('department_id'):
+        try:
+            department = Department.objects.get(id=data['department_id'])
+        except Department.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Department not found',
+            }, status=status.HTTP_404_NOT_FOUND)
+    if not department:
+        department = Department.objects.first()
 
     blocked_question_ids = BlocklistQuestion.objects.filter(
         subject=data['subject'],
@@ -307,9 +334,24 @@ def save_generated_exam(request):
     
     try:
         with transaction.atomic():
+            from ..models import Faculty
+            faculty_ref = None
+            if validated_data.get('faculty_id'):
+                faculty_ref = Faculty.objects.filter(id=validated_data['faculty_id']).first()
+            elif validated_data.get('faculty'):
+                faculty_ref = Faculty.objects.filter(
+                    Q(faculty_shortname__iexact=validated_data['faculty']) |
+                    Q(faculty_name__iexact=validated_data['faculty'])
+                ).first()
+
+            exam_type = validated_data.get('exam_type', 'SCHEDULED')
+            dept_name = validated_data['department']
+            if exam_type == 'CENTRAL' and faculty_ref and not dept_name:
+                dept_name = f"Central ({faculty_ref.faculty_shortname})"
+
             # Create exam with all fields matching the Exam model
             exam = Exam.objects.create(
-                department=validated_data['department'],
+                department=dept_name,
                 semester=validated_data['semester'],
                 total_questions=validated_data['total_questions'],
                 present_question=validated_data['total_questions'],  # Set to same as total_questions
@@ -317,7 +359,9 @@ def save_generated_exam(request):
                 duration_minutes=validated_data['duration_minutes'],
                 except_semesters=validated_data.get('except_semesters', []),
                 language=validated_data.get('language', 'English'),
-                faculty=validated_data.get('faculty', '')
+                faculty=validated_data.get('faculty', faculty_ref.faculty_shortname if faculty_ref else ''),
+                exam_type=exam_type,
+                faculty_ref=faculty_ref
             )
             
             # Create exam questions

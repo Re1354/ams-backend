@@ -12,11 +12,17 @@ class SubjectMarksSerializer(serializers.Serializer):
 
 class ExamGenerationRequestSerializer(serializers.Serializer):
     """Serializer for exam generation request"""
-    department_id = serializers.IntegerField()
+    department_id = serializers.IntegerField(required=False, allow_null=True)
     semester = serializers.CharField(max_length=50)
     duration_minutes = serializers.IntegerField(min_value=1)
     language = serializers.CharField(max_length=50, default='english')
-    faculty = serializers.CharField(max_length=255)
+    faculty = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    faculty_id = serializers.IntegerField(required=False, allow_null=True)
+    exam_type = serializers.ChoiceField(
+        choices=[('SCHEDULED', 'Scheduled'), ('CENTRAL', 'Central')],
+        default='SCHEDULED',
+        required=False
+    )
     subjects = SubjectMarksSerializer(many=True)
     
     # Optional fields for regeneration
@@ -42,7 +48,7 @@ class ExamGenerationRequestSerializer(serializers.Serializer):
 
 class RegenerateQuestionRequestSerializer(serializers.Serializer):
     """Serializer for replacing one generated draft question."""
-    department_id = serializers.IntegerField()
+    department_id = serializers.IntegerField(required=False, allow_null=True)
     subject = serializers.CharField(max_length=255)
     marks = serializers.IntegerField(min_value=1)
     language = serializers.CharField(max_length=50, default='english')
@@ -104,6 +110,12 @@ class ExamSaveRequestSerializer(serializers.Serializer):
     )
     language = serializers.CharField(max_length=50, default='English')
     faculty = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    faculty_id = serializers.IntegerField(required=False, allow_null=True)
+    exam_type = serializers.ChoiceField(
+        choices=[('SCHEDULED', 'Scheduled'), ('CENTRAL', 'Central')],
+        default='SCHEDULED',
+        required=False
+    )
     
     # Questions to be saved
     questions = ExamQuestionSaveSerializer(many=True, help_text="Array of question objects")

@@ -40,7 +40,20 @@ from ..serializers.faculty import FacultySerializer, FacultyCreateSerializer
 @permission_classes([IsAuthenticated])
 def get_all_faculties(request):
     """Get all faculties"""
-    faculties = Faculty.objects.all().order_by('faculty_name')
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+    
+    if scope['is_global']:
+        faculties = Faculty.objects.all().order_by('faculty_name')
+    else:
+        if custom_user and custom_user.faculty_id:
+            faculties = Faculty.objects.filter(id=custom_user.faculty_id).order_by('faculty_name')
+        else:
+            faculties = Faculty.objects.none()
+            
     serializer = FacultySerializer(faculties, many=True)
     return Response({
         'success': True,

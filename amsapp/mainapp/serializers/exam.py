@@ -133,6 +133,10 @@ class ExamScheduleSerializer(serializers.ModelSerializer):
                 'duration_minutes': obj.exam.duration_minutes,
                 'language': obj.exam.language,
                 'faculty': obj.exam.faculty,
+                'exam_type': getattr(obj.exam, 'exam_type', 'SCHEDULED'),
+                'faculty_id': obj.exam.faculty_ref_id if getattr(obj.exam, 'faculty_ref_id', None) else None,
+                'faculty_code': obj.exam.faculty_ref.faculty_code if getattr(obj.exam, 'faculty_ref', None) else None,
+                'faculty_name': obj.exam.faculty_ref.faculty_name if getattr(obj.exam, 'faculty_ref', None) else None,
                 'department_shortnames': department_shortnames,  # Added department shortnames from questions
                 'created_at': obj.exam.created_at,
                 'updated_at': obj.exam.updated_at

@@ -101,6 +101,12 @@ class Command(BaseCommand):
                     'component': 'SubjectDepartmentMapping'
                 },
                 {
+                    'label': 'Subject Priority Mapping',
+                    'icon': 'ArrowDownUp',
+                    'link': '/subject-priority-mapping',
+                    'component': 'SubjectPriorityMapping'
+                },
+                {
                     'label':'Student Assign',
                     'icon':'UserPlus',
                     'link':'/student-assign-teacher-exam',

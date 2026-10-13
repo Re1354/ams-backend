@@ -14,6 +14,7 @@ class StudentAssignTeacherExamSerializer(serializers.ModelSerializer):
     teacher_username = serializers.CharField(source='teacher.username', read_only=True)
     exam_department = serializers.CharField(source='exam.department', read_only=True)
     exam_semester = serializers.CharField(source='exam.semester', read_only=True)
+    exam_type = serializers.CharField(source='exam.exam_type', read_only=True)
     schedule_start_time = serializers.DateTimeField(source='schedule.start_time', read_only=True)
     schedule_end_time = serializers.DateTimeField(source='schedule.end_time', read_only=True)
     schedule_is_active = serializers.BooleanField(source='schedule.is_active', read_only=True)
@@ -24,13 +25,14 @@ class StudentAssignTeacherExamSerializer(serializers.ModelSerializer):
             'id', 'student', 'teacher', 'exam', 'schedule', 'created_at',
             'student_username', 'student_full_name', 'student_f_id', 'student_registration_semester',
             'student_department_shortname', 'student_email',
-            'teacher_username', 'exam_department', 'exam_semester',
+            'teacher_username', 'exam_department', 'exam_semester', 'exam_type',
             'schedule_start_time', 'schedule_end_time', 'schedule_is_active'
         ]
         read_only_fields = ['id', 'created_at', 'student_username', 'student_full_name', 
                            'student_f_id', 'student_registration_semester', 'teacher_username',
                            'student_department_shortname', 'student_email',
-                           'exam_department', 'exam_semester', 'schedule_start_time', 'schedule_end_time', 'schedule_is_active']
+                           'exam_department', 'exam_semester', 'exam_type',
+                           'schedule_start_time', 'schedule_end_time', 'schedule_is_active']
 
 
 class StudentAssignBulkSerializer(serializers.Serializer):

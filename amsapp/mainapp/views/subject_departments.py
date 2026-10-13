@@ -28,7 +28,19 @@ from ..serializers.subject import SubjectDepartmentSerializer, SubjectDepartment
 @permission_classes([IsAuthenticated])
 def get_all_subject_departments(request):
     """Get all department-subject mappings"""
-    mappings = SubjectDepartment.objects.select_related('department').all().order_by('department__department_name')
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+
+    if scope['is_global']:
+        mappings = SubjectDepartment.objects.select_related('department').all().order_by('department__department_name')
+    else:
+        if scope['department_ids']:
+            mappings = SubjectDepartment.objects.select_related('department').filter(department_id__in=scope['department_ids']).order_by('department__department_name')
+        else:
+            mappings = SubjectDepartment.objects.none()
+
     serializer = SubjectDepartmentSerializer(mappings, many=True)
     return Response({
         'success': True,
@@ -117,6 +129,17 @@ def create_subject_department(request):
 def get_subject_department_by_id(request, mapping_id):
     """Get department-subject mapping by ID"""
     mapping = get_object_or_404(SubjectDepartment, id=mapping_id)
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+    
+    if not scope['is_global']:
+        if not scope['department_ids'] or mapping.department_id not in scope['department_ids']:
+            return Response(
+                {"success": False, "message": "You do not have access to this department."},
+                status=403
+            )
     serializer = SubjectDepartmentSerializer(mapping)
     return Response({
         'success': True,
@@ -141,13 +164,53 @@ def get_subject_department_by_id(request, mapping_id):
 @permission_classes([IsAuthenticated])
 def get_subjects_by_department(request, department_id):
     """Get subjects by department ID"""
-    mapping = get_object_or_404(SubjectDepartment, department_id=department_id)
-    serializer = SubjectDepartmentSerializer(mapping)
+    user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+    
+    if not scope['is_global']:
+        if not scope['department_ids'] or department_id not in scope['department_ids']:
+            return Response(
+                {"success": False, "message": "You do not have access to this department."},
+                status=403
+            )
+
+    mapping = SubjectDepartment.objects.filter(department_id=department_id).first()
+    if mapping:
+        serializer = SubjectDepartmentSerializer(mapping)
+        return Response({
+            'success': True,
+            'data': serializer.data,
+            'message': 'Subjects for department retrieved successfully'
+        })
+
+    # Inherit from parent faculty mapping
+    from ..services.access_control import get_faculty_for_department
+    from ..models.subject_faculty import SubjectFaculty
+    dept = get_object_or_404(Department, id=department_id)
+    faculty = get_faculty_for_department(department_id)
+    if faculty:
+        faculty_mapping = SubjectFaculty.objects.filter(faculty=faculty).first()
+        if faculty_mapping:
+            subjects = Subject.objects.filter(id__in=faculty_mapping.subject_ids)
+            from ..serializers.subject import SubjectSerializer
+            return Response({
+                'success': True,
+                'data': {
+                    'id': None,
+                    'department_id': dept.id,
+                    'department_name': dept.department_name,
+                    'subject_ids': faculty_mapping.subject_ids,
+                    'subjects': SubjectSerializer(subjects, many=True).data
+                },
+                'message': f'Subjects for department inherited from faculty "{faculty.faculty_name}" retrieved successfully'
+            })
+
     return Response({
-        'success': True,
-        'data': serializer.data,
-        'message': f'Subjects for department retrieved successfully'
-    })
+        'success': False,
+        'message': 'No subject mapping found for this department'
+    }, status=status.HTTP_404_NOT_FOUND)
 
 
 @extend_schema(

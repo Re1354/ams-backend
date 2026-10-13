@@ -27,9 +27,9 @@ def create_admin_data(apps, schema_editor):
     )
     
     if created:
-        print(f"✓ Created superadmin role and admin user")
+        print("[OK] Created superadmin role and admin user")
     else:
-        print(f"✓ Admin user already exists")
+        print("[OK] Admin user already exists")
 
 
 def reverse_admin_data(apps, schema_editor):

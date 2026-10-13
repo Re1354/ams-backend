@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from drf_spectacular.openapi import OpenApiParameter
+from django.db.models import Q
 from ..serializers import UserSerializer, UserDetailSerializer
 from ..models import User
 from ..authentication import CustomJWTAuthentication
@@ -13,7 +14,15 @@ from ..authentication import CustomJWTAuthentication
     operation_id='get_all_users',
     tags=['Users'],
     summary='Get All Users',
-    description='Retrieve users with role-based filtering: superadmin sees all users, other users only see users from their department',
+    description='Retrieve users with role-based filtering, search, and multi-criteria filters',
+    parameters=[
+        OpenApiParameter(name='search', description='Search username, email, or user ID', required=False, type=str),
+        OpenApiParameter(name='role', description='Filter by Role ID or Role name', required=False, type=str),
+        OpenApiParameter(name='faculty', description='Filter by Faculty ID', required=False, type=str),
+        OpenApiParameter(name='department', description='Filter by Department ID', required=False, type=str),
+        OpenApiParameter(name='access_type', description='Filter by access type (GLOBAL, FACULTY, DEPARTMENT)', required=False, type=str),
+        OpenApiParameter(name='is_global_access', description='Filter by global access flag (true/false)', required=False, type=bool),
+    ],
     responses={
         200: {
             'description': 'Users retrieved successfully',
@@ -35,20 +44,6 @@ from ..authentication import CustomJWTAuthentication
                                 'department_details': {
                                     'id': 1,
                                     'department_name': 'IT Department'
-                                }
-                            },
-                            {
-                                'id': 2,
-                                'username': 'teacher1',
-                                'email': 'teacher1@example.com',
-                                'created_at': '2024-01-02T10:00:00Z',
-                                'role_details': {
-                                    'id': 2,
-                                    'role_name': 'Teacher'
-                                },
-                                'department_details': {
-                                    'id': 2,
-                                    'department_name': 'Computer Science'
                                 }
                             }
                         ]
@@ -73,40 +68,82 @@ from ..authentication import CustomJWTAuthentication
 @authentication_classes([CustomJWTAuthentication])
 def get_all_users(request):
     """
-    Retrieve users with role-based filtering:
-    - superadmin: All users
-    - Other users: Only users from their department
+    Retrieve users with role-based filtering, search, and multi-field filters:
+    - Global: All users
+    - Faculty: Users belonging to user's faculty or departments under that faculty
+    - Department: Users belonging to user's department
     """
     user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
     
-    # Get the custom user and role information
-    if hasattr(user, 'custom_user'):
-        custom_user = user.custom_user
-        
-        # Check if user has a role
-        if custom_user.role:
-            role_name = custom_user.role.role_name.lower()
-            
-            # Check if superadmin - return all users
-            if role_name == 'superadmin':
-                users = User.objects.all().select_related('role', 'department').order_by('id')
-            else:
-                # For non-superadmin users, filter by department
-                if custom_user.department:
-                    user_dept_shortname = custom_user.department.department_shortname
-                    users = User.objects.filter(
-                        department__department_shortname=user_dept_shortname
-                    ).select_related('role', 'department').order_by('id')
-                else:
-                    # If user has no department assigned, return empty queryset
-                    users = User.objects.none()
-        else:
-            # If user has no role, return empty queryset
-            users = User.objects.none()
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+    
+    if scope['is_global']:
+        users = User.objects.all()
+    elif scope['access_type'] == 'FACULTY':
+        faculty_id = getattr(custom_user, 'faculty_id', None)
+        dept_ids = scope.get('department_ids') or []
+        users = User.objects.filter(
+            Q(faculty_id=faculty_id) | Q(department_id__in=dept_ids)
+        )
     else:
-        # If no custom_user, return empty queryset for security
-        users = User.objects.none()
-    
+        if scope['department_ids']:
+            users = User.objects.filter(
+                department_id__in=scope['department_ids']
+            )
+        else:
+            users = User.objects.none()
+
+    # Search filtering (ID, username, email)
+    search_query = request.query_params.get('search', '').strip()
+    if search_query:
+        if search_query.isdigit():
+            users = users.filter(
+                Q(id=int(search_query)) |
+                Q(username__icontains=search_query) |
+                Q(email__icontains=search_query)
+            )
+        else:
+            users = users.filter(
+                Q(username__icontains=search_query) |
+                Q(email__icontains=search_query)
+            )
+
+    # Filter: role / role_id
+    role = request.query_params.get('role', '').strip()
+    if role and role.upper() != 'ALL':
+        if role.isdigit():
+            users = users.filter(role_id=int(role))
+        else:
+            users = users.filter(role__role_name__iexact=role)
+
+    # Filter: faculty / faculty_id
+    faculty = request.query_params.get('faculty', '').strip()
+    if faculty and faculty.upper() != 'ALL':
+        if faculty.isdigit():
+            users = users.filter(faculty_id=int(faculty))
+
+    # Filter: department / department_id
+    department = request.query_params.get('department', '').strip()
+    if department and department.upper() != 'ALL':
+        if department.isdigit():
+            users = users.filter(department_id=int(department))
+
+    # Filter: access_type
+    access_type = request.query_params.get('access_type', '').strip()
+    if access_type and access_type.upper() != 'ALL':
+        users = users.filter(access_type__iexact=access_type)
+
+    # Filter: is_global_access
+    is_global_access = request.query_params.get('is_global_access', '').strip()
+    if is_global_access and is_global_access.upper() != 'ALL':
+        if is_global_access.lower() in ['true', '1']:
+            users = users.filter(is_global_access=True)
+        elif is_global_access.lower() in ['false', '0']:
+            users = users.filter(is_global_access=False)
+
+    users = users.select_related('role', 'department', 'faculty').order_by('id')
     serializer = UserDetailSerializer(users, many=True)
     
     return Response({
@@ -596,42 +633,36 @@ def delete_user(request, user_id):
 def get_all_teachers(request):
     """
     Retrieve teachers with role-based filtering:
-    - superadmin: All teachers
-    - Other users: Only teachers from their department
+    - Global / Superadmin: All teachers
+    - Faculty: Teachers in user's faculty departments
+    - Department: Teachers in user's department
     """
     user = request.user
+    custom_user = user.custom_user if hasattr(user, 'custom_user') else None
     
-    # Get the custom user and role information
-    if hasattr(user, 'custom_user'):
-        custom_user = user.custom_user
-        
-        # Check if user has a role
-        if custom_user.role:
-            role_name = custom_user.role.role_name.lower()
-            
-            # Check if superadmin - return all teachers
-            if role_name == 'superadmin':
-                teachers = User.objects.filter(
-                    role__role_name__icontains='teacher'
-                ).select_related('role', 'department').order_by('id')
-            else:
-                # For non-superadmin users, filter by department
-                if custom_user.department:
-                    user_dept_shortname = custom_user.department.department_shortname
-                    teachers = User.objects.filter(
-                        role__role_name__icontains='teacher',
-                        department__department_shortname=user_dept_shortname
-                    ).select_related('role', 'department').order_by('id')
-                else:
-                    # If user has no department assigned, return empty queryset
-                    teachers = User.objects.none()
-        else:
-            # If user has no role, return empty queryset
-            teachers = User.objects.none()
+    from ..services.access_control import get_user_access_scope
+    scope = get_user_access_scope(custom_user)
+    
+    if scope['is_global']:
+        teachers = User.objects.filter(role__role_name__icontains='teacher')
+    elif scope['access_type'] == 'FACULTY':
+        dept_ids = scope.get('department_ids') or []
+        faculty_id = getattr(custom_user, 'faculty_id', None)
+        teachers = User.objects.filter(
+            role__role_name__icontains='teacher'
+        ).filter(
+            Q(faculty_id=faculty_id) | Q(department_id__in=dept_ids)
+        )
     else:
-        # If no custom_user, return empty queryset for security
-        teachers = User.objects.none()
-    
+        if scope['department_ids']:
+            teachers = User.objects.filter(
+                role__role_name__icontains='teacher',
+                department_id__in=scope['department_ids']
+            )
+        else:
+            teachers = User.objects.none()
+            
+    teachers = teachers.select_related('role', 'department', 'faculty').order_by('id')
     serializer = UserDetailSerializer(teachers, many=True)
     
     return Response({

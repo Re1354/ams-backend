@@ -8,5 +8,9 @@ class Faculty(models.Model):
     class Meta:
         db_table = "faculties"
 
+    @property
+    def faculty_code(self):
+        return self.faculty_shortname
+
     def __str__(self):
         return self.faculty_name

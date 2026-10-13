@@ -55,6 +55,22 @@ class CreateExamAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        from ..services.access_control import get_user_access_scope
+        from ..models import Department
+        
+        user = getattr(request.user, 'custom_user', None)
+        scope = get_user_access_scope(user)
+        
+        if not scope['is_global']:
+            dept = Department.objects.filter(
+                Q(department_name__iexact=data['department']) | Q(department_shortname__iexact=data['department'])
+            ).first()
+            if not dept or dept.id not in scope['department_ids']:
+                return Response(
+                    {"error": "You do not have access to create an exam for this department."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         with transaction.atomic():
             exam = Exam.objects.create(
                 department=data['department'],
@@ -141,47 +157,62 @@ class AllExamsView(generics.ListAPIView):
 
     def get_queryset(self):
         """
-        Filter exams based on user role and department:
-        - superadmin: All exams
-        - Other users: Only exams that have questions matching their department_shortname
+        Filter exams based on user access scope:
+        - Global: All exams
+        - Others: Only exams that have questions matching their permitted departments
         """
         user = self.request.user
+        custom_user = user.custom_user if hasattr(user, 'custom_user') else None
         
-        # Get the custom user and role information
-        queryset = Exam.objects.none()
-        scoped_queryset_set = False
-
-        if hasattr(user, 'custom_user'):
-            custom_user = user.custom_user
-            
-            # Check if user has a role
-            if custom_user.role:
-                role_name = custom_user.role.role_name.lower()
+        from ..services.access_control import get_user_access_scope
+        from ..models import Department, ExamQuestion
+        
+        scope = get_user_access_scope(custom_user)
+        
+        if scope['is_global']:
+            queryset = Exam.objects.all()
+        else:
+            if not scope['department_ids'] and not getattr(custom_user, 'faculty_id', None):
+                queryset = Exam.objects.none()
+            else:
+                from ..services.access_control import get_faculty_for_department
+                dept_ids = scope['department_ids'] or []
+                valid_depts = Department.objects.filter(id__in=dept_ids)
+                dept_shortnames = [d.department_shortname for d in valid_depts]
                 
-                # Check if superadmin - return all exams
-                if role_name == 'superadmin':
-                    queryset = Exam.objects.all()
-                    scoped_queryset_set = True
-            
-            # For non-superadmin users, filter by department_shortname
-            if not scoped_queryset_set and custom_user.department:
-                user_dept_shortname = custom_user.department.department_shortname
-                
-                # Get exams that have questions matching user's department shortname
+                # Get exams that have questions matching permitted department shortnames
                 exam_ids_with_matching_questions = ExamQuestion.objects.filter(
-                    department_shortname=user_dept_shortname
+                    department_shortname__in=dept_shortnames
                 ).values_list('exam_id', flat=True).distinct()
                 
-                queryset = Exam.objects.filter(
-                    id__in=exam_ids_with_matching_questions
-                )
-                scoped_queryset_set = True
+                # Also include exams whose primary department string matches (fallback)
+                q_objs = Q(id__in=exam_ids_with_matching_questions)
+                for dept in valid_depts:
+                    q_objs |= Q(department__iexact=dept.department_name) | Q(department__iexact=dept.department_shortname)
+                
+                # Include central exams for user's faculty or parent faculty of user's departments
+                allowed_faculty_ids = set()
+                if getattr(custom_user, 'faculty_id', None):
+                    allowed_faculty_ids.add(custom_user.faculty_id)
+                for dept in valid_depts:
+                    parent_fac = get_faculty_for_department(dept.id)
+                    if parent_fac:
+                        allowed_faculty_ids.add(parent_fac.id)
+                
+                if allowed_faculty_ids:
+                    q_objs |= Q(exam_type__iexact='CENTRAL', faculty_ref_id__in=allowed_faculty_ids)
+
+                queryset = Exam.objects.filter(q_objs).distinct()
+
 
         params = self.request.query_params
         search = params.get('search')
         department = params.get('department')
         semester = params.get('semester')
         date_filter = params.get('date_filter')
+        exam_type = params.get('exam_type')
+        faculty = params.get('faculty')
+        marks = params.get('marks')
 
         if search:
             normalized_search_semester = normalize_semester_filter(search)
@@ -192,10 +223,22 @@ class AllExamsView(generics.ListAPIView):
             if str(search).isdigit():
                 search_query |= Q(id=int(search))
             queryset = queryset.filter(search_query)
-        if department:
+        if department and department != 'all':
             queryset = queryset.filter(department__icontains=department)
-        if semester:
+        if semester and semester != 'all':
             queryset = queryset.filter(semester__icontains=normalize_semester_filter(semester))
+        if exam_type and exam_type != 'all':
+            queryset = queryset.filter(exam_type__iexact=exam_type)
+        if faculty and faculty != 'all':
+            if str(faculty).isdigit():
+                queryset = queryset.filter(
+                    Q(faculty_ref_id=int(faculty)) |
+                    Q(faculty__icontains=faculty)
+                )
+            else:
+                queryset = queryset.filter(faculty__icontains=faculty)
+        if marks and marks != 'all' and str(marks).isdigit():
+            queryset = queryset.filter(total_marks=int(marks))
         if date_filter == 'today':
             queryset = queryset.filter(created_at__date=timezone.localdate())
 

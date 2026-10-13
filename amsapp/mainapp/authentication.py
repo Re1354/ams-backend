@@ -17,10 +17,19 @@ class CustomUser:
         self.email = custom_user.email
         self.role = custom_user.role  # Add role attribute
         self.created_at = custom_user.created_at
+        self.access_type = getattr(custom_user, 'access_type', 'DEPARTMENT')
+        self.is_global_access = getattr(custom_user, 'is_global_access', False)
+        self.faculty = getattr(custom_user, 'faculty', None)
+        self.faculty_id = getattr(custom_user, 'faculty_id', None)
+        self.department = getattr(custom_user, 'department', None)
+        self.department_id = getattr(custom_user, 'department_id', None)
         self.is_active = True
         self.is_authenticated = True
         self.is_anonymous = False
     
+    def __getattr__(self, item):
+        return getattr(self.custom_user, item)
+
     def __str__(self):
         return self.username
 

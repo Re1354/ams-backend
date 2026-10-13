@@ -42,43 +42,53 @@ class AllSchedulesView(generics.ListCreateAPIView):
         - Other users: Only schedules for exams that have questions matching their department_shortname
         """
         user = self.request.user
-        
-        # Get the custom user and role information
-        queryset = ExamSchedule.objects.none()
-        scoped_queryset_set = False
+        custom_user = getattr(user, 'custom_user', None)
 
-        if hasattr(user, 'custom_user'):
-            custom_user = user.custom_user
-            
-            # Check if user has a role
-            if custom_user.role:
-                role_name = custom_user.role.role_name.lower()
-                
-                # Check if superadmin - return all schedules
-                if role_name == 'superadmin':
-                    queryset = ExamSchedule.objects.all()
-                    scoped_queryset_set = True
-            
-            # For non-superadmin users, filter by department_shortname
-            if not scoped_queryset_set and custom_user.department:
-                from ..models import ExamQuestion
-                user_dept_shortname = custom_user.department.department_shortname
-                
-                # Get exam IDs that have questions matching user's department shortname
+        from ..services.access_control import get_user_access_scope, get_faculty_for_department
+        from ..models import Department, ExamQuestion
+
+        scope = get_user_access_scope(custom_user)
+
+        if scope['is_global']:
+            queryset = ExamSchedule.objects.all()
+        else:
+            if not scope['department_ids'] and not getattr(custom_user, 'faculty_id', None):
+                queryset = ExamSchedule.objects.none()
+            else:
+                dept_ids = scope['department_ids'] or []
+                valid_depts = Department.objects.filter(id__in=dept_ids)
+                dept_shortnames = [d.department_shortname for d in valid_depts]
+
                 exam_ids_with_matching_questions = ExamQuestion.objects.filter(
-                    department_shortname=user_dept_shortname
+                    department_shortname__in=dept_shortnames
                 ).values_list('exam_id', flat=True).distinct()
-                
-                queryset = ExamSchedule.objects.filter(
-                    exam_id__in=exam_ids_with_matching_questions
+
+                allowed_faculty_ids = set()
+                if getattr(custom_user, 'faculty_id', None):
+                    allowed_faculty_ids.add(custom_user.faculty_id)
+                for dept in valid_depts:
+                    parent_fac = get_faculty_for_department(dept.id)
+                    if parent_fac:
+                        allowed_faculty_ids.add(parent_fac.id)
+
+                q_schedules = (
+                    Q(exam_id__in=exam_ids_with_matching_questions) |
+                    Q(exam__department__in=[d.department_name for d in valid_depts]) |
+                    Q(exam__department__in=dept_shortnames)
                 )
-                scoped_queryset_set = True
+                if allowed_faculty_ids:
+                    q_schedules |= Q(exam__exam_type__iexact='CENTRAL', exam__faculty_ref_id__in=allowed_faculty_ids)
+
+                queryset = ExamSchedule.objects.filter(q_schedules).distinct()
 
         params = self.request.query_params
         search = params.get('search')
         department = params.get('department')
         semester = params.get('semester')
         date_filter = params.get('date_filter')
+        exam_type = params.get('exam_type')
+        faculty = params.get('faculty')
+        marks = params.get('marks')
 
         if search:
             normalized_search_semester = normalize_semester_filter(search)
@@ -89,14 +99,26 @@ class AllSchedulesView(generics.ListCreateAPIView):
             if str(search).isdigit():
                 search_query |= Q(id=int(search)) | Q(exam_id=int(search))
             queryset = queryset.filter(search_query)
-        if department:
+        if department and department != 'all':
             queryset = queryset.filter(exam__department__icontains=department)
-        if semester:
+        if semester and semester != 'all':
             queryset = queryset.filter(exam__semester__icontains=normalize_semester_filter(semester))
+        if exam_type and exam_type != 'all':
+            queryset = queryset.filter(exam__exam_type__iexact=exam_type)
+        if faculty and faculty != 'all':
+            if str(faculty).isdigit():
+                queryset = queryset.filter(
+                    Q(exam__faculty_ref_id=int(faculty)) |
+                    Q(exam__faculty__icontains=faculty)
+                )
+            else:
+                queryset = queryset.filter(exam__faculty__icontains=faculty)
+        if marks and marks != 'all' and str(marks).isdigit():
+            queryset = queryset.filter(exam__total_marks=int(marks))
         if date_filter == 'today':
             queryset = queryset.filter(start_time__date=timezone.localdate())
 
-        return queryset.select_related('exam').prefetch_related('exam__exam_questions').order_by('-id')
+        return queryset.select_related('exam', 'exam__faculty_ref').prefetch_related('exam__exam_questions').order_by('-id')
 
 
 @extend_schema(

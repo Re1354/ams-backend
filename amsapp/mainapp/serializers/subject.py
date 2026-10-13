@@ -2,6 +2,8 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from ..models.subjects import Subject
 from ..models.subjects_demartments import SubjectDepartment
+from ..models.subject_faculty import SubjectFaculty
+from ..models.faculty import Faculty
 
 
 class SubjectSerializer(serializers.ModelSerializer):
@@ -61,6 +63,56 @@ class SubjectDepartmentCreateSerializer(serializers.ModelSerializer):
             # For creation
             if SubjectDepartment.objects.filter(department=value).exists():
                 raise serializers.ValidationError("Department already has a subject mapping")
+        return value
+        
+    def validate_subject_ids(self, value):
+        """Validate that all subject IDs exist"""
+        if value:
+            existing_subjects = Subject.objects.filter(id__in=value)
+            existing_ids = list(existing_subjects.values_list('id', flat=True))
+            
+            for subject_id in value:
+                if subject_id not in existing_ids:
+                    raise serializers.ValidationError(f"Subject with ID {subject_id} does not exist")
+        return value
+
+
+class SubjectFacultySerializer(serializers.ModelSerializer):
+    """Serializer for SubjectFaculty model"""
+    
+    subjects = serializers.SerializerMethodField(read_only=True)
+    faculty_name = serializers.CharField(source='faculty.faculty_name', read_only=True)
+    faculty_code = serializers.CharField(source='faculty.faculty_code', read_only=True)
+    faculty_id = serializers.IntegerField(source='faculty.id', read_only=True)
+    
+    class Meta:
+        model = SubjectFaculty
+        fields = ['id', 'faculty_id', 'faculty_name', 'faculty_code', 'subject_ids', 'subjects']
+        
+    @extend_schema_field(SubjectSerializer(many=True))
+    def get_subjects(self, obj):
+        """Get subject details from subject_ids"""
+        if obj.subject_ids:
+            subjects = Subject.objects.filter(id__in=obj.subject_ids)
+            return SubjectSerializer(subjects, many=True).data
+        return []
+
+
+class SubjectFacultyCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating SubjectFaculty model"""
+    
+    class Meta:
+        model = SubjectFaculty
+        fields = ['faculty', 'subject_ids']
+        
+    def validate_faculty(self, value):
+        """Validate faculty exists and is unique"""
+        if self.instance:
+            if SubjectFaculty.objects.filter(faculty=value).exclude(id=self.instance.id).exists():
+                raise serializers.ValidationError("Faculty already has a subject mapping")
+        else:
+            if SubjectFaculty.objects.filter(faculty=value).exists():
+                raise serializers.ValidationError("Faculty already has a subject mapping")
         return value
         
     def validate_subject_ids(self, value):

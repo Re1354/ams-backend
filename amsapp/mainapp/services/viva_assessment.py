@@ -18,8 +18,16 @@ def build_rubric_snapshot_for_department(department: Department | None) -> list[
     if not department:
         return []
 
+    from .access_control import get_faculty_for_department
+    faculty = get_faculty_for_department(department.id)
+    rubrics_qs = VivaRubrics.objects.none()
+    if faculty:
+        rubrics_qs = VivaRubrics.objects.filter(faculty=faculty).order_by("id")
+    if not rubrics_qs.exists():
+        rubrics_qs = VivaRubrics.objects.filter(department=department).order_by("id")
+
     snapshot: list[dict[str, Any]] = []
-    for rubric in VivaRubrics.objects.filter(department=department).order_by("id"):
+    for rubric in rubrics_qs:
         snapshot.append(
             {
                 "source_rubric_id": rubric.id,
