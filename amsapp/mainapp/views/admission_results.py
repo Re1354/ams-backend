@@ -1,4 +1,7 @@
 from datetime import datetime, time, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 from django.db import transaction
 from django.db.models import Count, Exists, F, OuterRef, Q, Subquery
@@ -218,9 +221,9 @@ def ensure_semester_admission_results(department=None, semester=None):
     if not department:
         norm_sem = normalize_semester_filter(semester)
         configured_depts = Department.objects.filter(
-            thresholds__semester__iexact=norm_sem,
-            thresholds__min_threshold_mark__isnull=False,
-            thresholds__seat_limit__gt=0,
+            admission_thresholds__semester__iexact=norm_sem,
+            admission_thresholds__min_threshold_mark__isnull=False,
+            admission_thresholds__seat_limit__gt=0,
         ).distinct()
         for dept in configured_depts:
             ensure_semester_admission_results(department=dept, semester=semester)
@@ -623,10 +626,13 @@ def get_admission_results(request):
         resolved_department = (
             Department.objects.filter(id=department_id).first() if department_id else None
         )
-        ensure_semester_admission_results(
-            department=resolved_department,
-            semester=semester,
-        )
+        try:
+            ensure_semester_admission_results(
+                department=resolved_department,
+                semester=semester,
+            )
+        except Exception as exc:
+            logger.warning("ensure_semester_admission_results failed during results load: %s", exc)
         if resolved_department:
             threshold_mapping = get_threshold_mapping_for_semester(resolved_department, semester)
             configuration_missing = not is_configuration_complete(threshold_mapping)

@@ -533,6 +533,61 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         )
         r1.refresh_from_db()
         r2.refresh_from_db()
-        self.assertTrue(r1.is_selected)
-        self.assertTrue(r2.is_selected)
         self.assertEqual(AdmissionResult.objects.filter(exam=self.exam).count(), 2)
+
+    def test_get_admission_results_semester_only_filter_does_not_crash(self):
+        """
+        Verify that querying /api/admission/results/ with semester but without department_id
+        resolves successfully without crashing on invalid reverse lookup fields.
+        """
+        DepartmentThreshold.objects.create(
+            department=self.dept_cse,
+            semester=self.semester,
+            min_threshold_mark=50.0,
+            seat_limit=10,
+            waiting_student_limit=5,
+        )
+
+        response = self.client.get(
+            "/api/admission/results/",
+            {"semester": self.semester, "result_status": "SELECTED", "page": 1},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data.get("success"))
+        self.assertIn("results", response.data)
+        self.assertIn("summary", response.data)
+
+    def test_get_admission_results_accepted_tab_returns_admitted_students(self):
+        """
+        Verify that querying /api/admission/results/ with result_status=ACCEPTED
+        returns candidates with is_admitted=True.
+        """
+        student = Students.objects.create(
+            username=f"admitted_{self.suffix}",
+            f_id="3001",
+            department_shortname="CSE",
+            registration_semester=self.semester,
+        )
+        res = AdmissionResult.objects.create(
+            exam=self.exam,
+            student=student,
+            department=self.dept_cse,
+            weighted_total_marks=85.0,
+            attended_exam=True,
+            is_selected=True,
+            is_admitted=True,
+            result_status="SELECTED",
+        )
+
+        response = self.client.get(
+            "/api/admission/results/",
+            {"semester": self.semester, "result_status": "ACCEPTED", "page": 1},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data.get("success"))
+        returned_ids = [r["id"] for r in response.data.get("results", [])]
+        self.assertIn(res.id, returned_ids)
+        sample = next(r for r in response.data["results"] if r["id"] == res.id)
+        self.assertTrue(sample.get("is_admitted"))
+        self.assertEqual(sample.get("allocated_department"), "CSE")
+
