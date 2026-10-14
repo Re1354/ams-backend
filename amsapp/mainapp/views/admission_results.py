@@ -849,13 +849,22 @@ def get_admission_results(request):
                 )
             return dept_priorities_cache[dept_id]
 
-        results_list.sort(
-            key=lambda item: build_candidate_tiebreak_key(
-                item, get_cached_priority_subjects(item)
-            ),
-            reverse=(order == "asc"),
-        )
-        results = results_list
+        try:
+            results_list.sort(
+                key=lambda item: build_candidate_tiebreak_key(
+                    item, get_cached_priority_subjects(item)
+                ),
+                reverse=(order == "asc"),
+            )
+            results = results_list
+        except Exception as sort_exc:
+            logger.warning("Error in candidate tie-break sorting: %s", sort_exc)
+            results = results.order_by(
+                f"{order_prefix}weighted_total_marks",
+                "-written_viva_total" if order != "asc" else "written_viva_total",
+                "-mcq_marks" if order != "asc" else "mcq_marks",
+                "-created_at",
+            )
     else:
         results = results.order_by(sort_mapping.get(sort_by, "-weighted_total_marks"), "-created_at")
 

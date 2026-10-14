@@ -6,12 +6,15 @@ department + semester, while still calculating candidate performance from a
 specific exam. This service keeps that logic in one place.
 """
 
+import logging
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 from ..models import (
     AdmissionConfiguration,
@@ -215,32 +218,42 @@ def get_priority_subject_names_for_department(department):
     if not dept_id:
         return []
 
-    priorities = (
-        SubjectPriority.objects.filter(department_id=dept_id)
-        .select_related("subject")
-        .order_by("priority")
-    )
-    direct_names = [p.subject.subject_name for p in priorities if p.subject]
-    if direct_names:
-        return direct_names
-
-    # Sibling fallback under the same faculty
-    from .access_control import get_faculty_for_department
-    faculty = get_faculty_for_department(dept_id)
-    if faculty:
-        sibling_priorities = (
-            SubjectPriority.objects.filter(department__faculty=faculty)
+    try:
+        priorities = (
+            SubjectPriority.objects.filter(department_id=dept_id)
             .select_related("subject")
             .order_by("priority")
         )
-        seen = set()
-        sibling_names = []
-        for p in sibling_priorities:
-            if p.subject and p.subject.subject_name not in seen:
-                seen.add(p.subject.subject_name)
-                sibling_names.append(p.subject.subject_name)
-        if sibling_names:
-            return sibling_names
+        direct_names = [p.subject.subject_name for p in priorities if p.subject]
+        if direct_names:
+            return direct_names
+
+        # Sibling fallback under the same faculty
+        from .access_control import get_faculty_for_department, get_departments_for_faculty
+        faculty = get_faculty_for_department(dept_id)
+        if faculty:
+            sibling_dept_ids = [d for d in get_departments_for_faculty(faculty.id) if d != dept_id]
+            if sibling_dept_ids:
+                sibling_priorities = (
+                    SubjectPriority.objects.filter(department_id__in=sibling_dept_ids)
+                    .select_related("subject")
+                    .order_by("priority")
+                )
+                seen = set()
+                sibling_names = []
+                for p in sibling_priorities:
+                    if p.subject and p.subject.subject_name not in seen:
+                        seen.add(p.subject.subject_name)
+                        sibling_names.append(p.subject.subject_name)
+                if sibling_names:
+                    return sibling_names
+    except Exception as exc:
+        logger.warning(
+            "Failed resolving subject priorities for department %s: %s",
+            department,
+            exc,
+        )
+        return []
 
     return []
 
@@ -271,13 +284,23 @@ def build_candidate_tiebreak_key(candidate, priority_subject_names=None):
     3. Applicant ID ascending.
     """
     priority_subject_names = priority_subject_names or []
+    subject_wise = getattr(candidate, "subject_wise_marks", None) or {}
     subject_scores = tuple(
-        -round(extract_subject_mark(candidate.subject_wise_marks, s_name), 4)
+        -round(extract_subject_mark(subject_wise, s_name), 4)
         for s_name in priority_subject_names
     )
 
+    weighted = getattr(candidate, "weighted_total_marks", None)
+    if weighted is None:
+        weighted = getattr(candidate, "total_marks", 0.0)
+
+    try:
+        weighted_val = float(weighted or 0.0)
+    except (ValueError, TypeError):
+        weighted_val = 0.0
+
     return (
-        -round(float(candidate.weighted_total_marks or 0.0), 4),
+        -round(weighted_val, 4),
         *subject_scores,
         get_applicant_id_sort_key(candidate),
     )
