@@ -59,6 +59,17 @@ class AdmissionResult(models.Model):
         null=True,
         blank=True
     )
+    waiting_department = models.ForeignKey(
+        Department,
+        on_delete=models.SET_NULL,
+        related_name="waiting_admission_results",
+        null=True,
+        blank=True,
+        help_text=(
+            "Highest-preference eligible department whose seat was full and "
+            "whose waiting list still had capacity during allocation"
+        ),
+    )
     mcq_marks = models.FloatField(
         default=0.0,
         validators=[MinValueValidator(0.0)],
