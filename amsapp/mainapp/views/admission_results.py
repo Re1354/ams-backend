@@ -656,6 +656,7 @@ def get_admission_results(request):
         "exam",
         "student",
         "department",
+        "waiting_department",
         "configuration",
         "configuration__department",
         "configuration__exam",
@@ -841,7 +842,14 @@ def get_admission_results(request):
         dept_priorities_cache = {}
 
         def get_cached_priority_subjects(item):
-            dept = item.department or getattr(item.configuration, "department", None)
+            # Match the ranking used during allocation. ``item.department`` is
+            # the final allocated department and may be Choice 2/3, while the
+            # configuration department is the ranking context for this cohort.
+            dept = (
+                getattr(item.configuration, "department", None)
+                or resolve_department_for_exam(item.exam)
+                or item.department
+            )
             dept_id = dept.id if dept else None
             if dept_id not in dept_priorities_cache:
                 dept_priorities_cache[dept_id] = (
@@ -1007,7 +1015,7 @@ def bulk_update_admission_result_status(request):
             )
 
         # Rows are already SELECTED and hold their seats; no recalc needed.
-        queryset.update(is_admitted=True)
+        queryset.update(is_admitted=True, waiting_department=None)
         message = f"Accepted {len(results)} candidates for admission."
     elif action == "SET_STATUS":
         if target_status == "SELECTED":
@@ -1035,6 +1043,15 @@ def bulk_update_admission_result_status(request):
                     result_status=target_status,
                     is_override_accepted=True,
                     is_admitted=True,
+                    waiting_department=None,
+                )
+            elif target_status == "WAITING":
+                queryset.update(
+                    result_status=target_status,
+                    is_override_accepted=False,
+                    is_admitted=False,
+                    is_selected=False,
+                    waiting_department=F("department"),
                 )
             else:
                 queryset.update(
@@ -1042,6 +1059,7 @@ def bulk_update_admission_result_status(request):
                     is_override_accepted=False,
                     is_admitted=False,
                     is_selected=False,
+                    waiting_department=None,
                 )
                 if had_override:
                     recalc_required = True
@@ -1054,12 +1072,14 @@ def bulk_update_admission_result_status(request):
                 result.is_override_accepted = False
                 result.is_admitted = False
                 result.is_selected = False
+                result.waiting_department = None
                 result.save(
                     update_fields=[
                         "result_status",
                         "is_override_accepted",
                         "is_admitted",
                         "is_selected",
+                        "waiting_department",
                         "updated_at",
                     ]
                 )
@@ -1147,6 +1167,7 @@ def get_admission_result_by_id(request, result_id):
             "exam",
             "student",
             "department",
+            "waiting_department",
             "configuration",
             "configuration__department",
             "configuration__exam",
@@ -1176,6 +1197,7 @@ def get_student_admission_result(request, exam_id, student_id):
             "exam",
             "student",
             "department",
+            "waiting_department",
             "configuration",
             "configuration__department",
             "configuration__exam",
@@ -1267,6 +1289,7 @@ def recalculate_student_result(request, exam_id, student_id):
             "exam",
             "student",
             "department",
+            "waiting_department",
             "configuration",
             "configuration__department",
             "configuration__exam",

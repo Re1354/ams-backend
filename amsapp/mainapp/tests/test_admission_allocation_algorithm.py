@@ -158,6 +158,7 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         self.assertTrue(result.is_selected)
         self.assertEqual(result.result_status, "SELECTED")
         self.assertEqual(result.department_id, self.dept_swe.id)
+        self.assertEqual(result.waiting_department_id, self.dept_cse.id)
 
         # Verify Serializer output matches required fields
         serializer = AdmissionResultSerializer(result)
@@ -168,6 +169,129 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         self.assertIn("CSE", data["eligible_departments"])
         self.assertIn("SWE", data["eligible_departments"])
         self.assertIn("MCT", data["eligible_departments"])
+
+        response = self.client.get(
+            "/api/admission/results/",
+            {"semester": self.semester, "result_status": "SELECTED"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        api_row = next(row for row in response.data["results"] if row["id"] == result.id)
+        self.assertEqual(api_row["allocated_department"], "SWE")
+        self.assertEqual(api_row["waiting_for"], "CSE")
+
+    def test_lower_choice_waiting_respects_department_waiting_capacity(self):
+        """Only merit-ranked candidates within the limit wait for Choice 1."""
+        DepartmentThreshold.objects.create(
+            department=self.dept_cse,
+            semester=self.semester,
+            min_threshold_mark=50.0,
+            seat_limit=0,
+            waiting_student_limit=1,
+        )
+        DepartmentThreshold.objects.create(
+            department=self.dept_swe,
+            semester=self.semester,
+            min_threshold_mark=45.0,
+            seat_limit=2,
+            waiting_student_limit=0,
+        )
+
+        results = []
+        for index, score in enumerate((90.0, 80.0), start=1):
+            student = Students.objects.create(
+                username=f"capacity_{index}_{self.suffix}",
+                full_name=f"Capacity Applicant {index}",
+                f_id=str(4000 + index),
+                department_shortname="CSE",
+                registration_semester=self.semester,
+                department_choices=[
+                    {"department_id": self.dept_cse.id, "priority": 1},
+                    {"department_id": self.dept_swe.id, "priority": 2},
+                ],
+            )
+            results.append(
+                AdmissionResult.objects.create(
+                    exam=self.exam,
+                    student=student,
+                    department=self.dept_cse,
+                    configuration=self.config,
+                    weighted_total_marks=score,
+                    attended_exam=True,
+                )
+            )
+
+        apply_semester_result_statuses(
+            department=self.dept_cse,
+            semester=self.semester,
+            threshold_value=50.0,
+            seat_limit=0,
+            waiting_student_limit=1,
+        )
+
+        for result in results:
+            result.refresh_from_db()
+            self.assertEqual(result.department_id, self.dept_swe.id)
+            self.assertEqual(result.result_status, "SELECTED")
+
+        self.assertEqual(results[0].waiting_department_id, self.dept_cse.id)
+        self.assertIsNone(results[1].waiting_department_id)
+        self.assertEqual(AdmissionResultSerializer(results[0]).data["waiting_for"], "CSE")
+        self.assertIsNone(AdmissionResultSerializer(results[1]).data["waiting_for"])
+
+    def test_legacy_string_choice_ids_allocate_and_serialize_correctly(self):
+        """Imported JSON with string IDs behaves like serializer-created data."""
+        DepartmentThreshold.objects.create(
+            department=self.dept_cse,
+            semester=self.semester,
+            min_threshold_mark=50.0,
+            seat_limit=0,
+            waiting_student_limit=1,
+        )
+        DepartmentThreshold.objects.create(
+            department=self.dept_swe,
+            semester=self.semester,
+            min_threshold_mark=45.0,
+            seat_limit=1,
+            waiting_student_limit=1,
+        )
+        student = Students.objects.create(
+            username=f"legacy_choices_{self.suffix}",
+            full_name="Legacy Choice Applicant",
+            f_id="4100",
+            department_shortname="CSE",
+            registration_semester=self.semester,
+            department_choices=[
+                {"department_id": str(self.dept_cse.id), "priority": "1"},
+                {"department_id": str(self.dept_swe.id), "priority": "2"},
+            ],
+        )
+        result = AdmissionResult.objects.create(
+            exam=self.exam,
+            student=student,
+            department=self.dept_cse,
+            configuration=self.config,
+            weighted_total_marks=75.0,
+            attended_exam=True,
+        )
+
+        apply_semester_result_statuses(
+            department=self.dept_cse,
+            semester=self.semester,
+            threshold_value=50.0,
+            seat_limit=0,
+            waiting_student_limit=1,
+        )
+
+        result.refresh_from_db()
+        data = AdmissionResultSerializer(result).data
+        self.assertEqual(result.department_id, self.dept_swe.id)
+        self.assertEqual(result.waiting_department_id, self.dept_cse.id)
+        self.assertEqual(data["allocated_department"], "SWE")
+        self.assertEqual(data["waiting_for"], "CSE")
+        self.assertEqual(
+            [choice["department_shortname"] for choice in data["student_department_choices"]],
+            ["CSE", "SWE"],
+        )
 
     def test_multi_choice_choice1_and_2_full_choice3_allocated(self):
         """
@@ -403,6 +527,74 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         c8 = MockCandidate(8, "120", 80.0, 90.0, 80.0)
         ordered4 = sorted([c8, c7], key=lambda c: build_candidate_tiebreak_key(c, priority_subjects))
         self.assertEqual(ordered4[0].id, 7)  # f_id 050 beats 120
+
+    def test_allocation_uses_subject_priority_mapping_for_equal_totals(self):
+        """The mapped Priority 1 subject decides who receives the last seat."""
+        DepartmentThreshold.objects.create(
+            department=self.dept_cse,
+            semester=self.semester,
+            min_threshold_mark=50.0,
+            seat_limit=1,
+            waiting_student_limit=1,
+        )
+        lower_applicant_id = Students.objects.create(
+            username=f"lower_id_{self.suffix}",
+            f_id="100",
+            department_shortname="CSE",
+            registration_semester=self.semester,
+        )
+        higher_priority_mark = Students.objects.create(
+            username=f"higher_it_{self.suffix}",
+            f_id="200",
+            department_shortname="CSE",
+            registration_semester=self.semester,
+        )
+        lower_result = AdmissionResult.objects.create(
+            exam=self.exam,
+            student=lower_applicant_id,
+            department=self.dept_cse,
+            configuration=self.config,
+            weighted_total_marks=80.0,
+            attended_exam=True,
+            subject_wise_marks={
+                self.sub_it.subject_name: {"marks_obtained": 80.0},
+                self.sub_math.subject_name: {"marks_obtained": 95.0},
+            },
+        )
+        priority_result = AdmissionResult.objects.create(
+            exam=self.exam,
+            student=higher_priority_mark,
+            department=self.dept_cse,
+            configuration=self.config,
+            weighted_total_marks=80.0,
+            attended_exam=True,
+            subject_wise_marks={
+                self.sub_it.subject_name: {"marks_obtained": 90.0},
+                self.sub_math.subject_name: {"marks_obtained": 60.0},
+            },
+        )
+
+        apply_semester_result_statuses(
+            department=self.dept_cse,
+            semester=self.semester,
+            threshold_value=50.0,
+            seat_limit=1,
+            waiting_student_limit=1,
+        )
+
+        lower_result.refresh_from_db()
+        priority_result.refresh_from_db()
+        self.assertFalse(lower_result.is_selected)
+        self.assertEqual(lower_result.result_status, "WAITING")
+        self.assertTrue(priority_result.is_selected)
+        self.assertEqual(priority_result.result_status, "SELECTED")
+
+        response = self.client.get(
+            "/api/admission/results/",
+            {"semester": self.semester, "result_status": "SELECTED", "sort_by": "score"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results"][0]["id"], priority_result.id)
 
     def test_protected_admitted_candidate_preserves_seat(self):
         """

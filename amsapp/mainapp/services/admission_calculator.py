@@ -276,6 +276,40 @@ def get_applicant_id_sort_key(candidate):
     return (2, int(student_id or 0), str(student_id or ""))
 
 
+def normalize_department_choices(choices, fallback_department_id=None):
+    """Return valid, unique department choices with integer IDs/priorities."""
+    normalized = []
+    seen_department_ids = set()
+
+    if isinstance(choices, list):
+        for position, choice in enumerate(choices, start=1):
+            if not isinstance(choice, dict):
+                continue
+            try:
+                department_id = int(choice.get("department_id"))
+                priority = int(choice.get("priority", position))
+            except (TypeError, ValueError):
+                continue
+            if department_id <= 0 or department_id in seen_department_ids:
+                continue
+            seen_department_ids.add(department_id)
+            normalized.append(
+                {"department_id": department_id, "priority": priority}
+            )
+
+    normalized.sort(key=lambda choice: (choice["priority"], choice["department_id"]))
+    if normalized:
+        return normalized
+
+    try:
+        fallback_id = int(fallback_department_id)
+    except (TypeError, ValueError):
+        fallback_id = None
+    if fallback_id and fallback_id > 0:
+        return [{"department_id": fallback_id, "priority": 1}]
+    return []
+
+
 def build_candidate_tiebreak_key(candidate, priority_subject_names=None):
     """
     Constructs a deterministic tuple key for candidate ranking and tie-breaking:
@@ -868,7 +902,11 @@ def apply_semester_result_statuses(
     collapse_duplicate_semester_results(exams)
 
     results = AdmissionResult.objects.filter(exam__in=exams)
-    results.update(threshold_applied=threshold_value, is_selected=False)
+    results.update(
+        threshold_applied=threshold_value,
+        is_selected=False,
+        waiting_department=None,
+    )
 
     # Load semester threshold & capacity configs for all departments in this semester
     norm_sem = normalize_semester_value(semester) if semester else semester
@@ -947,25 +985,12 @@ def apply_semester_result_statuses(
     for candidate in attended_candidates:
         score = float(candidate.weighted_total_marks or 0.0)
 
-        # Parse preferences in configured priority order
-        student_choices = []
-        if (
-            candidate.student
-            and candidate.student.department_choices
-            and isinstance(candidate.student.department_choices, list)
-        ):
-            student_choices = sorted(
-                [
-                    c
-                    for c in candidate.student.department_choices
-                    if isinstance(c, dict) and c.get("department_id")
-                ],
-                key=lambda x: x.get("priority", 99),
-            )
-
-        if not student_choices:
-            fallback_id = candidate.department_id or primary_dept_id
-            student_choices = [{"department_id": fallback_id, "priority": 1}]
+        # Imported/legacy JSON can contain numeric IDs as strings. Normalize
+        # before dictionary lookups so eligibility and allocation remain valid.
+        student_choices = normalize_department_choices(
+            candidate.student.department_choices if candidate.student else [],
+            fallback_department_id=candidate.department_id or primary_dept_id,
+        )
 
         allocated_dept_id = None
         full_eligible_choices = []
@@ -998,9 +1023,22 @@ def apply_semester_result_statuses(
                 else:
                     full_eligible_choices.append(ch_dept_id)
 
+        # A selected student may remain waiting for one higher-preference full
+        # choice, but only when that department's waiting list has capacity.
+        # When no seat was allocated, scan all full eligible choices in choice
+        # order and use the first waiting list with room.
+        waiting_dept_id = None
+        for full_dept_id in full_eligible_choices:
+            max_waiting = max(0, dept_waiting_limits.get(full_dept_id, 0))
+            if waiting_counts[full_dept_id] < max_waiting:
+                waiting_dept_id = full_dept_id
+                waiting_counts[full_dept_id] += 1
+                break
+
         if allocated_dept_id is not None:
             candidate.is_selected = True
             candidate.result_status = "SELECTED"
+            candidate.waiting_department_id = waiting_dept_id
             if allocated_dept_id in dept_map:
                 candidate.department = dept_map[allocated_dept_id]
             candidate.threshold_applied = dept_thresholds.get(
@@ -1009,21 +1047,21 @@ def apply_semester_result_statuses(
             to_update.append(candidate)
         elif full_eligible_choices:
             # Student was eligible for at least one choice, but all eligible choices were full.
-            # Place on waiting list for highest preference choice within configured limit.
+            # Place them on the highest-preference waiting list that still has room.
             top_dept_id = full_eligible_choices[0]
-            max_waiting = dept_waiting_limits.get(top_dept_id, 0)
-            if waiting_counts[top_dept_id] < max_waiting:
+            if waiting_dept_id is not None:
                 candidate.is_selected = False
                 candidate.result_status = "WAITING"
-                if top_dept_id in dept_map:
-                    candidate.department = dept_map[top_dept_id]
+                candidate.waiting_department_id = waiting_dept_id
+                if waiting_dept_id in dept_map:
+                    candidate.department = dept_map[waiting_dept_id]
                 candidate.threshold_applied = dept_thresholds.get(
-                    top_dept_id, threshold_value
+                    waiting_dept_id, threshold_value
                 )
-                waiting_counts[top_dept_id] += 1
             else:
                 candidate.is_selected = False
                 candidate.result_status = "REJECTED"
+                candidate.waiting_department = None
                 if top_dept_id in dept_map:
                     candidate.department = dept_map[top_dept_id]
                 candidate.threshold_applied = dept_thresholds.get(
@@ -1034,13 +1072,20 @@ def apply_semester_result_statuses(
             # Not eligible for any listed department
             candidate.is_selected = False
             candidate.result_status = "REJECTED"
+            candidate.waiting_department = None
             candidate.threshold_applied = threshold_value
             to_update.append(candidate)
 
     if to_update:
         AdmissionResult.objects.bulk_update(
             to_update,
-            ["is_selected", "result_status", "department", "threshold_applied"],
+            [
+                "is_selected",
+                "result_status",
+                "department",
+                "waiting_department",
+                "threshold_applied",
+            ],
             batch_size=500,
         )
 
