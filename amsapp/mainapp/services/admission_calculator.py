@@ -127,8 +127,23 @@ def resolve_department_for_exam(exam):
     ).first()
     if dept:
         return dept
-    if getattr(exam, 'faculty_ref', None):
-        return exam.faculty_ref.departments.first()
+    faculty_id = getattr(exam, "faculty_ref_id", None)
+    if faculty_id:
+        # Faculty-to-department membership is stored in FacultyDepartment's
+        # department_ids ArrayField; Faculty intentionally has no direct
+        # ``departments`` relation. Preserve the configured mapping order and
+        # skip stale IDs instead of crashing central-exam recalculation.
+        from .access_control import get_departments_for_faculty
+
+        mapped_ids = get_departments_for_faculty(faculty_id)
+        if mapped_ids:
+            mapped_departments = {
+                department.id: department
+                for department in Department.objects.filter(id__in=mapped_ids)
+            }
+            for department_id in mapped_ids:
+                if department_id in mapped_departments:
+                    return mapped_departments[department_id]
     return None
 
 

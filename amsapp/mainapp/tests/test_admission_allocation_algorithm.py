@@ -9,6 +9,8 @@ from ..models import (
     Department,
     DepartmentThreshold,
     Exam,
+    Faculty,
+    FacultyDepartment,
     Role,
     Students,
     Subject,
@@ -19,6 +21,7 @@ from ..serializers.admission_result import AdmissionResultSerializer
 from ..services.admission_calculator import (
     apply_semester_result_statuses,
     build_candidate_tiebreak_key,
+    calculate_admission_results,
     get_applicant_id_sort_key,
     get_priority_subject_names_for_department,
 )
@@ -595,6 +598,76 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["results"][0]["id"], priority_result.id)
+
+    def test_central_exam_recalculation_resolves_mapped_faculty_department(self):
+        """Central exams use FacultyDepartment rather than a nonexistent relation."""
+        faculty = Faculty.objects.create(
+            faculty_name=f"Faculty {self.suffix}",
+            faculty_shortname=f"F_{self.suffix}",
+        )
+        FacultyDepartment.objects.create(
+            faculty=faculty,
+            department_ids=[self.dept_cse.id, self.dept_swe.id, self.dept_mct.id],
+        )
+        central_exam = Exam.objects.create(
+            department=f"Central ({faculty.faculty_shortname})",
+            semester=self.semester,
+            total_marks=100,
+            total_questions=50,
+            duration_minutes=60,
+            exam_type="CENTRAL",
+            faculty_ref=faculty,
+        )
+        DepartmentThreshold.objects.create(
+            department=self.dept_cse,
+            semester=self.semester,
+            exam=central_exam,
+            min_threshold_mark=30.0,
+            seat_limit=5,
+            waiting_student_limit=0,
+        )
+        DepartmentThreshold.objects.create(
+            department=self.dept_swe,
+            semester=self.semester,
+            exam=central_exam,
+            min_threshold_mark=50.0,
+            seat_limit=5,
+            waiting_student_limit=0,
+        )
+        DepartmentThreshold.objects.create(
+            department=self.dept_mct,
+            semester=self.semester,
+            exam=central_exam,
+            min_threshold_mark=25.0,
+            seat_limit=5,
+            waiting_student_limit=0,
+        )
+        student = Students.objects.create(
+            username=f"central_{self.suffix}",
+            f_id="5001",
+            department_shortname="SWE",
+            registration_semester=self.semester,
+            department_choices=[
+                {"department_id": self.dept_swe.id, "priority": 1},
+                {"department_id": self.dept_mct.id, "priority": 2},
+            ],
+        )
+        result = AdmissionResult.objects.create(
+            exam=central_exam,
+            student=student,
+            department=self.dept_swe,
+            weighted_total_marks=47.83,
+            attended_exam=True,
+        )
+
+        calculation = calculate_admission_results(central_exam.id)
+
+        self.assertTrue(calculation["success"])
+        result.refresh_from_db()
+        self.assertTrue(result.is_selected)
+        self.assertEqual(result.result_status, "SELECTED")
+        self.assertEqual(result.department_id, self.dept_mct.id)
+        self.assertEqual(result.threshold_applied, 25.0)
 
     def test_protected_admitted_candidate_preserves_seat(self):
         """
