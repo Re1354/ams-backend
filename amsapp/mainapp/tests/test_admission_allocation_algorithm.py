@@ -965,7 +965,7 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         self.assertEqual(unauthorized_multi_response.data["count"], 0)
 
     def test_results_exam_type_filter_updates_filtered_summary(self):
-        """Exam type and search filters must affect both rows and summary counts."""
+        """Exam type filtering supports explicit and legacy Central exams."""
         central_exam = Exam.objects.create(
             department="CSE",
             semester=self.semester,
@@ -974,11 +974,22 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
             duration_minutes=60,
             exam_type="CENTRAL",
         )
+        legacy_central_exam = Exam.objects.create(
+            department="Central (FSIT)",
+            semester=self.semester,
+            total_marks=100,
+            total_questions=50,
+            duration_minutes=60,
+            # Legacy rows received the model default even though their label
+            # identifies them as Central.
+            exam_type="SCHEDULED",
+        )
         created_results = []
         for username, exam in (
             (f"scheduled_scope_{self.suffix}", self.exam),
             (f"central_alpha_{self.suffix}", central_exam),
             (f"central_beta_{self.suffix}", central_exam),
+            (f"legacy_central_{self.suffix}", legacy_central_exam),
         ):
             student = Students.objects.create(
                 username=username,
@@ -1004,11 +1015,33 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
             {"exam_type": "CENTRAL", "result_status": "SELECTED"},
         )
         self.assertEqual(central_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(central_response.data["count"], 2)
-        self.assertEqual(central_response.data["summary"]["SELECTED"], 2)
+        self.assertEqual(central_response.data["count"], 3)
+        self.assertEqual(central_response.data["summary"]["SELECTED"], 3)
         self.assertNotIn(
             created_results[0].id,
             {row["id"] for row in central_response.data["results"]},
+        )
+        legacy_row = next(
+            row
+            for row in central_response.data["results"]
+            if row["id"] == created_results[3].id
+        )
+        self.assertEqual(legacy_row["exam_details"]["exam_type"], "CENTRAL")
+
+        scheduled_response = self.client.get(
+            "/api/admission/results/",
+            {"exam_type": "SCHEDULED", "result_status": "SELECTED"},
+        )
+        self.assertEqual(scheduled_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(scheduled_response.data["count"], 1)
+        self.assertEqual(scheduled_response.data["summary"]["SELECTED"], 1)
+        self.assertEqual(
+            scheduled_response.data["results"][0]["id"],
+            created_results[0].id,
+        )
+        self.assertEqual(
+            scheduled_response.data["results"][0]["exam_details"]["exam_type"],
+            "SCHEDULED",
         )
 
         searched_response = self.client.get(
@@ -1057,4 +1090,61 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         sample = next(r for r in response.data["results"] if r["id"] == res.id)
         self.assertTrue(sample.get("is_admitted"))
         self.assertEqual(sample.get("allocated_department"), "CSE")
+
+    def test_all_results_includes_unselected_student_without_allocation(self):
+        """The pre-admission board includes rejected rows but excludes admitted rows."""
+        search_prefix = f"all_results_board_{self.suffix}"
+        username = f"{search_prefix}_rejected"
+        student = Students.objects.create(
+            username=username,
+            f_id=f"UNSELECTED-{self.suffix}",
+            department_shortname="CSE",
+            registration_semester=self.semester,
+        )
+        rejected_result = AdmissionResult.objects.create(
+            exam=self.exam,
+            student=student,
+            department=self.dept_cse,
+            weighted_total_marks=35.0,
+            attended_exam=True,
+            is_selected=False,
+            is_admitted=False,
+            result_status="REJECTED",
+        )
+        admitted_student = Students.objects.create(
+            username=f"{search_prefix}_admitted",
+            f_id=f"ADMITTED-{self.suffix}",
+            department_shortname="CSE",
+            registration_semester=self.semester,
+        )
+        admitted_result = AdmissionResult.objects.create(
+            exam=self.exam,
+            student=admitted_student,
+            department=self.dept_cse,
+            weighted_total_marks=85.0,
+            attended_exam=True,
+            is_selected=True,
+            is_admitted=True,
+            result_status="SELECTED",
+        )
+
+        response = self.client.get(
+            "/api/admission/results/",
+            {"search": search_prefix, "is_admitted": "false", "page": 1},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned = next(
+            row
+            for row in response.data.get("results", [])
+            if row["id"] == rejected_result.id
+        )
+        self.assertEqual(returned["result_status"], "REJECTED")
+        self.assertFalse(returned["is_selected"])
+        self.assertIsNone(returned["allocated_department"])
+        self.assertNotIn(
+            admitted_result.id,
+            {row["id"] for row in response.data.get("results", [])},
+        )
+        self.assertEqual(response.data["filters_applied"]["is_admitted"], "false")
 

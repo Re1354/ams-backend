@@ -193,11 +193,19 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField())
     def get_exam_details(self, obj):
+        department_label = (obj.exam.department or "").strip()
+        stored_exam_type = (getattr(obj.exam, "exam_type", "") or "").upper()
+        is_central = (
+            stored_exam_type == "CENTRAL"
+            or department_label.casefold() == "central"
+            or department_label.casefold().startswith("central (")
+        )
         return {
             "id": obj.exam.id,
             "department": obj.exam.department,
             "semester": obj.exam.semester,
             "total_marks": obj.exam.total_marks,
+            "exam_type": "CENTRAL" if is_central else "SCHEDULED",
         }
 
     @extend_schema_field(serializers.BooleanField())

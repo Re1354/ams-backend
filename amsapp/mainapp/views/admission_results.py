@@ -690,6 +690,7 @@ def calculate_results(request):
         ),
         OpenApiParameter(name="search", required=False, type=str),
         OpenApiParameter(name="is_selected", required=False, type=bool),
+        OpenApiParameter(name="is_admitted", required=False, type=bool),
         OpenApiParameter(name="attended_exam", required=False, type=bool),
         OpenApiParameter(name="status", required=False, type=str),
         OpenApiParameter(name="result_status", required=False, type=str),
@@ -720,6 +721,7 @@ def get_admission_results(request):
     exam_type = (request.query_params.get("exam_type") or "").strip().upper()
     search = request.query_params.get("search")
     is_selected = request.query_params.get("is_selected")
+    is_admitted = request.query_params.get("is_admitted")
     attended_exam = request.query_params.get("attended_exam")
     publication_status = request.query_params.get("status")
     result_status = request.query_params.get("result_status")
@@ -871,7 +873,19 @@ def get_admission_results(request):
             )
         )
     if exam_type in {"CENTRAL", "SCHEDULED"}:
-        results = results.filter(exam__exam_type=exam_type)
+        # Older Central exams predate ``Exam.exam_type`` and received the
+        # field's SCHEDULED default during migration. Their durable identifier
+        # is the generated department label, e.g. "Central (FSIT)". Treat
+        # either signal as Central; everything else is Scheduled.
+        central_exam_filter = (
+            Q(exam__exam_type__iexact="CENTRAL")
+            | Q(exam__department__iexact="Central")
+            | Q(exam__department__istartswith="Central (")
+        )
+        if exam_type == "CENTRAL":
+            results = results.filter(central_exam_filter)
+        else:
+            results = results.exclude(central_exam_filter)
 
     if is_selected is not None:
         results = results.filter(is_selected=is_selected.lower() in {"true", "1", "yes"})
@@ -942,6 +956,10 @@ def get_admission_results(request):
             results = results.filter(result_status="SELECTED", is_admitted=False)
         else:
             results = results.filter(result_status__iexact=result_status)
+    if is_admitted is not None:
+        results = results.filter(
+            is_admitted=is_admitted.lower() in {"true", "1", "yes"}
+        )
     if exclude_result_status:
         results = results.exclude(result_status__iexact=exclude_result_status)
     if minimum_score not in (None, ""):
@@ -1042,6 +1060,7 @@ def get_admission_results(request):
             "exam_type": exam_type or None,
             "search": search,
             "is_selected": is_selected,
+            "is_admitted": is_admitted,
             "attended_exam": attended_exam,
             "status": publication_status,
             "result_status": result_status,
