@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 
 from ..authentication import CustomJWTAuthentication
-from ..services.access_control import get_user_access_scope
+from ..services.access_control import get_departments_for_faculty, get_user_access_scope
 from ..models import AdmissionConfiguration, AdmissionResult, Department, DepartmentThreshold, Exam
 from ..models import StudentAssignTeacherExam, Students, Submission
 from ..serializers.admission_result import (
@@ -50,6 +50,45 @@ class AdmissionResultsPagination(PageNumberPagination):
     page_size = 25
     page_size_query_param = "page_size"
     max_page_size = 100
+
+
+def parse_int_list_query_param(query_params, name):
+    """Parse repeated, bracketed, or comma-separated positive integer params."""
+    raw_values = query_params.getlist(name) + query_params.getlist(f"{name}[]")
+    parsed = []
+    seen = set()
+    for raw_value in raw_values:
+        for value in str(raw_value).split(","):
+            try:
+                parsed_value = int(value.strip())
+            except (TypeError, ValueError):
+                continue
+            if parsed_value > 0 and parsed_value not in seen:
+                parsed.append(parsed_value)
+                seen.add(parsed_value)
+    return parsed
+
+
+def build_department_results_filter(department_ids):
+    """Match allocated departments, explicit choices, and legacy home departments."""
+    normalized_ids = [int(department_id) for department_id in department_ids]
+    department_q = Q(department_id__in=normalized_ids)
+    for department_id in normalized_ids:
+        department_q |= Q(
+            student__department_choices__contains=[{"department_id": department_id}]
+        )
+
+    shortnames = list(
+        Department.objects.filter(id__in=normalized_ids).values_list(
+            "department_shortname", flat=True
+        )
+    )
+    if shortnames:
+        department_q |= (
+            (Q(student__department_choices=[]) | Q(student__department_choices__isnull=True))
+            & Q(student__department_shortname__in=shortnames)
+        )
+    return department_q
 
 
 def get_single_configuration(filters):
@@ -440,19 +479,62 @@ def admission_configuration_detail(request, config_id):
 def admission_semester_options(request):
     scope = get_user_access_scope(request.user)
     department_id = request.query_params.get("department_id")
+    department_ids = parse_int_list_query_param(request.query_params, "department_ids")
     faculty_id = request.query_params.get("faculty_id")
+    faculty_ids = parse_int_list_query_param(request.query_params, "faculty_ids")
 
     allowed_dept_ids = None
-    if department_id:
-        if not scope["is_global"] and int(department_id) not in scope["department_ids"]:
+    requested_faculty_ids = faculty_ids
+    if faculty_id:
+        try:
+            requested_faculty_ids = [int(faculty_id)]
+        except (TypeError, ValueError):
             return Response({"success": True, "semesters": []})
-        allowed_dept_ids = [int(department_id)]
-    elif faculty_id:
-        fac_depts = list(Department.objects.filter(faculty_id=faculty_id).values_list("id", flat=True))
-        if not scope["is_global"]:
-            allowed_dept_ids = [d for d in fac_depts if d in scope["department_ids"]]
+    if requested_faculty_ids and not scope["is_global"]:
+        requested_faculty_ids = [
+            selected_faculty_id
+            for selected_faculty_id in requested_faculty_ids
+            if any(
+                mapped_id in scope["department_ids"]
+                for mapped_id in get_departments_for_faculty(selected_faculty_id)
+            )
+        ]
+
+    requested_dept_ids = department_ids
+    if department_id:
+        try:
+            requested_dept_ids = [int(department_id)]
+        except (TypeError, ValueError):
+            return Response({"success": True, "semesters": []})
+
+    if requested_dept_ids:
+        if scope["is_global"]:
+            allowed_dept_ids = requested_dept_ids
         else:
-            allowed_dept_ids = fac_depts
+            allowed_dept_ids = [
+                selected_id
+                for selected_id in requested_dept_ids
+                if selected_id in scope["department_ids"]
+            ]
+    elif requested_faculty_ids:
+        faculty_department_ids = []
+        authorized_faculty_ids = []
+        for selected_faculty_id in requested_faculty_ids:
+            mapped_department_ids = get_departments_for_faculty(selected_faculty_id)
+            if scope["is_global"]:
+                authorized_faculty_ids.append(selected_faculty_id)
+                faculty_department_ids.extend(mapped_department_ids)
+                continue
+            scoped_department_ids = [
+                mapped_id
+                for mapped_id in mapped_department_ids
+                if mapped_id in scope["department_ids"]
+            ]
+            if scoped_department_ids:
+                authorized_faculty_ids.append(selected_faculty_id)
+                faculty_department_ids.extend(scoped_department_ids)
+        requested_faculty_ids = authorized_faculty_ids
+        allowed_dept_ids = list(dict.fromkeys(faculty_department_ids))
     elif not scope["is_global"]:
         allowed_dept_ids = scope["department_ids"]
 
@@ -461,13 +543,16 @@ def admission_semester_options(request):
     # 1. From Exam
     exam_qs = Exam.objects.all()
     if allowed_dept_ids is not None:
+        if not allowed_dept_ids:
+            exam_qs = exam_qs.none()
         valid_departments = Department.objects.filter(id__in=allowed_dept_ids)
         q_exam = Q()
         for vd in valid_departments:
             q_exam |= Q(department__iexact=vd.department_name) | Q(department__iexact=vd.department_shortname)
-        if faculty_id:
-            q_exam |= Q(faculty_ref_id=faculty_id)
-        exam_qs = exam_qs.filter(q_exam)
+        if requested_faculty_ids:
+            q_exam |= Q(faculty_ref_id__in=requested_faculty_ids)
+        if allowed_dept_ids:
+            exam_qs = exam_qs.filter(q_exam)
     for s in exam_qs.exclude(semester__isnull=True).exclude(semester="").values_list("semester", flat=True).distinct():
         if s and s.strip():
             semesters_set.add(s.strip())
@@ -491,12 +576,15 @@ def admission_semester_options(request):
     # 4. From Students registration_semester
     stu_qs = Students.objects.all()
     if allowed_dept_ids is not None:
+        if not allowed_dept_ids:
+            stu_qs = stu_qs.none()
         valid_departments = Department.objects.filter(id__in=allowed_dept_ids)
         q_stu = Q()
         for vd in valid_departments:
             q_stu |= Q(department_shortname__iexact=vd.department_shortname)
             q_stu |= Q(department_choices__contains=[{"department_id": vd.id}])
-        stu_qs = stu_qs.filter(q_stu)
+        if allowed_dept_ids:
+            stu_qs = stu_qs.filter(q_stu)
     for s in stu_qs.exclude(registration_semester__isnull=True).exclude(registration_semester="").values_list("registration_semester", flat=True).distinct():
         if s and s.strip():
             semesters_set.add(s.strip())
@@ -579,9 +667,27 @@ def calculate_results(request):
         OpenApiParameter(name="exam_id", required=False, type=int),
         OpenApiParameter(name="configuration_id", required=False, type=int),
         OpenApiParameter(name="department_id", required=False, type=int),
+        OpenApiParameter(
+            name="department_ids",
+            required=False,
+            type=str,
+            description="Comma-separated department IDs for a multi-department board",
+        ),
         OpenApiParameter(name="faculty_id", required=False, type=int),
+        OpenApiParameter(
+            name="faculty_ids",
+            required=False,
+            type=str,
+            description="Comma-separated faculty IDs for a multi-faculty board",
+        ),
         OpenApiParameter(name="student_id", required=False, type=int),
         OpenApiParameter(name="semester", required=False, type=str),
+        OpenApiParameter(
+            name="exam_type",
+            required=False,
+            type=str,
+            enum=["CENTRAL", "SCHEDULED"],
+        ),
         OpenApiParameter(name="search", required=False, type=str),
         OpenApiParameter(name="is_selected", required=False, type=bool),
         OpenApiParameter(name="attended_exam", required=False, type=bool),
@@ -606,9 +712,12 @@ def get_admission_results(request):
     exam_id = request.query_params.get("exam_id")
     configuration_id = request.query_params.get("configuration_id")
     department_id = request.query_params.get("department_id")
+    department_ids = parse_int_list_query_param(request.query_params, "department_ids")
     faculty_id = request.query_params.get("faculty_id")
+    faculty_ids = parse_int_list_query_param(request.query_params, "faculty_ids")
     student_id = request.query_params.get("student_id")
     semester = request.query_params.get("semester")
+    exam_type = (request.query_params.get("exam_type") or "").strip().upper()
     search = request.query_params.get("search")
     is_selected = request.query_params.get("is_selected")
     attended_exam = request.query_params.get("attended_exam")
@@ -623,8 +732,16 @@ def get_admission_results(request):
 
     if semester:
         norm_sem = normalize_semester_filter(semester)
+        selected_department_ids = department_ids
+        if department_id:
+            try:
+                selected_department_ids = [int(department_id)]
+            except (TypeError, ValueError):
+                selected_department_ids = []
         resolved_department = (
-            Department.objects.filter(id=department_id).first() if department_id else None
+            Department.objects.filter(id=selected_department_ids[0]).first()
+            if len(selected_department_ids) == 1
+            else None
         )
         try:
             ensure_semester_admission_results(
@@ -666,52 +783,75 @@ def get_admission_results(request):
         if not scope["department_ids"]:
             results = results.none()
         else:
-            scope_depts = scope["department_ids"]
-            scope_q = Q(department_id__in=scope_depts)
-            for d_id in scope_depts:
-                scope_q |= Q(student__department_choices__contains=[{"department_id": d_id}])
-            scope_shortnames = list(
-                Department.objects.filter(id__in=scope_depts).values_list("department_shortname", flat=True)
-            )
-            scope_q |= (
-                (Q(student__department_choices=[]) | Q(student__department_choices__isnull=True))
-                & Q(student__department_shortname__in=scope_shortnames)
-            )
-            results = results.filter(scope_q).distinct()
+            results = results.filter(
+                build_department_results_filter(scope["department_ids"])
+            ).distinct()
 
     if exam_id:
         results = results.filter(exam_id=exam_id)
     if configuration_id:
         results = results.filter(configuration_id=configuration_id)
+    requested_department_ids = department_ids
     if department_id:
-        target_dept = Department.objects.filter(id=department_id).first()
-        if target_dept:
-            dept_q = (
-                Q(department_id=target_dept.id)
-                | Q(student__department_choices__contains=[{"department_id": target_dept.id}])
-            )
-            if target_dept.department_shortname:
-                dept_q |= (
-                    (Q(student__department_choices=[]) | Q(student__department_choices__isnull=True))
-                    & Q(student__department_shortname__iexact=target_dept.department_shortname)
-                )
-            results = results.filter(dept_q).distinct()
+        try:
+            requested_department_ids = [int(department_id)]
+        except (TypeError, ValueError):
+            requested_department_ids = []
+    if requested_department_ids:
+        if not scope["is_global"]:
+            requested_department_ids = [
+                selected_id
+                for selected_id in requested_department_ids
+                if selected_id in scope["department_ids"]
+            ]
+        if requested_department_ids:
+            results = results.filter(
+                build_department_results_filter(requested_department_ids)
+            ).distinct()
         else:
-            results = results.filter(department_id=department_id)
+            results = results.none()
+    requested_faculty_ids = faculty_ids
     if faculty_id:
-        fac_dept_ids = list(Department.objects.filter(faculty_id=faculty_id).values_list("id", flat=True))
-        fac_dept_shorts = list(
-            Department.objects.filter(faculty_id=faculty_id).values_list("department_shortname", flat=True)
-        )
-        fac_q = Q(department_id__in=fac_dept_ids)
-        for d_id in fac_dept_ids:
-            fac_q |= Q(student__department_choices__contains=[{"department_id": d_id}])
-        fac_q |= (
-            (Q(student__department_choices=[]) | Q(student__department_choices__isnull=True))
-            & Q(student__department_shortname__in=fac_dept_shorts)
-        )
-        fac_q |= Q(exam__faculty_ref_id=faculty_id)
-        results = results.filter(fac_q).distinct()
+        try:
+            requested_faculty_ids = [int(faculty_id)]
+        except (TypeError, ValueError):
+            requested_faculty_ids = []
+    if requested_faculty_ids:
+        fac_dept_ids = []
+        authorized_faculty_ids = []
+        for selected_faculty_id in requested_faculty_ids:
+            mapped_department_ids = get_departments_for_faculty(selected_faculty_id)
+            if scope["is_global"]:
+                authorized_faculty_ids.append(selected_faculty_id)
+                fac_dept_ids.extend(mapped_department_ids)
+                continue
+            scoped_department_ids = [
+                mapped_id
+                for mapped_id in mapped_department_ids
+                if mapped_id in scope["department_ids"]
+            ]
+            if scoped_department_ids:
+                authorized_faculty_ids.append(selected_faculty_id)
+                fac_dept_ids.extend(scoped_department_ids)
+        requested_faculty_ids = authorized_faculty_ids
+        fac_dept_ids = list(dict.fromkeys(fac_dept_ids))
+        if not fac_dept_ids:
+            results = results.none()
+        else:
+            fac_dept_shorts = list(
+                Department.objects.filter(id__in=fac_dept_ids).values_list(
+                    "department_shortname", flat=True
+                )
+            )
+            fac_q = Q(department_id__in=fac_dept_ids)
+            for d_id in fac_dept_ids:
+                fac_q |= Q(student__department_choices__contains=[{"department_id": d_id}])
+            fac_q |= (
+                (Q(student__department_choices=[]) | Q(student__department_choices__isnull=True))
+                & Q(student__department_shortname__in=fac_dept_shorts)
+            )
+            fac_q |= Q(exam__faculty_ref_id__in=requested_faculty_ids)
+            results = results.filter(fac_q).distinct()
     if student_id:
         results = results.filter(student_id=student_id)
     if semester:
@@ -730,6 +870,8 @@ def get_admission_results(request):
                 )
             )
         )
+    if exam_type in {"CENTRAL", "SCHEDULED"}:
+        results = results.filter(exam__exam_type=exam_type)
 
     if is_selected is not None:
         results = results.filter(is_selected=is_selected.lower() in {"true", "1", "yes"})
@@ -739,10 +881,8 @@ def get_admission_results(request):
         results = results.filter(status__iexact=publication_status)
 
     results = filter_visible_results_by_exam_schedule(results)
-    # Board identity and the top summary cards are independent of the search/date
-    # filters, so resolve them from the whole visible cohort *before* those are
-    # applied: `total_summary` feeds the cards (always the semester totals) while
-    # `summary` below feeds the tab counts (which track the active filters).
+    # Keep an unsearched total for consumers that need it. The filtered summary
+    # below is calculated after search/date filters and drives the result board.
     configuration = get_single_configuration(results)
     total_summary = summarize_status_counts(results)
 
@@ -894,8 +1034,12 @@ def get_admission_results(request):
             "exam_id": exam_id,
             "configuration_id": configuration_id,
             "department_id": department_id,
+            "department_ids": requested_department_ids,
+            "faculty_id": faculty_id,
+            "faculty_ids": requested_faculty_ids,
             "student_id": student_id,
             "semester": semester,
+            "exam_type": exam_type or None,
             "search": search,
             "is_selected": is_selected,
             "attended_exam": attended_exam,

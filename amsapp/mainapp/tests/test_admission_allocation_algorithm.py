@@ -822,6 +822,208 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         self.assertIn("results", response.data)
         self.assertIn("summary", response.data)
 
+    def test_results_support_multi_department_and_faculty_filters(self):
+        """The results board can query several mapped departments as one cohort."""
+        students_and_departments = []
+        for index, department in enumerate(
+            (self.dept_cse, self.dept_swe, self.dept_mct), start=1
+        ):
+            student = Students.objects.create(
+                username=f"scope_{index}_{self.suffix}",
+                f_id=f"SCOPE-{index}",
+                department_shortname=department.department_shortname,
+                registration_semester=self.semester,
+            )
+            result = AdmissionResult.objects.create(
+                exam=self.exam,
+                student=student,
+                department=department,
+                weighted_total_marks=80.0 - index,
+                attended_exam=True,
+                is_selected=True,
+                result_status="SELECTED",
+            )
+            students_and_departments.append((result, department))
+
+        expected_ids = {
+            students_and_departments[1][0].id,
+            students_and_departments[2][0].id,
+        }
+        multi_response = self.client.get(
+            "/api/admission/results/",
+            {
+                "department_ids": f"{self.dept_swe.id},{self.dept_mct.id}",
+                "result_status": "SELECTED",
+            },
+        )
+        self.assertEqual(multi_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {row["id"] for row in multi_response.data["results"]},
+            expected_ids,
+        )
+        multi_semester_response = self.client.get(
+            "/api/admission/semester-options/",
+            {"department_ids": f"{self.dept_swe.id},{self.dept_mct.id}"},
+        )
+        self.assertEqual(multi_semester_response.status_code, status.HTTP_200_OK)
+        self.assertIn(self.semester, multi_semester_response.data["semesters"])
+
+        faculty = Faculty.objects.create(
+            faculty_name=f"Results Faculty {self.suffix}",
+            faculty_shortname=f"RF_{self.suffix}",
+        )
+        FacultyDepartment.objects.create(
+            faculty=faculty,
+            department_ids=[self.dept_swe.id, self.dept_mct.id],
+        )
+        faculty_response = self.client.get(
+            "/api/admission/results/",
+            {"faculty_id": faculty.id, "result_status": "SELECTED"},
+        )
+        self.assertEqual(faculty_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {row["id"] for row in faculty_response.data["results"]},
+            expected_ids,
+        )
+        faculty_semester_response = self.client.get(
+            "/api/admission/semester-options/",
+            {"faculty_id": faculty.id},
+        )
+        self.assertEqual(faculty_semester_response.status_code, status.HTTP_200_OK)
+        self.assertIn(self.semester, faculty_semester_response.data["semesters"])
+
+        second_faculty = Faculty.objects.create(
+            faculty_name=f"Second Results Faculty {self.suffix}",
+            faculty_shortname=f"RF2_{self.suffix}",
+        )
+        FacultyDepartment.objects.create(
+            faculty=second_faculty,
+            department_ids=[self.dept_cse.id],
+        )
+        multi_faculty_response = self.client.get(
+            "/api/admission/results/",
+            {
+                "faculty_ids": f"{faculty.id},{second_faculty.id}",
+                "result_status": "SELECTED",
+            },
+        )
+        self.assertEqual(multi_faculty_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {row["id"] for row in multi_faculty_response.data["results"]},
+            {result.id for result, _department in students_and_departments},
+        )
+        multi_faculty_semesters = self.client.get(
+            "/api/admission/semester-options/",
+            {"faculty_ids": f"{faculty.id},{second_faculty.id}"},
+        )
+        self.assertEqual(multi_faculty_semesters.status_code, status.HTTP_200_OK)
+        self.assertIn(self.semester, multi_faculty_semesters.data["semesters"])
+
+        scoped_role = Role.objects.create(role_name=f"results_scope_{self.suffix}")
+        faculty_user = User.objects.create(
+            username=f"faculty_results_{self.suffix}",
+            email=f"faculty_results_{self.suffix}@example.com",
+            password=make_password("Secret123!"),
+            role=scoped_role,
+            faculty=faculty,
+            access_type="FACULTY",
+        )
+        faculty_tokens = get_tokens_for_user(faculty_user)
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {faculty_tokens['access']}"
+        )
+        scoped_faculty_response = self.client.get(
+            "/api/admission/results/",
+            {"result_status": "SELECTED"},
+        )
+        self.assertEqual(scoped_faculty_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {row["id"] for row in scoped_faculty_response.data["results"]},
+            expected_ids,
+        )
+
+        department_user = User.objects.create(
+            username=f"department_results_{self.suffix}",
+            email=f"department_results_{self.suffix}@example.com",
+            password=make_password("Secret123!"),
+            role=scoped_role,
+            department=self.dept_cse,
+            access_type="DEPARTMENT",
+        )
+        department_tokens = get_tokens_for_user(department_user)
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {department_tokens['access']}"
+        )
+        unauthorized_multi_response = self.client.get(
+            "/api/admission/results/",
+            {
+                "department_ids": f"{self.dept_swe.id},{self.dept_mct.id}",
+                "result_status": "SELECTED",
+            },
+        )
+        self.assertEqual(unauthorized_multi_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(unauthorized_multi_response.data["count"], 0)
+
+    def test_results_exam_type_filter_updates_filtered_summary(self):
+        """Exam type and search filters must affect both rows and summary counts."""
+        central_exam = Exam.objects.create(
+            department="CSE",
+            semester=self.semester,
+            total_marks=100,
+            total_questions=50,
+            duration_minutes=60,
+            exam_type="CENTRAL",
+        )
+        created_results = []
+        for username, exam in (
+            (f"scheduled_scope_{self.suffix}", self.exam),
+            (f"central_alpha_{self.suffix}", central_exam),
+            (f"central_beta_{self.suffix}", central_exam),
+        ):
+            student = Students.objects.create(
+                username=username,
+                full_name=username.replace("_", " ").title(),
+                f_id=f"TYPE-{len(created_results) + 1}",
+                department_shortname="CSE",
+                registration_semester=self.semester,
+            )
+            created_results.append(
+                AdmissionResult.objects.create(
+                    exam=exam,
+                    student=student,
+                    department=self.dept_cse,
+                    weighted_total_marks=75.0,
+                    attended_exam=True,
+                    is_selected=True,
+                    result_status="SELECTED",
+                )
+            )
+
+        central_response = self.client.get(
+            "/api/admission/results/",
+            {"exam_type": "CENTRAL", "result_status": "SELECTED"},
+        )
+        self.assertEqual(central_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(central_response.data["count"], 2)
+        self.assertEqual(central_response.data["summary"]["SELECTED"], 2)
+        self.assertNotIn(
+            created_results[0].id,
+            {row["id"] for row in central_response.data["results"]},
+        )
+
+        searched_response = self.client.get(
+            "/api/admission/results/",
+            {
+                "exam_type": "CENTRAL",
+                "search": f"central_alpha_{self.suffix}",
+                "result_status": "SELECTED",
+            },
+        )
+        self.assertEqual(searched_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(searched_response.data["count"], 1)
+        self.assertEqual(searched_response.data["summary"]["SELECTED"], 1)
+        self.assertEqual(searched_response.data["results"][0]["id"], created_results[1].id)
+
     def test_get_admission_results_accepted_tab_returns_admitted_students(self):
         """
         Verify that querying /api/admission/results/ with result_status=ACCEPTED
