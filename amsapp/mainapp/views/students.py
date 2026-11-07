@@ -263,12 +263,24 @@ def create_student(request):
     """Create new student"""
     from ..services.access_control import get_user_access_scope
     from ..models import Department
-    
+
     user = getattr(request.user, 'custom_user', None)
     scope = get_user_access_scope(user)
-    
+
+    # Validate first because StudentCreateSerializer normalizes the legacy
+    # department_shortname field from the priority-1 department choice.  The
+    # frontend may still submit a stale legacy shortname, so checking raw
+    # request.data here can incorrectly deny an otherwise in-scope student.
+    serializer = StudentCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'message': 'Invalid request data',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
     if not scope['is_global']:
-        dept_shortname = request.data.get('department_shortname')
+        dept_shortname = serializer.validated_data.get('department_shortname')
         if not dept_shortname:
             return Response(
                 {"success": False, "message": "department_shortname is required."},
@@ -280,15 +292,7 @@ def create_student(request):
                 {"success": False, "message": "You do not have access to create a student for this department."},
                 status=status.HTTP_403_FORBIDDEN
             )
-    
-    serializer = StudentCreateSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response({
-            'success': False,
-            'message': 'Invalid request data',
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+
     try:
         with transaction.atomic():
             student = serializer.save()

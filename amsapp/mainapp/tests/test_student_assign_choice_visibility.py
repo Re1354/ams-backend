@@ -203,6 +203,63 @@ class StudentAssignChoiceVisibilityTestCase(TestCase):
         token = str(RefreshToken.for_user(user).access_token)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
+    def _student_create_payload(self, *, username, faculty_id, department_id):
+        return {
+            "username": username,
+            "password": "123",
+            "f_id": username,
+            "full_name": "New Applicant",
+            "email": f"{username}@test.com",
+            # Simulate the stale legacy value previously sent by the form.
+            "department_shortname": "CSE",
+            "registration_semester": "Spring 2026",
+            "ssc": 5,
+            "academic_type": "HSC",
+            "hsc": 5,
+            "diploma": 0,
+            "faculty_id": faculty_id,
+            "department_choices": [
+                {"department_id": department_id, "priority": 1},
+            ],
+        }
+
+    def test_create_uses_normalized_first_choice_for_department_scope(self):
+        """A stale CSE form value must not block an in-scope SWE choice."""
+        self._auth(self.user_swe)
+        username = f"new_swe_{uuid4().hex[:6]}"
+
+        response = self.client.post(
+            "/api/students/create/",
+            self._student_create_payload(
+                username=username,
+                faculty_id=self.faculty_fsit.id,
+                department_id=self.dept_swe.id,
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        student = Students.objects.get(username=username)
+        self.assertEqual(student.department_shortname, "SWE")
+
+    def test_create_still_rejects_out_of_scope_first_choice(self):
+        """Normalization must not allow a department admin to create elsewhere."""
+        self._auth(self.user_swe)
+        username = f"new_eee_{uuid4().hex[:6]}"
+
+        response = self.client.post(
+            "/api/students/create/",
+            self._student_create_payload(
+                username=username,
+                faculty_id=self.faculty_fe.id,
+                department_id=self.dept_eee.id,
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Students.objects.filter(username=username).exists())
+
     # =========================================================================
     # Test A: First-choice department
     # =========================================================================
