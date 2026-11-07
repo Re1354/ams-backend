@@ -157,6 +157,14 @@ class AdmissionResult(models.Model):
         default=dict,
         help_text="Subject-wise breakdown of marks in JSON format"
     )
+    department_choices_snapshot = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Department choices used for this result. Legacy Scheduled exams "
+            "without choices receive their exam department as priority 1."
+        ),
+    )
     is_selected = models.BooleanField(
         default=False,
         help_text="True if total marks >= department threshold"

@@ -75,6 +75,9 @@ def build_department_results_filter(department_ids):
     department_q = Q(department_id__in=normalized_ids)
     for department_id in normalized_ids:
         department_q |= Q(
+            department_choices_snapshot__contains=[{"department_id": department_id}]
+        )
+        department_q |= Q(
             student__department_choices__contains=[{"department_id": department_id}]
         )
 
@@ -847,6 +850,9 @@ def get_admission_results(request):
             )
             fac_q = Q(department_id__in=fac_dept_ids)
             for d_id in fac_dept_ids:
+                fac_q |= Q(
+                    department_choices_snapshot__contains=[{"department_id": d_id}]
+                )
                 fac_q |= Q(student__department_choices__contains=[{"department_id": d_id}])
             fac_q |= (
                 (Q(student__department_choices=[]) | Q(student__department_choices__isnull=True))

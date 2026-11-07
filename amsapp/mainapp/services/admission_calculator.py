@@ -325,6 +325,64 @@ def normalize_department_choices(choices, fallback_department_id=None):
     return []
 
 
+def is_central_exam(exam):
+    """Classify explicit and pre-exam_type legacy Central exams consistently."""
+    if not exam:
+        return False
+    stored_exam_type = (getattr(exam, "exam_type", "") or "").upper()
+    department_label = (getattr(exam, "department", "") or "").strip().casefold()
+    return (
+        stored_exam_type == "CENTRAL"
+        or department_label == "central"
+        or department_label.startswith("central (")
+    )
+
+
+def get_effective_department_choices(
+    *,
+    student=None,
+    exam=None,
+    result=None,
+    fallback_department=None,
+):
+    """
+    Return the effective choices used by one result.
+
+    Explicit applicant choices are preserved. When a legacy Scheduled result
+    has no choices, it receives exactly one: the department in which that exam
+    was taken. Existing populated snapshots win so legacy and recalculated
+    result rows keep the choices already recorded for them.
+    """
+    if result is not None:
+        snapshot = normalize_department_choices(
+            getattr(result, "department_choices_snapshot", [])
+        )
+        if snapshot:
+            return snapshot
+
+    student = student or getattr(result, "student", None)
+    exam = exam or getattr(result, "exam", None)
+    explicit_choices = normalize_department_choices(
+        getattr(student, "department_choices", []) if student else []
+    )
+    if explicit_choices:
+        return explicit_choices
+    if is_central_exam(exam):
+        return []
+
+    scheduled_department = resolve_department_for_exam(exam) if exam else None
+    scheduled_department = scheduled_department or fallback_department
+    if scheduled_department is None and result is not None:
+        scheduled_department = getattr(result, "department", None)
+    if scheduled_department is None and student is not None:
+        scheduled_department = get_student_department(student)
+
+    scheduled_department_id = getattr(scheduled_department, "id", scheduled_department)
+    return normalize_department_choices(
+        [], fallback_department_id=scheduled_department_id
+    )
+
+
 def build_candidate_tiebreak_key(candidate, priority_subject_names=None):
     """
     Constructs a deterministic tuple key for candidate ranking and tie-breaking:
@@ -845,6 +903,12 @@ def recalculate_admission_result_record(
         }
 
     preserved_status = existing_result.status if existing_result else "PENDING"
+    department_choices_snapshot = get_effective_department_choices(
+        student=student,
+        exam=exam,
+        result=existing_result,
+        fallback_department=exam_department,
+    )
 
     admission_result, _ = AdmissionResult.objects.update_or_create(
         exam=exam,
@@ -859,6 +923,7 @@ def recalculate_admission_result_record(
             "weighted_total_marks": weighted["weighted_total_marks"],
             "attended_exam": attended_exam,
             "subject_wise_marks": subject_wise_marks,
+            "department_choices_snapshot": department_choices_snapshot,
             "is_selected": override_locked,
             "result_status": result_status,
             "threshold_applied": float(threshold_value),
@@ -986,7 +1051,9 @@ def apply_semester_result_statuses(
     )
 
     attended_candidates = list(
-        non_override.filter(attended_exam=True).select_related("student", "department")
+        non_override.filter(attended_exam=True).select_related(
+            "student", "department", "exam"
+        )
     )
 
     priority_subject_names = get_priority_subject_names_for_department(department)
@@ -1002,9 +1069,11 @@ def apply_semester_result_statuses(
 
         # Imported/legacy JSON can contain numeric IDs as strings. Normalize
         # before dictionary lookups so eligibility and allocation remain valid.
-        student_choices = normalize_department_choices(
-            candidate.student.department_choices if candidate.student else [],
-            fallback_department_id=candidate.department_id or primary_dept_id,
+        student_choices = get_effective_department_choices(
+            student=candidate.student,
+            exam=candidate.exam,
+            result=candidate,
+            fallback_department=candidate.department or department,
         )
 
         allocated_dept_id = None
