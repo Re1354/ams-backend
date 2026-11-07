@@ -59,6 +59,10 @@ from .admission_report import (
     get_student_admission_detail_report,
     download_student_admission_detail_report_pdf,
 )
+from .admission_report_signatories import (
+    admission_report_signatories,
+    admission_report_signatory_detail,
+)
 from .scrapper import upload_docx_scrape_multipart
 from .ai_scrapper import ai_scrape_upload
 
@@ -126,6 +130,8 @@ __all__ = [
     'add_viva_marks', 'delete_viva_marks',
     'get_student_admission_detail_report',
     'download_student_admission_detail_report_pdf',
+    'admission_report_signatories',
+    'admission_report_signatory_detail',
     'upload_docx_scrape_multipart',
     'ai_scrape_upload',
     'insert_scrapped_questions'
