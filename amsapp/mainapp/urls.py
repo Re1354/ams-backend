@@ -99,6 +99,10 @@ from .views.admission_report import (
     download_student_admission_detail_report_pdf,
     download_student_admission_reports_pdf_batch_zip,
 )
+from .views.admission_report_signatories import (
+    admission_report_signatories,
+    admission_report_signatory_detail,
+)
 from .api_info import api_info, home, server_time
 
 app_name = 'mainapp'
@@ -318,6 +322,8 @@ urlpatterns = [
     path('api/admission/reports/student/<int:exam_id>/<int:student_id>/', get_student_admission_detail_report, name='get-student-admission-detail-report'),
     path('api/admission/reports/student/<int:exam_id>/<int:student_id>/pdf/', download_student_admission_detail_report_pdf, name='download-student-admission-detail-report-pdf'),
     path('api/admission/reports/batch/pdf/', download_student_admission_reports_pdf_batch_zip, name='download-student-admission-reports-pdf-batch-zip'),
+    path('api/admission/report-signatories/', admission_report_signatories, name='admission-report-signatories'),
+    path('api/admission/report-signatories/<int:signatory_id>/', admission_report_signatory_detail, name='admission-report-signatory-detail'),
     path('api/admission/publish-results/', publish_admission_results, name='publish-admission-results'),
     path('api/admission/recalculate/<int:exam_id>/<int:student_id>/', recalculate_student_result, name='recalculate-student-result'),
     

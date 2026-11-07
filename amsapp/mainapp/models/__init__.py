@@ -26,6 +26,7 @@ from .faculty import Faculty
 from .faculties_departments import FacultyDepartment
 from .subject_faculty import SubjectFaculty
 from .subject_priority import SubjectPriority, SubjectPriorityMapping
+from .admission_report_signatory import AdmissionReportSignatory
 
 # Ergonomic alias for Students
 Student = Students
@@ -61,4 +62,5 @@ __all__ = [
     'FacultyDepartment',
     'SubjectPriority',
     'SubjectPriorityMapping',
+    'AdmissionReportSignatory',
 ]

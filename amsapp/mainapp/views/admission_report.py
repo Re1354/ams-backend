@@ -251,7 +251,12 @@ def normalize_faculty_label(value: str | None) -> str:
     if normalized:
         return normalized
 
-    return re.sub(r"^Faculty of\s+", "", text, flags=re.IGNORECASE).strip()
+    return re.sub(
+        r"^(?:Faculty\s+of\s+)+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
 
 
 def resolve_report_faculty_name(serialized_report: dict) -> str:

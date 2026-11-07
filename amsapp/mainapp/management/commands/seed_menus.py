@@ -195,6 +195,12 @@ class Command(BaseCommand):
                     'icon':'FileSearch',
                     'link':'/my-schedule',
                     'component':'MySchedule'
+                },
+                {
+                    'label': 'Report Signatories',
+                    'icon': 'UserCheck',
+                    'link': '/report-signatories',
+                    'component': 'ReportSignatories'
                 }
                
             ]
