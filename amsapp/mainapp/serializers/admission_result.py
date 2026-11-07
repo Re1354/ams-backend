@@ -243,10 +243,13 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField())
     def get_student_department_choices(self, obj):
-        from ..services.admission_calculator import normalize_department_choices
+        from ..services.admission_calculator import get_effective_department_choices
 
-        choices = normalize_department_choices(
-            obj.student.department_choices if obj.student else [],
+        choices = get_effective_department_choices(
+            student=obj.student,
+            exam=obj.exam,
+            result=obj,
+            fallback_department=obj.department,
         )
         dept_ids = [choice["department_id"] for choice in choices]
         from ..models import Department
@@ -299,10 +302,13 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
         sem_thresholds = cache.get(semester, {}) if semester else {}
 
         eligible = []
-        from ..services.admission_calculator import normalize_department_choices
+        from ..services.admission_calculator import get_effective_department_choices
 
-        choices = normalize_department_choices(
-            obj.student.department_choices if obj.student else [],
+        choices = get_effective_department_choices(
+            student=obj.student,
+            exam=obj.exam,
+            result=obj,
+            fallback_department=obj.department,
         )
 
         dept_cache = self.context.setdefault("_all_depts_map", None)

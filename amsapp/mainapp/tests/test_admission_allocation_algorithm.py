@@ -23,6 +23,7 @@ from ..services.admission_calculator import (
     build_candidate_tiebreak_key,
     calculate_admission_results,
     get_applicant_id_sort_key,
+    get_effective_department_choices,
     get_priority_subject_names_for_department,
 )
 from ..tokens import get_tokens_for_user
@@ -85,6 +86,93 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         )
 
         self.suffix = suffix
+
+    def test_effective_choices_align_scheduled_and_central_results(self):
+        """Scheduled results get one exam-department choice; Central keeps submitted choices."""
+        scheduled_student = Students.objects.create(
+            username=f"scheduled_choices_{self.suffix}",
+            f_id=f"SCH-{self.suffix}",
+            department_shortname="CSE",
+            registration_semester=self.semester,
+            department_choices=[],
+        )
+        scheduled_result = AdmissionResult.objects.create(
+            exam=self.exam,
+            student=scheduled_student,
+            department=self.dept_cse,
+            attended_exam=True,
+        )
+        self.assertEqual(
+            get_effective_department_choices(result=scheduled_result),
+            [{"department_id": self.dept_cse.id, "priority": 1}],
+        )
+        scheduled_data = AdmissionResultSerializer(scheduled_result).data
+        self.assertEqual(
+            scheduled_data["student_department_choices"],
+            [
+                {
+                    "department_id": self.dept_cse.id,
+                    "department_shortname": "CSE",
+                    "priority": 1,
+                }
+            ],
+        )
+        scheduled_response = self.client.get(
+            "/api/admission/results/",
+            {
+                "semester": self.semester,
+                "exam_type": "SCHEDULED",
+                "department_id": self.dept_cse.id,
+                "search": scheduled_student.username,
+                "is_admitted": "false",
+            },
+        )
+        self.assertEqual(scheduled_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(scheduled_response.data["count"], 1)
+        scheduled_row = scheduled_response.data["results"][0]
+        self.assertEqual(scheduled_row["id"], scheduled_result.id)
+        self.assertEqual(
+            scheduled_row["student_department_choices"],
+            [
+                {
+                    "department_id": self.dept_cse.id,
+                    "department_shortname": "CSE",
+                    "priority": 1,
+                }
+            ],
+        )
+
+        central_exam = Exam.objects.create(
+            department="Central (FSIT)",
+            semester=self.semester,
+            total_marks=100,
+            total_questions=50,
+            duration_minutes=60,
+            exam_type="CENTRAL",
+        )
+        central_student = Students.objects.create(
+            username=f"central_choices_{self.suffix}",
+            f_id=f"CTR-{self.suffix}",
+            department_shortname="SWE",
+            registration_semester=self.semester,
+            department_choices=[
+                {"department_id": self.dept_swe.id, "priority": 1},
+                {"department_id": self.dept_cse.id, "priority": 2},
+            ],
+        )
+        central_result = AdmissionResult.objects.create(
+            exam=central_exam,
+            student=central_student,
+            department=self.dept_swe,
+            attended_exam=True,
+        )
+        self.assertEqual(
+            get_effective_department_choices(result=central_result),
+            [
+                {"department_id": self.dept_swe.id, "priority": 1},
+                {"department_id": self.dept_cse.id, "priority": 2},
+            ],
+        )
 
     def test_multi_choice_choice1_full_choice2_allocated_and_waiting_for_choice1(self):
         """
