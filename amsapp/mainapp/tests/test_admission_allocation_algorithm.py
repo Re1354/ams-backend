@@ -25,6 +25,7 @@ from ..services.admission_calculator import (
     get_applicant_id_sort_key,
     get_effective_department_choices,
     get_priority_subject_names_for_department,
+    recalculate_admission_result_record,
 )
 from ..tokens import get_tokens_for_user
 
@@ -827,6 +828,91 @@ class AdmissionAllocationAlgorithmTests(APITestCase):
         # New applicant cannot displace admitted student; gets WAITING instead
         self.assertFalse(res_new.is_selected)
         self.assertEqual(res_new.result_status, "WAITING")
+
+    def test_accepted_result_data_is_locked_against_recalculation(self):
+        student = Students.objects.create(
+            username=f"locked_accepted_{self.suffix}",
+            full_name="Locked Accepted Student",
+            f_id="LOCK-1001",
+            department_shortname="CSE",
+            registration_semester=self.semester,
+        )
+        result = AdmissionResult.objects.create(
+            exam=self.exam,
+            student=student,
+            department=self.dept_cse,
+            configuration=self.config,
+            mcq_marks=42.0,
+            viva_marks=8.0,
+            weighted_total_marks=72.5,
+            threshold_applied=50.0,
+            attended_exam=True,
+            is_selected=True,
+            is_admitted=True,
+            result_status="SELECTED",
+            acceptance_snapshot={"weighted_total_marks": 72.5},
+        )
+
+        response = recalculate_admission_result_record(
+            exam=self.exam,
+            student=student,
+            exam_department=self.dept_cse,
+            configuration=self.config,
+            existing_result=result,
+            threshold_value=95.0,
+        )
+
+        self.assertTrue(response.get("accepted_locked"))
+        result.refresh_from_db()
+        self.assertEqual(result.weighted_total_marks, 72.5)
+        self.assertEqual(result.threshold_applied, 50.0)
+        self.assertTrue(result.is_admitted)
+
+    def test_accept_action_captures_permanent_report_snapshot(self):
+        DepartmentThreshold.objects.create(
+            department=self.dept_cse,
+            semester=self.semester,
+            min_threshold_mark=50.0,
+            seat_limit=2,
+            waiting_student_limit=2,
+        )
+        student = Students.objects.create(
+            username=f"snapshot_accepted_{self.suffix}",
+            full_name="Snapshot Student",
+            f_id="SNAP-1001",
+            department_shortname="CSE",
+            registration_semester=self.semester,
+        )
+        result = AdmissionResult.objects.create(
+            exam=self.exam,
+            student=student,
+            department=self.dept_cse,
+            configuration=self.config,
+            mcq_marks=40.0,
+            viva_marks=10.0,
+            weighted_total_marks=68.25,
+            threshold_applied=50.0,
+            attended_exam=True,
+            is_selected=True,
+            result_status="SELECTED",
+        )
+
+        response = self.client.post(
+            "/api/admission/results/bulk-status-update/",
+            {
+                "action": "SET_ADMITTED",
+                "configuration_id": self.config.id,
+                "student_ids": [student.id],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result.refresh_from_db()
+        self.assertTrue(result.is_admitted)
+        self.assertIsNotNone(result.accepted_at)
+        self.assertEqual(result.acceptance_snapshot["student_full_name"], "Snapshot Student")
+        self.assertEqual(result.acceptance_snapshot["weighted_total_marks"], 68.25)
 
     def test_allocation_idempotence(self):
         """

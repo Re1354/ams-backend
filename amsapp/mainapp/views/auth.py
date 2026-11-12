@@ -114,7 +114,7 @@ def login_view(request):
         access_token = refresh.access_token
         
         # Get user details
-        user_serializer = UserDetailSerializer(user)
+        user_serializer = UserDetailSerializer(user, context={'request': request})
         
         return Response({
             'success': True,
@@ -234,7 +234,7 @@ def verify_token_view(request):
         
         if user_id:
             user = User.objects.get(id=user_id)
-            user_serializer = UserDetailSerializer(user)
+            user_serializer = UserDetailSerializer(user, context={'request': request})
             
             return Response({
                 'success': True,

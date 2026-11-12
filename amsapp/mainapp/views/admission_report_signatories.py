@@ -19,7 +19,7 @@ def _custom_user(request):
 
 def _accessible_signatories(request):
     queryset = AdmissionReportSignatory.objects.select_related(
-        "department", "faculty"
+        "department", "faculty", "affiliation_department"
     )
     scope = get_user_access_scope(_custom_user(request))
     if scope["is_global"]:

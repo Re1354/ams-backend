@@ -159,6 +159,8 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "is_selected",
             "is_override_accepted",
             "is_admitted",
+            "accepted_at",
+            "acceptance_snapshot",
             "result_status",
             "status",
             "threshold_applied",
@@ -189,7 +191,20 @@ class AdmissionResultSerializer(serializers.ModelSerializer):
             "total_marks",
             "written_viva_total",
             "weighted_total_marks",
+            "accepted_at",
+            "acceptance_snapshot",
         ]
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        snapshot = instance.acceptance_snapshot or {}
+        if instance.is_admitted and snapshot:
+            # Accepted reports are historical records. Return their captured
+            # values even if source student/exam/configuration rows later change.
+            for field, value in snapshot.items():
+                if field not in {"acceptance_snapshot", "accepted_at"}:
+                    representation[field] = value
+        return representation
 
     @extend_schema_field(serializers.DictField())
     def get_exam_details(self, obj):

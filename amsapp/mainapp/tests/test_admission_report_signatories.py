@@ -42,6 +42,10 @@ class AdmissionReportSignatoryTests(APITestCase):
             faculty=self.faculty,
             department_ids=[self.department.id],
         )
+        self.convenor_department = Department.objects.create(
+            department_name=f"Department of Software Engineering {suffix}",
+            department_shortname=f"SWE-{suffix}",
+        )
 
     def test_upserts_and_filters_department_and_faculty_signatories(self):
         payloads = [
@@ -50,6 +54,7 @@ class AdmissionReportSignatoryTests(APITestCase):
                 "name": "Convenor Name",
                 "designation": "Assistant Professor",
                 "department": self.department.id,
+                "affiliation_department": self.convenor_department.id,
                 "faculty": None,
             },
             {
@@ -98,6 +103,10 @@ class AdmissionReportSignatoryTests(APITestCase):
             1,
         )
         self.assertEqual(update_response.data["data"]["name"], "Updated Convenor")
+        self.assertEqual(
+            update_response.data["data"]["affiliation_department"],
+            self.convenor_department.id,
+        )
 
     def test_faculty_label_removes_repeated_prefixes(self):
         self.assertEqual(

@@ -141,6 +141,39 @@ def is_threshold_qualified(result):
     )
 
 
+def permanently_accept_result(result):
+    """Accept a result once and preserve the exact report payload forever."""
+    if not result.accepted_at:
+        result.accepted_at = timezone.now()
+    result.is_admitted = True
+    result.is_selected = True
+    result.result_status = "SELECTED"
+    result.waiting_department = None
+    result.save(
+        update_fields=[
+            "accepted_at",
+            "is_admitted",
+            "is_selected",
+            "result_status",
+            "waiting_department",
+            "updated_at",
+        ]
+    )
+
+    if not result.acceptance_snapshot:
+        snapshot = dict(AdmissionResultSerializer(result).data)
+        snapshot.pop("acceptance_snapshot", None)
+        submitted_at = (
+            Submission.objects.filter(student=result.student, exam=result.exam)
+            .order_by("-submitted_at")
+            .values_list("submitted_at", flat=True)
+            .first()
+        )
+        snapshot["exam_taken_at"] = submitted_at.isoformat() if submitted_at else None
+        result.acceptance_snapshot = snapshot
+        result.save(update_fields=["acceptance_snapshot", "updated_at"])
+
+
 def filter_visible_results_by_exam_schedule(results):
     """
     Hide unattempted assigned candidates until their assigned schedule has ended.
@@ -1183,8 +1216,14 @@ def bulk_update_admission_result_status(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Rows are already SELECTED and hold their seats; no recalc needed.
-        queryset.update(is_admitted=True, waiting_department=None)
+        # Store an immutable report snapshot. Later threshold or marks changes
+        # cannot alter accepted-student reports.
+        with transaction.atomic():
+            locked_results = queryset.select_for_update(of=("self",)).select_related(
+                "exam", "student", "department", "configuration"
+            )
+            for result in locked_results:
+                permanently_accept_result(result)
         message = f"Accepted {len(results)} candidates for admission."
     elif action == "SET_STATUS":
         if target_status == "SELECTED":
@@ -1208,17 +1247,20 @@ def bulk_update_admission_result_status(request):
 
         with transaction.atomic():
             if target_status == "SELECTED":
-                queryset.update(
-                    result_status=target_status,
-                    is_override_accepted=True,
-                    is_admitted=True,
-                    waiting_department=None,
+                locked_results = queryset.select_for_update(of=("self",)).select_related(
+                    "exam", "student", "department", "configuration"
                 )
+                for result in locked_results:
+                    result.is_override_accepted = True
+                    result.save(update_fields=["is_override_accepted", "updated_at"])
+                    permanently_accept_result(result)
             elif target_status == "WAITING":
                 queryset.update(
                     result_status=target_status,
                     is_override_accepted=False,
                     is_admitted=False,
+                    accepted_at=None,
+                    acceptance_snapshot={},
                     is_selected=False,
                     waiting_department=F("department"),
                 )
@@ -1227,6 +1269,8 @@ def bulk_update_admission_result_status(request):
                     result_status=target_status,
                     is_override_accepted=False,
                     is_admitted=False,
+                    accepted_at=None,
+                    acceptance_snapshot={},
                     is_selected=False,
                     waiting_department=None,
                 )
@@ -1240,6 +1284,8 @@ def bulk_update_admission_result_status(request):
                 result.result_status = resolve_reverted_status(result)
                 result.is_override_accepted = False
                 result.is_admitted = False
+                result.accepted_at = None
+                result.acceptance_snapshot = {}
                 result.is_selected = False
                 result.waiting_department = None
                 result.save(
@@ -1247,6 +1293,8 @@ def bulk_update_admission_result_status(request):
                         "result_status",
                         "is_override_accepted",
                         "is_admitted",
+                        "accepted_at",
+                        "acceptance_snapshot",
                         "is_selected",
                         "waiting_department",
                         "updated_at",

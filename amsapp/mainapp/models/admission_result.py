@@ -113,6 +113,16 @@ class AdmissionResult(models.Model):
         default=False,
         help_text="True if admission is confirmed; survives recalculation and holds a seat"
     )
+    accepted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this result was permanently accepted for admission",
+    )
+    acceptance_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Immutable report data captured when the candidate was accepted",
+    )
     viva_given = models.BooleanField(
         default=True,
         help_text="Display flag: show viva marks vs 'Not Given' on result boards"

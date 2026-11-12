@@ -37,11 +37,37 @@ class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password', 'role_id', 'role_name', 'department_id', 'department_name', 'faculty_id', 'faculty_name', 'access_type', 'is_global_access', 'created_at']
+        fields = [
+            'id', 'username', 'email', 'password', 'image', 'employee_id',
+            'full_name', 'designation', 'personal_email', 'university_email',
+            'contact', 'role_id', 'role_name', 'department_id',
+            'department_name', 'faculty_id', 'faculty_name', 'access_type',
+            'is_global_access', 'created_at',
+        ]
         read_only_fields = ['id', 'created_at', 'role_name', 'department_name', 'faculty_name']
         extra_kwargs = {
-            'password': {'write_only': True}
+            'password': {'write_only': True},
+            'email': {'required': False},
+            'university_email': {'required': False},
         }
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if attrs.get('employee_id') == '':
+            attrs['employee_id'] = None
+        if attrs.get('personal_email') == '':
+            attrs['personal_email'] = None
+        university_email = attrs.get('university_email') or attrs.get('email')
+        if not self.instance and not university_email:
+            raise serializers.ValidationError({
+                'university_email': 'University email is required.'
+            })
+        if university_email:
+            # Keep the legacy email field in sync for authentication clients
+            # that still read `email`.
+            attrs['university_email'] = university_email
+            attrs['email'] = university_email
+        return attrs
     
     def validate_username(self, value):
         """Validate username is unique"""
@@ -78,7 +104,7 @@ class UserSerializer(serializers.ModelSerializer):
     
     def validate_department_id(self, value):
         """Validate department exists"""
-        if value is not None:
+        if value not in (None, 0):
             try:
                 Department.objects.get(id=value)
             except Department.DoesNotExist:
@@ -87,7 +113,7 @@ class UserSerializer(serializers.ModelSerializer):
         
     def validate_faculty_id(self, value):
         """Validate faculty exists"""
-        if value is not None:
+        if value not in (None, 0):
             try:
                 Faculty.objects.get(id=value)
             except Faculty.DoesNotExist:
@@ -224,5 +250,10 @@ class UserDetailSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'created_at', 'role_details', 'department_details', 'faculty_details', 'access_type', 'is_global_access']
+        fields = [
+            'id', 'username', 'email', 'image', 'employee_id', 'full_name',
+            'designation', 'personal_email', 'university_email', 'contact',
+            'created_at', 'role_details', 'department_details',
+            'faculty_details', 'access_type', 'is_global_access',
+        ]
         read_only_fields = ['id', 'username', 'email', 'created_at']

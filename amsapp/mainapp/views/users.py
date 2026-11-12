@@ -95,19 +95,27 @@ def get_all_users(request):
         else:
             users = User.objects.none()
 
-    # Search filtering (ID, username, email)
+    # Search filtering across account and profile fields.
     search_query = request.query_params.get('search', '').strip()
     if search_query:
         if search_query.isdigit():
             users = users.filter(
                 Q(id=int(search_query)) |
                 Q(username__icontains=search_query) |
-                Q(email__icontains=search_query)
+                Q(email__icontains=search_query) |
+                Q(employee_id__icontains=search_query) |
+                Q(full_name__icontains=search_query) |
+                Q(personal_email__icontains=search_query) |
+                Q(contact__icontains=search_query)
             )
         else:
             users = users.filter(
                 Q(username__icontains=search_query) |
-                Q(email__icontains=search_query)
+                Q(email__icontains=search_query) |
+                Q(employee_id__icontains=search_query) |
+                Q(full_name__icontains=search_query) |
+                Q(personal_email__icontains=search_query) |
+                Q(contact__icontains=search_query)
             )
 
     # Filter: role / role_id
@@ -144,7 +152,7 @@ def get_all_users(request):
             users = users.filter(is_global_access=False)
 
     users = users.select_related('role', 'department', 'faculty').order_by('id')
-    serializer = UserDetailSerializer(users, many=True)
+    serializer = UserDetailSerializer(users, many=True, context={'request': request})
     
     return Response({
         'success': True,
@@ -354,7 +362,7 @@ def get_user_by_id(request, user_id):
     """
     try:
         user = User.objects.select_related('role').get(id=user_id)
-        serializer = UserDetailSerializer(user)
+        serializer = UserDetailSerializer(user, context={'request': request})
         
         return Response({
             'success': True,
@@ -663,7 +671,7 @@ def get_all_teachers(request):
             teachers = User.objects.none()
             
     teachers = teachers.select_related('role', 'department', 'faculty').order_by('id')
-    serializer = UserDetailSerializer(teachers, many=True)
+    serializer = UserDetailSerializer(teachers, many=True, context={'request': request})
     
     return Response({
         'success': True,

@@ -23,6 +23,14 @@ class AdmissionReportSignatory(models.Model):
         null=True,
         blank=True,
     )
+    affiliation_department = models.ForeignKey(
+        "mainapp.Department",
+        on_delete=models.SET_NULL,
+        related_name="affiliated_admission_report_signatories",
+        null=True,
+        blank=True,
+        help_text="The signatory's own department when it differs from the report department",
+    )
     faculty = models.ForeignKey(
         "mainapp.Faculty",
         on_delete=models.CASCADE,
@@ -54,7 +62,7 @@ class AdmissionReportSignatory(models.Model):
         self.name = (self.name or "").strip()
         self.designation = (self.designation or "").strip()
         if self.role == self.ROLE_DEAN:
-            if not self.faculty_id or self.department_id:
+            if not self.faculty_id or self.department_id or self.affiliation_department_id:
                 raise ValidationError(
                     "A faculty dean requires a faculty and cannot be linked to a department."
                 )
@@ -63,6 +71,8 @@ class AdmissionReportSignatory(models.Model):
                 raise ValidationError(
                     "Convenor and department-head records require a department and cannot be linked to a faculty."
                 )
+            if self.role == self.ROLE_DEPARTMENT_HEAD:
+                self.affiliation_department = None
 
     def save(self, *args, **kwargs):
         self.full_clean()

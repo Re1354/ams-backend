@@ -828,6 +828,18 @@ def recalculate_admission_result_record(
     student_submissions=None,
     threshold_value=None,
 ):
+    # Accepted records are historical report records. Once accepted, none of
+    # their marks, threshold, allocation, or student snapshot data may be
+    # rewritten by a later threshold/configuration recalculation.
+    if existing_result and existing_result.is_admitted:
+        return {
+            "success": True,
+            "result": existing_result,
+            "distribution_found": True,
+            "warning": None,
+            "accepted_locked": True,
+        }
+
     exam_department = exam_department or resolve_department_for_exam(exam)
     if not exam_department:
         return {
