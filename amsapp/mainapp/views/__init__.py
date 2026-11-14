@@ -20,7 +20,15 @@ from .student_app import (
 )
 from .auth import login_view, refresh_token_view, verify_token_view
 from .roles import get_all_roles, create_role, get_role_by_id, update_role, delete_role
-from .users import get_all_users, create_user, get_user_by_id, update_user, delete_user, get_all_teachers
+from .users import (
+    current_user_profile,
+    get_all_users,
+    create_user,
+    get_user_by_id,
+    update_user,
+    delete_user,
+    get_all_teachers,
+)
 from .faculty import (
     get_all_faculties, create_faculty, get_faculty_by_id,
     update_faculty_full, update_faculty_partial, delete_faculty
@@ -93,7 +101,8 @@ __all__ = [
     'get_all_roles', 'create_role', 'get_role_by_id', 'update_role', 'delete_role',
     
     # Users
-    'get_all_users', 'create_user', 'get_user_by_id', 'update_user', 'delete_user', 'get_all_teachers',
+    'current_user_profile', 'get_all_users', 'create_user', 'get_user_by_id',
+    'update_user', 'delete_user', 'get_all_teachers',
     
     # Faculties
     'get_all_faculties', 'create_faculty', 'get_faculty_by_id',

@@ -1,13 +1,62 @@
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    parser_classes,
+    permission_classes,
+)
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from drf_spectacular.openapi import OpenApiParameter
 from django.db.models import Q
 from ..serializers import UserSerializer, UserDetailSerializer
+from ..serializers.auth import CurrentUserProfileSerializer
 from ..models import User
 from ..authentication import CustomJWTAuthentication
+
+
+@extend_schema(
+    operation_id='current_user_profile',
+    tags=['Users'],
+    summary='View or update the authenticated user profile',
+    request=CurrentUserProfileSerializer,
+    responses={200: UserDetailSerializer},
+)
+@api_view(['GET', 'PATCH', 'PUT'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([CustomJWTAuthentication])
+@parser_classes([JSONParser, FormParser, MultiPartParser])
+def current_user_profile(request):
+    """Return or update only the currently authenticated user's profile."""
+    user = getattr(request.user, 'custom_user', request.user)
+
+    if request.method == 'GET':
+        return Response({
+            'success': True,
+            'data': UserDetailSerializer(user, context={'request': request}).data,
+        })
+
+    serializer = CurrentUserProfileSerializer(
+        user,
+        data=request.data,
+        partial=True,
+        context={'request': request},
+    )
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'message': 'Validation error',
+            'errors': serializer.errors,
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    serializer.save()
+    return Response({
+        'success': True,
+        'message': 'Profile updated successfully',
+        'data': UserDetailSerializer(user, context={'request': request}).data,
+    })
 
 
 @extend_schema(

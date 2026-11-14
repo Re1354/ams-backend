@@ -7,7 +7,8 @@ from .views import (
     student_login, StudentAvailableExamsView, StudentExamQuestionsView, 
     submit_exam, save_answer, get_draft_answers, get_exam_result, get_student_scheduled_exams, get_student_schedule, login_view, refresh_token_view, verify_token_view,
     get_all_roles, create_role, get_role_by_id, update_role, delete_role,
-    get_all_users, create_user, get_user_by_id, update_user, delete_user, get_all_teachers
+    current_user_profile, get_all_users, create_user, get_user_by_id,
+    update_user, delete_user, get_all_teachers
 )
 from .views import upload_docx_scrape_multipart
 from .views import ai_scrape_upload
@@ -168,6 +169,7 @@ urlpatterns = [
     path('api/roles/<int:role_id>/delete/', delete_role, name='delete-role'),
     
     # Users API
+    path('api/users/profile/', current_user_profile, name='current-user-profile'),
     path('api/users/', get_all_users, name='get-all-users'),
     path('api/users/teachers/', get_all_teachers, name='get-all-teachers'),
     path('api/users/create/', create_user, name='create-user'),

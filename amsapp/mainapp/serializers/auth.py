@@ -243,7 +243,10 @@ class LoginSerializer(serializers.Serializer):
 
 class UserDetailSerializer(serializers.ModelSerializer):
     """Detailed serializer for user with role and department information"""
-    
+
+    # Return a host-independent path. The frontend resolves it against its API
+    # base URL, avoiding HTTP/HTTPS proxy mismatches in production.
+    image = serializers.SerializerMethodField()
     role_details = RoleSerializer(source='role', read_only=True)
     department_details = DepartmentSerializer(source='department', read_only=True)
     faculty_details = FacultySerializer(source='faculty', read_only=True)
@@ -257,3 +260,61 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'faculty_details', 'access_type', 'is_global_access',
         ]
         read_only_fields = ['id', 'username', 'email', 'created_at']
+
+    def get_image(self, obj):
+        return obj.image.url if obj.image else None
+
+
+class CurrentUserProfileSerializer(serializers.ModelSerializer):
+    """Fields an authenticated user may safely maintain on their own profile."""
+
+    image = serializers.FileField(required=False, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'image', 'employee_id', 'full_name', 'designation',
+            'personal_email', 'university_email', 'contact',
+        ]
+        extra_kwargs = {
+            'employee_id': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'personal_email': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'university_email': {'required': False, 'allow_null': True, 'allow_blank': True},
+        }
+
+    def validate_image(self, value):
+        if value is None:
+            return value
+
+        content_type = str(getattr(value, 'content_type', '') or '').lower()
+        allowed_types = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+        if content_type not in allowed_types:
+            raise serializers.ValidationError('Upload a JPG, PNG, WEBP, or GIF image.')
+        if getattr(value, 'size', 0) > 5 * 1024 * 1024:
+            raise serializers.ValidationError('Profile image must be 5 MB or smaller.')
+        return value
+
+    def validate_employee_id(self, value):
+        normalized = str(value or '').strip() or None
+        if normalized and User.objects.filter(employee_id=normalized).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Employee ID already exists.')
+        return normalized
+
+    def validate_university_email(self, value):
+        normalized = str(value or '').strip().lower() or None
+        if normalized and User.objects.filter(university_email__iexact=normalized).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('University email already exists.')
+        if normalized and User.objects.filter(email__iexact=normalized).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Email already exists.')
+        return normalized
+
+    def validate_personal_email(self, value):
+        return str(value or '').strip().lower() or None
+
+    def update(self, instance, validated_data):
+        university_email = validated_data.get('university_email', serializers.empty)
+        if university_email is not serializers.empty and university_email:
+            # Keep the legacy account email synchronized with the university
+            # email used throughout the current frontend.
+            validated_data['email'] = university_email
+        return super().update(instance, validated_data)

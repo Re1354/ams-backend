@@ -45,12 +45,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      # Keep uploaded profile images across image rebuilds/redeployments.
+      - media_data:/app/amsapp/media
     networks:
       - internal   # to reach postgres
       - web        # to be reached by nginx-proxy
 
 volumes:
   pgdata:
+  media_data:
 
 networks:
   internal:
