@@ -32,6 +32,7 @@ media/
 
 # Environment variables
 .env
+.env.*
 .venv
 env/
 venv/
