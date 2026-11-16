@@ -11,7 +11,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: "postgresql://ams_diu_db_tat_user:UQ2WK781RcENDFiyS85gA7W7a2zsn2iP@dpg-db1r46ks728c73dq2lv0-a/ams_diu_db_tat"
+        value: "postgresql://root:p1zFJz7SAfXQN10s6MT511iDL3MuSLOm@dpg-dbtj1lm1egvs73b37ib0-a/ams_db_gneg"
       - key: ALLOWED_HOSTS
         value: "*"
       - key: CORS_ALLOW_ALL_ORIGINS
