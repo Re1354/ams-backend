@@ -12,43 +12,19 @@ class Command(BaseCommand):
         with transaction.atomic():
             superadmin_role, _ = Role.objects.get_or_create(role_name='superadmin')
 
-            defaults = {
-                'email': 'admin@example.com',
-                'password': make_password('S_admin@diu123'),
-                'role': superadmin_role,
-            }
-
+            # Ensure Super-Admin user 'admin' with password 'admin123' exists
             admin_user, created = User.objects.get_or_create(
-                username='s_admin',
-                defaults=defaults,
-            )
-
-            if not created:
-                updated_fields = []
-                if admin_user.email != defaults['email']:
-                    admin_user.email = defaults['email']
-                    updated_fields.append('email')
-                if admin_user.role_id != superadmin_role.id:
-                    admin_user.role = superadmin_role
-                    updated_fields.append('role')
-                if updated_fields:
-                    admin_user.save(update_fields=updated_fields)
-
-            if created:
-                self.stdout.write(self.style.SUCCESS('Created admin user and ensured superadmin role exists'))
-            else:
-                self.stdout.write(self.style.SUCCESS('Admin user already exists and was verified'))
-
-            # Also ensure demo admin user exists
-            admin_demo, created_demo = User.objects.get_or_create(
                 username='admin',
                 defaults={
-                    'email': 'superadmin@diu.edu.bd',
+                    'email': 'admin@diu.edu.bd',
                     'password': make_password('admin123'),
                     'role': superadmin_role,
                 },
             )
-            if not created_demo:
-                if admin_demo.role_id != superadmin_role.id:
-                    admin_demo.role = superadmin_role
-                    admin_demo.save(update_fields=['role'])
+
+            if not created:
+                admin_user.password = make_password('admin123')
+                admin_user.role = superadmin_role
+                admin_user.save(update_fields=['password', 'role'])
+
+            self.stdout.write(self.style.SUCCESS("Super-Admin credentials verified: admin / admin123"))
