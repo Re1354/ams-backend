@@ -28,7 +28,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-@ty&y^t+k!c5!2r1!j!hx
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver', '.vercel.app', '*.onrender.com', 'ams-diu-backend.vercel.app', 'ams-diu-backend-omega.vercel.app', 'ams-diu-student-omega.vercel.app', 'ams-diu-backend-l1ag.onrender.com', 'ams-diu-backend.onrender.com','ams-diu-frontend-ypew.vercel.app','ams-diu-student-16bv.vercel.app','admin.tatomal.me','student.tatomal.me','api.tatomal.me','student.tatomal.me']
+ALLOWED_HOSTS = ['*'] if config('ALLOWED_HOSTS', default='*') == '*' else [h.strip() for h in config('ALLOWED_HOSTS').split(',') if h.strip()]
 
 # Application definition
 
@@ -250,9 +250,12 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 
-# TEMPORARY: allow all origins while testing local/frontend forwarding.
-# Revert to the env-based line before production deployment.
-CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
+# Allow all origins by default for testing / smooth frontend connection
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.vercel\.app$",
+    r"^https:\/\/.*\.onrender\.com$",
+]
 
 # JWT Settings
 from datetime import timedelta
