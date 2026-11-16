@@ -96,7 +96,7 @@ DATABASES = {
 # Override with DATABASE_URL if provided.
 DATABASE_URL = config(
     'DATABASE_URL',
-    default='postgresql://amsadmin:local_dev_password_123@127.0.0.1:5432/amsdiudb'
+    default='postgresql://root:p1zFJz7SAfXQN10s6MT511iDL3MuSLOm@dpg-dbtj1lm1egvs73b37ib0-a/ams_db_gneg'
 )
 if DATABASE_URL:
     DATABASES['default'] = dj_database_url.parse(DATABASE_URL, conn_max_age=600)

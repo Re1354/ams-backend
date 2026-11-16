@@ -2,7 +2,11 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    DATABASE_URL=postgresql://root:p1zFJz7SAfXQN10s6MT511iDL3MuSLOm@dpg-dbtj1lm1egvs73b37ib0-a/ams_db_gneg \
+    ALLOWED_HOSTS=* \
+    CORS_ALLOW_ALL_ORIGINS=True \
+    DEBUG=False
 
 WORKDIR /app
 
