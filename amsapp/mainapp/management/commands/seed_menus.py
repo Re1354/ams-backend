@@ -201,8 +201,14 @@ class Command(BaseCommand):
                     'icon': 'UserCheck',
                     'link': '/report-signatories',
                     'component': 'ReportSignatories'
+                },
+                {
+                    'label': 'Proctoring',
+                    'icon': 'Eye',
+                    'link': '/proctoring',
+                    'component': 'ProctoringDashboard'
                 }
-               
+
             ]
 
             # Create or update menus using component as the stable identity
