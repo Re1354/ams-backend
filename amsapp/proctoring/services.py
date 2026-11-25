@@ -83,6 +83,7 @@ def start_or_resume(
             .first()
         )
         if active:
+            _attach_login_unlocks(active, consent_at)
             return active, False
         if ProctorSession.objects.filter(student=student, exam=exam).exists():
             raise SessionFinished("This exam is already finished.")
@@ -98,7 +99,17 @@ def start_or_resume(
             user_agent=user_agent[:500],
             token=secrets.token_hex(20),
         )
+        _attach_login_unlocks(session, consent_at)
         return session, True
+
+
+def _attach_login_unlocks(session: ProctorSession, consent_at: datetime | None) -> None:
+    """Support unlocks given in this login before the exam (they last until logout) belong in its report."""
+    if consent_at is None:
+        return
+    UnlockEvent.objects.filter(
+        student_id=session.student_id, session__isnull=True, created_at__gte=consent_at
+    ).update(session=session)
 
 
 def _clamp(occurred_at: datetime | None, session: ProctorSession) -> datetime:

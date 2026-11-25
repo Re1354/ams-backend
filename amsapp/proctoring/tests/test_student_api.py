@@ -244,6 +244,19 @@ class UnlockTests(ApiTestBase):
         self.assertEqual(flag.detail, {"purpose": "camera"})
         self.assertEqual(ProctorSession.objects.get(pk=sid).flag_count, 0)
 
+    def test_unlocks_from_this_login_are_attached_to_the_exam_session(self):
+        services.set_unlock_code("support-2027", make_user())
+        earlier_login = UnlockEvent.objects.create(student=self.student, purpose="camera")
+        UnlockEvent.objects.filter(pk=earlier_login.pk).update(created_at=timezone.now() - timedelta(hours=3))
+        consent_at = timezone.now() - timedelta(minutes=10)
+        self.assertEqual(self.unlock("support-2027").status_code, 200)
+
+        sid = self.start(consent_at=consent_at.isoformat()).json()["session_id"]
+
+        attached = UnlockEvent.objects.filter(session_id=sid)
+        self.assertEqual(list(attached.values_list("purpose", flat=True)), ["fullscreen"])
+        self.assertIsNone(UnlockEvent.objects.get(pk=earlier_login.pk).session_id)
+
     def test_unlock_wrong_code_reports_tries_left(self):
         services.set_unlock_code("support-2027", make_user())
         res = self.unlock("wrong")
