@@ -1172,7 +1172,10 @@ def bulk_update_admission_result_status(request):
 
     from proctoring.conduct import banned_usernames
 
-    banned_candidates = banned_usernames(results)
+    # Only actions that could lift a banned student are refused; marking Not
+    # Selected or reverting keeps the ban (the recalculation enforces it).
+    lifts_ban = action == "SET_ADMITTED" or (action == "SET_STATUS" and target_status in ("SELECTED", "WAITING"))
+    banned_candidates = banned_usernames(results) if lifts_ban else []
     if banned_candidates:
         return Response(
             {

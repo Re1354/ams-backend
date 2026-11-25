@@ -183,6 +183,31 @@ class OverrideGuardTests(SemesterScenario):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(self.status_of("s60"), "SELECTED")
 
+    def test_mark_not_selected_works_with_a_banned_student_in_the_selection(self):
+        self.calc()
+        self.ban("s90")
+        self.calc()
+        res = self.bulk(["s90", "s60"], action="SET_STATUS", result_status="REJECTED")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.status_of("s90"), "REJECTED")
+        self.assertEqual(self.status_of("s60"), "REJECTED")
+
+    def test_revert_keeps_a_banned_student_not_selected(self):
+        self.calc()
+        self.ban("s90")
+        self.calc()
+        res = self.bulk(["s90"], action="REVERT_TO_STORED_STATUS")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.status_of("s90"), "REJECTED")
+
+    def test_waiting_refused_for_banned(self):
+        self.calc()
+        self.ban("s90")
+        self.calc()
+        res = self.bulk(["s90"], action="SET_STATUS", result_status="WAITING")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(self.status_of("s90"), "REJECTED")
+
     def test_admit_refused_for_banned(self):
         self.calc()
         self.ban("s90")
