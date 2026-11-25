@@ -1076,6 +1076,9 @@ def get_admission_results(request):
     paginator = AdmissionResultsPagination()
     page = paginator.paginate_queryset(results, request)
     serializer = AdmissionResultSerializer(page if page is not None else results, many=True)
+    from proctoring.conduct import attach_exam_conduct
+
+    attach_exam_conduct(serializer.data, page if page is not None else results)
 
     if page is not None:
         response = paginator.get_paginated_response(serializer.data)
@@ -1165,6 +1168,19 @@ def bulk_update_admission_result_status(request):
         return Response(
             {"success": False, "message": "No admission results matched the requested students."},
             status=status.HTTP_404_NOT_FOUND,
+        )
+
+    from proctoring.conduct import banned_usernames
+
+    banned_candidates = banned_usernames(results)
+    if banned_candidates:
+        return Response(
+            {
+                "success": False,
+                "message": "This student is banned in Proctoring. Unban first.",
+                "banned_candidates": banned_candidates,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
     configuration = results[0].configuration

@@ -1035,9 +1035,18 @@ def apply_semester_result_statuses(
     # Pre-seed available remaining seats per department
     remaining_seats = {d_id: max(0, dept_seat_limits[d_id]) for d_id in dept_seat_limits}
 
+    # Students banned in Proctoring are always Not Selected (REJECTED) and take no
+    # seat or waiting place. With no active bans this set is empty and nothing changes.
+    from proctoring.conduct import active_ban_student_ids
+
+    banned_student_ids = active_ban_student_ids(exams)
+    banned_not_admitted = Q(student_id__in=banned_student_ids, is_admitted=False)
+
     # Admitted and override-accepted candidates hold their allocated seats:
     # forced SELECTED and deducted from remaining seat capacity before merit selection.
-    protected_qs = results.filter(Q(is_override_accepted=True) | Q(is_admitted=True))
+    protected_qs = results.filter(Q(is_override_accepted=True) | Q(is_admitted=True)).exclude(
+        banned_not_admitted
+    )
     protected_qs.exclude(result_status="SELECTED").update(result_status="SELECTED")
     protected_qs.update(is_selected=True)
     protected_count = protected_qs.count()
@@ -1047,7 +1056,7 @@ def apply_semester_result_statuses(
         if p_dept_id in remaining_seats:
             remaining_seats[p_dept_id] = max(0, remaining_seats[p_dept_id] - 1)
 
-    non_override = results.filter(is_override_accepted=False, is_admitted=False)
+    non_override = results.filter(Q(is_override_accepted=False, is_admitted=False) | banned_not_admitted)
 
     # One exam per student per semester: a non-attended row for a student who
     # submitted a DIFFERENT exam this semester is a stray duplicate. Delete it.
@@ -1077,6 +1086,14 @@ def apply_semester_result_statuses(
     to_update = []
 
     for candidate in attended_candidates:
+        if candidate.student_id in banned_student_ids:
+            candidate.is_selected = False
+            candidate.result_status = "REJECTED"
+            candidate.waiting_department = None
+            candidate.threshold_applied = threshold_value
+            to_update.append(candidate)
+            continue
+
         score = float(candidate.weighted_total_marks or 0.0)
 
         # Imported/legacy JSON can contain numeric IDs as strings. Normalize

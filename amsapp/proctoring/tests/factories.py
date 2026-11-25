@@ -93,7 +93,7 @@ def make_student(username=None, department_shortname="CSE", department_choices=N
         f_id=f"F-{s}",
         full_name=extra.pop("full_name", f"Applicant {s}"),
         department_shortname=department_shortname,
-        registration_semester="Fall 2026",
+        registration_semester=extra.pop("registration_semester", "Fall 2026"),
         department_choices=department_choices or [],
         **extra,
     )

@@ -102,3 +102,33 @@ def scope_sessions(queryset, scope: dict):
     if scope.get("is_global"):
         return queryset
     return queryset.filter(student_scope_q(scope.get("department_ids") or []))
+
+
+def banned_usernames(results) -> list[str]:
+    """Usernames of students (in these AdmissionResult rows) with an active ban."""
+    from mainapp.models import Exam
+
+    exams = Exam.objects.filter(id__in={r.exam_id for r in results})
+    banned = active_ban_student_ids(exams)
+    return [r.student.username for r in results if r.student_id in banned]
+
+
+def attach_exam_conduct(rows, results) -> None:
+    """Add a read-only `exam_conduct` to each serialized AdmissionResult row (same order).
+
+    Never breaks the result boards: on any error rows get "not monitored".
+    """
+    import logging
+
+    from mainapp.models import Exam
+
+    results = list(results)
+    fallback = {"status": NOT_MONITORED, "flag_count": 0, "session_id": None}
+    try:
+        exams = list(Exam.objects.filter(id__in={r.exam_id for r in results}))
+        mapping = conduct_for({r.student_id for r in results}, exams)
+    except Exception as exc:  # proctoring tables missing or similar: keep results working
+        logging.getLogger(__name__).warning("exam conduct unavailable: %s", exc)
+        mapping = {}
+    for row, result in zip(rows, results):
+        row["exam_conduct"] = mapping.get((result.student_id, result.exam_id), fallback)
