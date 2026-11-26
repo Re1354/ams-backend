@@ -12,5 +12,5 @@ class MainAppDiscoverRunner(DiscoverRunner):
 
     def build_suite(self, test_labels=None, **kwargs):
         if not test_labels:
-            test_labels = ["mainapp.tests"]
+            test_labels = ["mainapp.tests", "proctoring.tests"]
         return super().build_suite(test_labels, **kwargs)

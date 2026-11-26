@@ -189,6 +189,12 @@ class Command(BaseCommand):
                     'link': '/all-results',
                     'component': 'AllResults'
                 },
+                {
+                    'label': 'Proctoring',
+                    'icon': 'Eye',
+                    'link': '/proctoring',
+                    'component': 'ProctoringDashboard'
+                },
 
                 # Users & Roles
                 {

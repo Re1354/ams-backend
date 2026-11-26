@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'drf_spectacular',
     'mainapp',
+    'proctoring',
 ]
 
 MIDDLEWARE = [
@@ -256,6 +257,11 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https:\/\/.*\.vercel\.app$",
     r"^https:\/\/.*\.onrender\.com$",
 ]
+
+# The proctoring watcher authorizes its session calls with this header.
+from corsheaders.defaults import default_headers  # noqa: E402
+
+CORS_ALLOW_HEADERS = (*default_headers, "x-proctor-token")
 
 # JWT Settings
 from datetime import timedelta
