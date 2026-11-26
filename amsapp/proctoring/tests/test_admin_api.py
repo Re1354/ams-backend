@@ -171,6 +171,73 @@ class ScopeTests(AdminBase):
         self.assertEqual(self.get("/sessions", conduct="not_monitored").json()["count"], 0)
 
 
+    def test_camera_covered_without_other_flags_is_not_monitored(self):
+        other, other_exam, _ = exam_window()
+        covered = make_session(other, other_exam)
+        services.record_flag(covered, "CAMERA_OFF", {}, None, None)
+        row = next(r for r in self.get("/sessions").json()["results"] if r["id"] == covered.id)
+        self.assertEqual((row["conduct"], row["flag_count"]), ("not_monitored", 1))
+        self.assertIn(covered.id, [r["id"] for r in self.get("/sessions", conduct="not_monitored").json()["results"]])
+
+    def test_camera_covered_with_another_flag_is_reported(self):
+        services.record_flag(self.session, "CAMERA_OFF", {}, None, None)  # self.session already has 1 flag
+        row = next(r for r in self.get("/sessions").json()["results"] if r["id"] == self.session.id)
+        self.assertEqual(row["conduct"], "reported")
+        self.assertIn(self.session.id, [r["id"] for r in self.get("/sessions", conduct="reported").json()["results"]])
+
+
+class SortTests(AdminBase):
+    """`ordering` on the session list; the page shows 25 rows, so sorting happens on the server."""
+
+    def setUp(self):
+        super().setUp()
+        self.student.full_name, self.student.f_id = "Dalia", "APP005"
+        self.student.save()
+        rows = {}
+        for name, serial, flags, minutes in (("Bina", "APP003", 2, 30), ("Arif", "APP010", 0, 10), ("Chandra", "APP001", 3, 20)):
+            student, exam, _ = exam_window()
+            student.full_name, student.f_id = name, serial
+            student.save()
+            rows[name] = make_session(student, exam, flags=flags, minutes_ago=minutes)
+        self.dalia, self.bina, self.arif, self.chandra = self.session, rows["Bina"], rows["Arif"], rows["Chandra"]
+
+    def ids(self, **params):
+        res = self.get("/sessions", **params)
+        self.assertEqual(res.status_code, 200)
+        return [r["id"] for r in res.json()["results"]]
+
+    def names(self, *sessions):
+        return [s.id for s in sessions]
+
+    def test_by_date(self):
+        self.assertEqual(self.ids(ordering="newest"), self.names(self.dalia, self.arif, self.chandra, self.bina))
+        self.assertEqual(self.ids(ordering="oldest"), self.names(self.bina, self.chandra, self.arif, self.dalia))
+
+    def test_by_application_serial(self):
+        self.assertEqual(self.ids(ordering="serial_asc"), self.names(self.chandra, self.bina, self.dalia, self.arif))
+        self.assertEqual(self.ids(ordering="serial_desc"), self.names(self.arif, self.dalia, self.bina, self.chandra))
+
+    def test_by_name(self):
+        self.assertEqual(self.ids(ordering="name_asc"), self.names(self.arif, self.bina, self.chandra, self.dalia))
+        self.assertEqual(self.ids(ordering="name_desc"), self.names(self.dalia, self.chandra, self.bina, self.arif))
+
+    def test_by_flags(self):
+        self.assertEqual(self.ids(ordering="flags_desc"), self.names(self.chandra, self.bina, self.dalia, self.arif))
+        self.assertEqual(self.ids(ordering="flags_asc"), self.names(self.arif, self.dalia, self.bina, self.chandra))
+
+    def test_by_conduct_most_serious_first_is_the_default(self):
+        self.post("/ban", {"session_ids": [self.arif.id], "reason": "x"})
+        ProctorSession.objects.filter(pk=self.bina.pk).update(reported_at=timezone.now())
+        ProctorSession.objects.filter(pk=self.chandra.pk).update(camera_off=True)
+        expected = self.names(self.arif, self.bina, self.chandra, self.dalia)
+        self.assertEqual(self.ids(ordering="conduct"), expected)
+        self.assertEqual(self.ids(), expected)
+        self.assertEqual(self.ids(ordering="nonsense"), expected)
+
+    def test_sorting_keeps_filters(self):
+        self.assertEqual(self.ids(ordering="name_asc", search="APP00"), self.names(self.bina, self.chandra, self.dalia))
+
+
 class DetailTests(AdminBase):
     def test_detail_has_flags_events_and_bans(self):
         Flag.objects.create(session=self.session, code="TAB_SWITCH", snapshot=TINY_JPEG, occurred_at=timezone.now())

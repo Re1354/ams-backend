@@ -5,7 +5,7 @@ Access: JWT login + the role's permissions on the "/proctoring" menu
 the user's department/faculty scope like the result boards.
 """
 from django.db import transaction
-from django.db.models import BooleanField, Case, Exists, ExpressionWrapper, OuterRef, Q, Value, When
+from django.db.models import BooleanField, Case, Exists, ExpressionWrapper, IntegerField, OuterRef, Q, Value, When
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status
@@ -153,7 +153,7 @@ def session_list(request):
         queryset = queryset.filter(status=ProctorSession.STATUS_ACTIVE)
 
     paginator = SessionPagination()
-    page = paginator.paginate_queryset(_reported_first(queryset), request)
+    page = paginator.paginate_queryset(_ordered(queryset, params.get("ordering")), request)
     return paginator.get_paginated_response([_row(s) for s in page])
 
 
@@ -164,10 +164,32 @@ def services_int(value):
         return -1
 
 
-def _reported_first(queryset):
+# Sort choices on the Proctoring page. Unknown values fall back to "conduct".
+ORDERINGS = {
+    "newest": ("-started_at", "-id"),
+    "oldest": ("started_at", "id"),
+    "serial_asc": ("student__f_id", "-started_at", "id"),
+    "serial_desc": ("-student__f_id", "-started_at", "-id"),
+    "name_asc": ("student__full_name", "student__username", "-started_at", "id"),
+    "name_desc": ("-student__full_name", "-student__username", "-started_at", "-id"),
+    "flags_desc": ("-flag_count", "-started_at", "-id"),
+    "flags_asc": ("flag_count", "-started_at", "-id"),
+}
+
+
+def _ordered(queryset, ordering):
+    if ordering in ORDERINGS:
+        return queryset.order_by(*ORDERINGS[ordering])
+    # Most serious first: banned, reported, not monitored, clear; newest first within each.
     return queryset.annotate(
-        _reported=Case(When(reported_at__isnull=False, then=Value(True)), default=Value(False), output_field=BooleanField())
-    ).order_by("-_reported", "-started_at", "-id")
+        _rank=Case(
+            When(is_banned=True, then=Value(0)),
+            When(reported_at__isnull=False, then=Value(1)),
+            When(camera_off=True, then=Value(2)),
+            default=Value(3),
+            output_field=IntegerField(),
+        )
+    ).order_by("_rank", "-started_at", "-id")
 
 
 @api_view(["GET"])

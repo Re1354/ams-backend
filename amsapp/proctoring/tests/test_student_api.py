@@ -147,6 +147,37 @@ class FlagTests(ApiTestBase):
         self.assertTrue(res.json()["reported"])
         self.assertIsNotNone(ProctorSession.objects.get(pk=sid).reported_at)
 
+    def test_camera_covered_alone_is_not_reported_but_marks_camera_off(self):
+        sid, token = self.started()
+        body = self.flag(sid, token, code="CAMERA_OFF").json()
+        self.assertEqual(body["flag_count"], 1)
+        self.assertFalse(body["reported"])
+        self.assertTrue(ProctorSession.objects.get(pk=sid).camera_off)
+
+    def test_camera_covered_after_another_flag_reports(self):
+        sid, token = self.started()
+        self.flag(sid, token, code="LOOK_AWAY")
+        body = self.flag(sid, token, code="CAMERA_OFF").json()
+        self.assertTrue(body["reported"])
+        self.assertIsNotNone(ProctorSession.objects.get(pk=sid).reported_at)
+
+    def test_any_counted_flag_after_camera_covered_reports(self):
+        sid, token = self.started()
+        self.flag(sid, token, code="CAMERA_OFF")
+        self.assertFalse(self.flag(sid, token, code="PROCTORING_OFFLINE").json()["reported"])
+        self.assertTrue(self.flag(sid, token, code="TAB_SWITCH").json()["reported"])
+
+    def test_camera_covered_twice_reports(self):
+        sid, token = self.started()
+        self.flag(sid, token, code="CAMERA_OFF")
+        self.assertTrue(self.flag(sid, token, code="CAMERA_OFF").json()["reported"])
+
+    def test_two_flags_without_camera_problem_are_not_reported(self):
+        sid, token = self.started()
+        self.flag(sid, token, code="LOOK_AWAY")
+        self.assertFalse(self.flag(sid, token, code="TAB_SWITCH").json()["reported"])
+        self.assertFalse(ProctorSession.objects.get(pk=sid).camera_off)
+
     def test_offline_entry_not_counted(self):
         sid, token = self.started()
         body = self.flag(sid, token, code="PROCTORING_OFFLINE").json()

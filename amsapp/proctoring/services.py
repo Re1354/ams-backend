@@ -27,6 +27,9 @@ ALL_CODES = COUNTED_CODES | {"PROCTORING_OFFLINE", "SUPPORT_UNLOCK"}
 
 # A session is reported once its counted flags go above this number.
 REPORT_AFTER_FLAGS = 3
+# Once the camera was covered or disconnected (a CAMERA_OFF flag), it is reported
+# after more than this many counted flags instead: any other flag reports it.
+REPORT_AFTER_FLAGS_CAMERA_COVERED = 1
 
 # A session may start this long before the scheduled start (pre-exam countdown page).
 EARLY_START = timedelta(minutes=15)
@@ -127,7 +130,7 @@ def _attach_login_unlocks(session: ProctorSession, consent_at: datetime | None) 
 
 
 def _mark_camera_off(session: ProctorSession) -> None:
-    """Once without camera, the session stays "not monitored" (never set back)."""
+    """Once without camera, the session is never "clear" again (never set back)."""
     if not session.camera_off:
         ProctorSession.objects.filter(pk=session.pk).update(camera_off=True)
         session.camera_off = True
@@ -161,14 +164,32 @@ def record_flag(
             snapshot=snapshot_bytes,
             occurred_at=_clamp(occurred_at, locked),
         )
+        fields = []
+        if code == "CAMERA_OFF" and not locked.camera_off:
+            # Camera covered or disconnected: never "clear" any more.
+            locked.camera_off = True
+            fields.append("camera_off")
         if counted:
             locked.flag_count += 1
-            if locked.flag_count > REPORT_AFTER_FLAGS and locked.reported_at is None:
+            fields.append("flag_count")
+            if locked.reported_at is None and _over_report_limit(locked):
                 locked.reported_at = timezone.now()
-            locked.save(update_fields=["flag_count", "reported_at"])
+                fields.append("reported_at")
+        if fields:
+            locked.save(update_fields=fields)
         session.flag_count = locked.flag_count
         session.reported_at = locked.reported_at
+        session.camera_off = locked.camera_off
         return flag
+
+
+def _over_report_limit(session: ProctorSession) -> bool:
+    if session.flag_count > REPORT_AFTER_FLAGS:
+        return True
+    return (
+        session.flag_count > REPORT_AFTER_FLAGS_CAMERA_COVERED
+        and Flag.objects.filter(session=session, code="CAMERA_OFF").exists()
+    )
 
 
 def end_session(session: ProctorSession) -> ProctorSession:
