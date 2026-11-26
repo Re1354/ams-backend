@@ -70,7 +70,10 @@ def _sessions_for(user):
 def _conduct_of(session) -> str:
     if session.is_banned:
         return conduct.BANNED
-    return conduct.REPORTED if session.is_reported else conduct.CLEAR
+    if session.is_reported:
+        return conduct.REPORTED
+    # Taken without camera (support code): never "clear".
+    return conduct.NOT_MONITORED if session.camera_off else conduct.CLEAR
 
 
 def _row(session) -> dict:
@@ -93,6 +96,7 @@ def _row(session) -> dict:
         "status": session.status,
         "flag_count": session.flag_count,
         "conduct": _conduct_of(session),
+        "camera_off": session.camera_off,
         "admitted": bool(session.is_admitted),
         "started_at": session.started_at,
         "ended_at": session.ended_at,
@@ -142,7 +146,9 @@ def session_list(request):
     elif wanted == conduct.REPORTED:
         queryset = queryset.filter(is_banned=False, reported_at__isnull=False)
     elif wanted == conduct.CLEAR:
-        queryset = queryset.filter(is_banned=False, reported_at__isnull=True)
+        queryset = queryset.filter(is_banned=False, reported_at__isnull=True, camera_off=False)
+    elif wanted == conduct.NOT_MONITORED:
+        queryset = queryset.filter(is_banned=False, reported_at__isnull=True, camera_off=True)
     elif wanted == "live":
         queryset = queryset.filter(status=ProctorSession.STATUS_ACTIVE)
 

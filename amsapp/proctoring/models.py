@@ -25,6 +25,8 @@ class ProctorSession(models.Model):
     ended_at = models.DateTimeField(null=True, blank=True)
     reported_at = models.DateTimeField(null=True, blank=True)
     user_agent = models.CharField(max_length=500, blank=True)
+    # The exam ran (at least partly) without the camera, allowed by the support code.
+    camera_off = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-started_at"]

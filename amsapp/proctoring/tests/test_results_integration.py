@@ -240,13 +240,17 @@ class ExamConductFieldTests(SemesterScenario):
         self.ban("s90")
         rows = self.conduct_rows()
         self.assertEqual(rows["s90"]["status"], "banned")
-        self.assertEqual(rows["s80"], {"status": "clear", "flag_count": 1, "session_id": clear.id})
-        self.assertEqual(rows["s70"], {"status": "reported", "flag_count": 4, "session_id": reported.id})
+        self.assertEqual(rows["s80"], {"status": "clear", "flag_count": 1, "session_id": clear.id, "camera_off": False})
+        self.assertEqual(
+            rows["s70"], {"status": "reported", "flag_count": 4, "session_id": reported.id, "camera_off": False}
+        )
 
     def test_conduct_not_monitored_without_session(self):
         self.calc()
         rows = self.conduct_rows()
-        self.assertEqual(rows["s60"], {"status": "not_monitored", "flag_count": 0, "session_id": None})
+        self.assertEqual(
+            rows["s60"], {"status": "not_monitored", "flag_count": 0, "session_id": None, "camera_off": False}
+        )
 
     def test_conduct_reported_after_more_than_three_counted_flags(self):
         self.calc()
@@ -254,3 +258,15 @@ class ExamConductFieldTests(SemesterScenario):
         self.assertEqual(self.conduct_rows()["s80"]["status"], "clear")
         services.record_flag(ProctorSession.objects.get(student=self.students["s80"]), "TAB_SWITCH", {}, None, None)
         self.assertEqual(self.conduct_rows()["s80"]["status"], "reported")
+
+    def test_exam_without_camera_is_not_monitored_never_clear(self):
+        self.calc()
+        no_camera = self.session("s80", 0)
+        ProctorSession.objects.filter(pk=no_camera.pk).update(camera_off=True)
+        reported_no_camera = self.session("s70", 4)
+        ProctorSession.objects.filter(pk=reported_no_camera.pk).update(camera_off=True)
+        rows = self.conduct_rows()
+        self.assertEqual(
+            rows["s80"], {"status": "not_monitored", "flag_count": 0, "session_id": no_camera.id, "camera_off": True}
+        )
+        self.assertEqual(rows["s70"]["status"], "reported")

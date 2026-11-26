@@ -111,6 +111,20 @@ class StartTests(ApiTestBase):
         self.assertEqual(stored.replace(microsecond=0), when.replace(microsecond=0))
 
 
+    def test_start_records_an_exam_without_camera(self):
+        sid = self.start(camera_off=True).json()["session_id"]
+        self.assertTrue(ProctorSession.objects.get(pk=sid).camera_off)
+
+    def test_start_with_camera_is_not_marked_camera_off(self):
+        sid = self.start().json()["session_id"]
+        self.assertFalse(ProctorSession.objects.get(pk=sid).camera_off)
+
+    def test_resume_never_clears_camera_off(self):
+        sid = self.start(camera_off=True).json()["session_id"]
+        self.start(camera_off=False)
+        self.assertTrue(ProctorSession.objects.get(pk=sid).camera_off)
+
+
 class FlagTests(ApiTestBase):
     def test_flag_requires_token(self):
         sid, _ = self.started()
@@ -256,6 +270,29 @@ class UnlockTests(ApiTestBase):
         attached = UnlockEvent.objects.filter(session_id=sid)
         self.assertEqual(list(attached.values_list("purpose", flat=True)), ["fullscreen"])
         self.assertIsNone(UnlockEvent.objects.get(pk=earlier_login.pk).session_id)
+
+    def test_camera_unlock_during_the_exam_marks_it_without_camera(self):
+        services.set_unlock_code("support-2027", make_user())
+        sid, _ = self.started()
+        self.unlock("support-2027", purpose="fullscreen", session_id=sid)
+        self.assertFalse(ProctorSession.objects.get(pk=sid).camera_off)
+        self.unlock("support-2027", purpose="camera", session_id=sid)
+        self.assertTrue(ProctorSession.objects.get(pk=sid).camera_off)
+
+    def test_camera_unlock_before_the_exam_marks_it_without_camera(self):
+        services.set_unlock_code("support-2027", make_user())
+        consent_at = timezone.now() - timedelta(minutes=1)
+        self.unlock("support-2027", purpose="camera")
+        sid = self.start(consent_at=consent_at.isoformat()).json()["session_id"]
+        self.assertTrue(ProctorSession.objects.get(pk=sid).camera_off)
+
+    def test_unlock_given_just_before_the_consent_time_still_joins_the_session(self):
+        # The consent time comes from the student's PC clock, which can run a little ahead of the server.
+        services.set_unlock_code("support-2027", make_user())
+        self.assertEqual(self.unlock("support-2027", purpose="camera").status_code, 200)
+        consent_at = timezone.now() + timedelta(minutes=2)
+        sid = self.start(consent_at=consent_at.isoformat()).json()["session_id"]
+        self.assertEqual(UnlockEvent.objects.get().session_id, sid)
 
     def test_unlock_wrong_code_reports_tries_left(self):
         services.set_unlock_code("support-2027", make_user())

@@ -69,7 +69,11 @@ def _window_open(student: Students, exam: Exam, now: datetime) -> bool:
 
 
 def start_or_resume(
-    student: Students, exam: Exam, user_agent: str, consent_at: datetime | None = None
+    student: Students,
+    exam: Exam,
+    user_agent: str,
+    consent_at: datetime | None = None,
+    camera_off: bool = False,
 ) -> tuple[ProctorSession, bool]:
     """Return the active session for this student+exam, creating one if allowed.
 
@@ -84,6 +88,8 @@ def start_or_resume(
         )
         if active:
             _attach_login_unlocks(active, consent_at)
+            if camera_off:
+                _mark_camera_off(active)
             return active, False
         if ProctorSession.objects.filter(student=student, exam=exam).exists():
             raise SessionFinished("This exam is already finished.")
@@ -98,18 +104,33 @@ def start_or_resume(
             consent_at=consent_at,
             user_agent=user_agent[:500],
             token=secrets.token_hex(20),
+            camera_off=camera_off,
         )
         _attach_login_unlocks(session, consent_at)
         return session, True
+
+
+# consent_at comes from the student's PC clock, which may run a little ahead of the server.
+CONSENT_CLOCK_SLACK = timedelta(minutes=5)
 
 
 def _attach_login_unlocks(session: ProctorSession, consent_at: datetime | None) -> None:
     """Support unlocks given in this login before the exam (they last until logout) belong in its report."""
     if consent_at is None:
         return
-    UnlockEvent.objects.filter(
-        student_id=session.student_id, session__isnull=True, created_at__gte=consent_at
-    ).update(session=session)
+    pending = UnlockEvent.objects.filter(
+        student_id=session.student_id, session__isnull=True, created_at__gte=consent_at - CONSENT_CLOCK_SLACK
+    )
+    if pending.filter(purpose=UnlockEvent.PURPOSE_CAMERA).exists():
+        _mark_camera_off(session)
+    pending.update(session=session)
+
+
+def _mark_camera_off(session: ProctorSession) -> None:
+    """Once without camera, the session stays "not monitored" (never set back)."""
+    if not session.camera_off:
+        ProctorSession.objects.filter(pk=session.pk).update(camera_off=True)
+        session.camera_off = True
 
 
 def _clamp(occurred_at: datetime | None, session: ProctorSession) -> datetime:
@@ -201,6 +222,8 @@ def check_unlock(
     if outcome is not None:
         raise outcome
     event = UnlockEvent.objects.create(student=student, session=session, purpose=purpose)
+    if session is not None and purpose == UnlockEvent.PURPOSE_CAMERA:
+        _mark_camera_off(session)
     if session is not None and session.status == ProctorSession.STATUS_ACTIVE:
         record_flag(session, "SUPPORT_UNLOCK", {"purpose": purpose}, None, None)
     return event

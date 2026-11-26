@@ -154,6 +154,22 @@ class ScopeTests(AdminBase):
         self.assertFalse(ProctoringBan.objects.exists())
         self.assertEqual(self.get("/summary", user=cse_head).json()["active_count"], 1)
 
+    def test_exam_without_camera_shows_not_monitored_and_has_its_own_filter(self):
+        ProctorSession.objects.filter(pk=self.session.pk).update(camera_off=True)
+        other, other_exam, _ = exam_window()
+        make_session(other, other_exam)
+        row = next(r for r in self.get("/sessions").json()["results"] if r["id"] == self.session.id)
+        self.assertEqual(row["conduct"], "not_monitored")
+        self.assertTrue(row["camera_off"])
+        self.assertEqual([r["id"] for r in self.get("/sessions", conduct="not_monitored").json()["results"]], [self.session.id])
+        self.assertNotIn(self.session.id, [r["id"] for r in self.get("/sessions", conduct="clear").json()["results"]])
+
+    def test_reported_wins_over_not_monitored(self):
+        ProctorSession.objects.filter(pk=self.session.pk).update(camera_off=True, reported_at=timezone.now())
+        row = self.get("/sessions").json()["results"][0]
+        self.assertEqual(row["conduct"], "reported")
+        self.assertEqual(self.get("/sessions", conduct="not_monitored").json()["count"], 0)
+
 
 class DetailTests(AdminBase):
     def test_detail_has_flags_events_and_bans(self):
@@ -167,6 +183,7 @@ class DetailTests(AdminBase):
         self.assertEqual(body["bans"], [])
         self.assertIn("user_agent", body)
         self.assertIn("consent_at", body)
+        self.assertFalse(body["camera_off"])
 
     def test_snapshot_returns_image_or_404(self):
         with_photo = Flag.objects.create(

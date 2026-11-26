@@ -41,8 +41,8 @@ def active_ban_exists():
 def conduct_for(student_ids: Iterable[int], exams: Iterable) -> dict[tuple[int, int], dict]:
     """Conduct per (student_id, exam_id) for result boards.
 
-    Banned wins; otherwise the latest session decides reported/clear; no session
-    means not monitored (never "clear").
+    Banned wins; otherwise the latest session decides reported/clear; no session,
+    or an exam taken without camera (support code), means not monitored (never "clear").
     """
     student_ids = set(student_ids)
     exams = list(exams)
@@ -71,12 +71,15 @@ def conduct_for(student_ids: Iterable[int], exams: Iterable) -> dict[tuple[int, 
                 status = NOT_MONITORED
             elif session.is_reported:
                 status = REPORTED
+            elif session.camera_off:
+                status = NOT_MONITORED
             else:
                 status = CLEAR
             out[(student_id, exam.id)] = {
                 "status": status,
                 "flag_count": session.flag_count if session else 0,
                 "session_id": session.id if session else None,
+                "camera_off": bool(session and session.camera_off),
             }
     return out
 
@@ -123,7 +126,7 @@ def attach_exam_conduct(rows, results) -> None:
     from mainapp.models import Exam
 
     results = list(results)
-    fallback = {"status": NOT_MONITORED, "flag_count": 0, "session_id": None}
+    fallback = {"status": NOT_MONITORED, "flag_count": 0, "session_id": None, "camera_off": False}
     try:
         exams = list(Exam.objects.filter(id__in={r.exam_id for r in results}))
         mapping = conduct_for({r.student_id for r in results}, exams)

@@ -77,12 +77,15 @@ class StartSessionView(StudentView):
         consent_at = None
         if request.data.get("consent_at"):
             consent_at = parse_datetime(str(request.data.get("consent_at")))
+        # The watcher reports when the exam runs without the camera (support code given).
+        camera_off = str(request.data.get("camera_off", "")).lower() in ("true", "1")
         try:
             session, created = services.start_or_resume(
                 student=student,
                 exam=exam,
                 user_agent=request.headers.get("User-Agent", ""),
                 consent_at=consent_at,
+                camera_off=camera_off,
             )
         except services.SessionFinished as exc:
             return _error(str(exc), status.HTTP_409_CONFLICT)
